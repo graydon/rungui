@@ -1,6 +1,40 @@
 [package]
-name = "rgui"
+name = "rungui"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+build = "build.rs"
+description = "Small portable native GUI library: a thin layer over GTK3, Win32 and AppKit with hand-declared FFI"
+license = "MIT OR Apache-2.0"
+authors = ["Graydon Hoare <graydon@pobox.com>"]
+repository = "https://github.com/graydon/rungui"
+homepage = "https://github.com/graydon/rungui"
+documentation = "https://docs.rs/rungui"
+readme = "README.md"
+keywords = ["gui", "native", "gtk", "win32", "cocoa"]
+categories = ["gui", "os"]
+# Keep the published crate small: no docs directory (it stays on GitHub), CI, devcontainer or helper scripts.
+exclude = [".devcontainer/", ".github/", ".claude/", ".cargo/", "doc/", "scripts/"]
+
+[features]
+default = []
+# Linux-hosted emulation of the macOS (Cocoa) backend: on a linux target, compile the
+# Cocoa backend (cfg rungui_cocoa) against GNUstep (libgnustep-gui/base + GCC libobjc)
+# instead of the GTK backend. Ignored on windows/macos targets.
+emulate-mac = []
+# In-memory headless backend (src/backend/mock.rs) for tests/examples on any host.
+mock = []
 
 [dependencies]
+accesskit = "0.25.1"
+
+# Win32 accessibility adapter (UI Automation). Only built for Windows targets.
+[target.'cfg(windows)'.dependencies]
+accesskit_windows = "0.35.1"
+windows = { version = "0.62", default-features = false, features = ["Win32_Foundation"] }
+
+# Dual-pane file manager (examples/file_manager/); `test = true` runs its fsmodel unit tests.
+[[example]]
+name = "file_manager"
+path = "examples/file_manager/main.rs"
+test = true

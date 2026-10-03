@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: x86_64-pc-windows-gnu,aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+      - name: Install system packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev xvfb xdotool imagemagick mingw-w64 \
+            clang gobjc libgnustep-gui-dev libgnustep-base-dev gnustep-devel
+      # Builds every host mode (GTK, mock, GNUstep emulation, mingw, apple type-check), clippy and
+      # the Xvfb smoke scripts.
+      - name: scripts/check-all.sh
+        run: scripts/check-all.sh
+      - name: Docs build without warnings
+        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --examples
+      - run: cargo test
+      - name: Launch smoke.exe briefly (real Win32 startup check)
+        shell: bash
+        run: |
+          RUNGUI_EXIT_AFTER_MS=2000 timeout 60 target/debug/examples/smoke.exe | tee smoke.out
+          grep -q READY smoke.out
+          grep -q BYE smoke.out
+      - name: Launch kitchen_sink and hello briefly
+        shell: bash
+        run: |
+          # No exit hook in these: a clean run until the timeout (exit 124) means no startup crash.
+          for ex in kitchen_sink hello; do
+            set +e
+            timeout 8 target/debug/examples/$ex.exe
+            rc=$?
+            set -e
+            echo "$ex exit code $rc"
+            [ $rc -eq 124 ] || [ $rc -eq 0 ] || exit 1
+          done
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --examples
+      - run: cargo test
+      - name: Launch smoke briefly (real AppKit startup check)
+        run: |
+          RUNGUI_EXIT_AFTER_MS=2000 perl -e 'alarm 60; exec @ARGV' target/debug/examples/smoke | tee smoke.out
+          grep -q READY smoke.out
+          grep -q BYE smoke.out
+      - name: Launch kitchen_sink and hello briefly
+        run: |
+          for ex in kitchen_sink hello; do
+            set +e
+            perl -e 'alarm 8; exec @ARGV' target/debug/examples/$ex
+            rc=$?
+            set -e
+            echo "$ex exit code $rc"
+            # 142 = SIGALRM: still running when the alarm fired, i.e. started fine.
+            [ $rc -eq 142 ] || [ $rc -eq 0 ] || exit 1
+          done

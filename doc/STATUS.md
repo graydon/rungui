@@ -1,0 +1,111 @@
+# rungui status
+
+**This is the single place project status is recorded.** README.md carries a three-line summary
+and links here; `doc/DESIGN.md` describes the architecture and `doc/BUILDING.md` the build
+modes, neither tracks progress. Update this file whenever a backend, test count or gap changes.
+
+Last updated: 2026-10-03, after merging the GTK, tests/CI, file-manager, Cocoa/GNUstep and Win32 work.
+
+## Against INITIAL_PROMPT.md
+
+| Requirement | State |
+|---|---|
+| win32 / macOS / linux backends | GTK3, Win32 and AppKit backends all exist, with hand-written FFI. Only GTK is verified at runtime on its real platform. |
+| Hosted and emulated modes | `--features emulate-mac` (clang + GNUstep), `--features mock` (headless), Win32 via mingw-w64 and, on x86_64 Linux, run under wine (`cargo run-win`, `cargo test-win`). |
+| Cross-compile | `x86_64-pc-windows-gnu` builds and links. `*-apple-darwin` is type-checked only. |
+| Devcontainer scaffolding | `.devcontainer/`, `scripts/setup-devcontainer.sh`, `scripts/check-all.sh`, `scripts/wine-runner.sh`, `.cargo/config.toml` aliases. |
+| a11y with accesskit | The core builds an accesskit tree (`a11y.rs`, tested on mock). Win32 has a UIA adapter wired in. GTK exposes ATK name/description and (unverified) role overrides. macOS uses AppKit labels only and has no accesskit adapter. |
+| Unicode | UTF-8 in Rust. UTF-16 on Win32, NSString on Cocoa, UTF-8 on GTK. Accents, CJK, emoji and Hebrew were typed on GTK in the smoke test. |
+| Native handles | `native_handle()` returns the `GtkWidget*`, `HWND` or `NSView*`. |
+| Simplicity and no panics | `Copy` id handles, stale handles are inert, borrows never held across callbacks. Fuzz, reference-model and re-entrancy tests run on the mock backend. |
+| 100% Rust | Yes, apart from a small `build.rs` for linking. |
+
+## Widget matrix
+
+R = run-tested, C = compiles and links only, T = type-checked only, N = not implemented.
+"R under wine" means run on Wine under Xvfb on Linux, not on real Windows.
+
+| Widget | GTK | Win32 | Cocoa |
+|---|---|---|---|
+| Window, VBox, HBox, Grid, GroupBox, Tabs | R | R under wine | R on GNUstep |
+| Label, Button, CheckBox, RadioButton | R | R under wine | R on GNUstep |
+| TextInput, password, TextArea | R | R under wine | R on GNUstep |
+| ComboBox, ListBox, Slider, SpinBox, ProgressBar | R | R under wine | R on GNUstep |
+| Image | R (limited testing; used by the file manager preview) | C | C |
+| MenuBar, Menu, MenuItem, CheckMenuItem, accelerators | R | R under wine | R on GNUstep |
+| PopupMenu | R | R under wine (Shift+F10/Apps key untested) | R on GNUstep (macOS path type-checked only) |
+| Table | R | R under wine (first column always left-aligned: comctl32) | R on GNUstep |
+| Tree | R | R under wine | R on GNUstep |
+| Splitter (core layout, panes) | R | C | C |
+| Splitter sash (drag handle, `Kind::Sash`) | R (drag verified under xdotool) | R under wine (both orientations) | R on GNUstep (both orientations, clamping) |
+| TextArea/TextInput monospace, TextArea wrap | R | R under wine | R on GNUstep |
+| Window `set_position`, `Moved` event | R | C (`set_position` seen under wine; `Moved` untestable without a WM) | R on GNUstep |
+| Window min size | C (geometry hint; Xvfb has no WM) | C (`WM_GETMINMAXINFO`; no WM under wine) | R on GNUstep |
+| Windows shrink below natural size | R | not checked | not checked |
+| Message box, FileDialog | R | message box R under wine, FileDialog C | C |
+| Timer, `App::post` | R | R under wine | C |
+
+## How things are verified
+
+- `cargo test` (also `--features mock`): 116 core tests against the mock backend, 11 file-manager
+  unit tests, 15 file-manager integration tests on the mock backend (needs `--features mock`),
+  2 doctests. Includes seeded random-layout fuzzing, Table/Tree reference-model tests, text
+  property tests, a11y consistency and a re-entrancy matrix (every event kind x hostile callback).
+- `scripts/gtk-smoke.sh`, `scripts/smoke-gtk.sh`, `scripts/smoke-filemanager.sh`: GTK under Xvfb
+  with xdotool and `G_DEBUG=fatal-warnings`; they check results on disk and via trace output.
+- `scripts/smoke-win32.sh`: the Win32 backend under wine + Xvfb (skips if wine is missing); the same
+  checks as `gtk-smoke.sh` plus sash drags, monospace/wrap, table/tree, popup menu.
+- `cargo test-win` runs the test suite as a Windows exe under wine (76 tests at the time it was added).
+- `scripts/smoke-gnustep.sh`: the Cocoa backend on GNUstep under Xvfb, 29 checks (sash
+  drags, typing incl. unicode, table sort, tree expand, popup menu, accelerators, move/resize, quit).
+- `scripts/check-all.sh` builds every mode (GTK, mock, emulate-mac, Windows GNU, both Apple
+  targets, release, clippy) and runs the smoke scripts.
+- `.github/workflows/ci.yml` runs Linux (full check), Windows and macOS (build, test, brief launch)
+  jobs. 
+
+## Known gaps
+
+- **Win32:** never run on real Windows; verified only under wine on Xvfb with no window manager, so
+  `Event::Moved`, `Prop::MinSize`, live window shrinking and DPI change are compile-checked only.
+  The UIA accesskit adapter attaches without crashing but was not tested with a UIA client. The
+  sash is mouse-only (no keyboard focus). comctl32 left-aligns the first Table column; Table
+  column widths are not re-scaled on DPI change; Shift+F10/Apps-key menus untested.
+- **macOS:** run on real macOS. Audited by reading, not run: `objc_msgSend_stret` (x86_64
+  only), exact-type msgSend transmutes, BOOL/NSInteger sizes, common-modes timers, file dialogs,
+  the macOS popup-menu path, sash cursor rects, `setFrameTopLeftPoint:` flipping. No accesskit
+  adapter (`accesskit_macos` needs objc2 binding crates, against the hand-declared-FFI rule);
+  AppKit labels only, and the sash has no native a11y role/value.
+- **GNUstep quirks (not fixable here):** CJK glyphs render as `?` (font), menus appear as a
+  separate window, the first click on an unfocused window only activates it.
+- **GTK:** label mnemonics not applied (the core has no label-to-target link); ATK role overrides
+  compile and run but were not checked with an AT client; the sash is a plain 6px line with no grip
+  or keyboard handling; window content is clipped when shrunk below the layout minimum.
+- **Core:** very deep layout nesting (thousands of levels) can overflow the stack; table a11y node
+  ids pack the widget id into 22 bits; panes in a splitter can overlap when an explicit position
+  or minimum is below a pane's natural size (documented).
+- **API gaps found by the file manager:** no key-event or focus callbacks on tables, no
+  `on_activate` (Enter) on `TextInput`, no modal windows or input dialog, no multi-select, no
+  right-clicked-row query for context menus, no column-resize or scroll-to-row control.
+- **All platforms:** no custom drawing, rich text, caret/selection accessibility; RTL is a global
+  opt-in; `Window::set_position` is a request that Wayland and some WMs ignore.
+- **Lint:** `cargo clippy --all-targets -D warnings` is not clean project-wide (older lints in
+  `gtk.rs`, `core.rs`, `mock.rs`, older tests and `kitchen_sink`); plain `cargo clippy` is.
+
+Release binary sizes, direct/transitive dependencies and file-manager screenshots for each backend
+are in the README ("Binary size and linkage")
+
+## Next steps
+
+1. Run the Win32 backend on real Windows (CI job exists, unrun); verify move/min-size/DPI and the
+   UIA adapter with a real client.
+2. Add an accesskit macOS adapter and a GTK AT-SPI bridge; verify the Win32 UIA adapter.
+3. Close the API gaps above, then a canvas/custom-draw widget and virtualised tables/trees.
+4. Clean clippy with `--all-targets -D warnings`.
+
+## Workflow notes
+
+- Give every build a private `CARGO_TARGET_DIR` under `/home/vscode/rungui-target/` (the
+  devcontainer sets it); the workspace is bind-mounted from the host, so building into the repo's
+  `target/` collides with host builds.
+- A known flake: GTK file chooser location-entry completion under Xvfb without a WM can trip a
+  Gtk-CRITICAL (probably GTK's own).

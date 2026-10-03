@@ -1,0 +1,17 @@
+# Cross-linking config. See doc/BUILDING.md.
+[target.x86_64-pc-windows-gnu]
+linker = "x86_64-w64-mingw32-gcc"
+# `cargo run/test --target x86_64-pc-windows-gnu` runs the .exe under wine (x86_64 hosts only;
+# on aarch64 hosts the runner reports that wine cannot execute x86_64 PE files).
+runner = "scripts/wine-runner.sh"
+
+# Emulated-platform shortcuts for Linux hosts:
+#   cargo run-win --example kitchen_sink   # Win32 backend, mingw build, run under wine
+#   cargo run-mac --example kitchen_sink   # Cocoa backend on GNUstep
+#   cargo test-win                         # run the test suite under wine
+[alias]
+run-win = "run --target x86_64-pc-windows-gnu"
+build-win = "build --target x86_64-pc-windows-gnu"
+test-win = "test --target x86_64-pc-windows-gnu"
+run-mac = "run --features emulate-mac"
+build-mac = "build --features emulate-mac"
