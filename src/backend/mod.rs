@@ -310,11 +310,12 @@ pub trait Backend {
     fn popup_menu(_menu: WidgetId, _parent_window: Option<WidgetId>, _at: Option<(i32, i32)>) {}
 
     // ---- accessibility (optional until a platform adapter is wired) ----
-    /// Called when a window is created: install the accesskit platform adapter for it. The adapter's
-    /// activation handler returns `crate::a11y::tree_for_window(id)` and its action handler
-    /// calls `crate::a11y::do_action(id, request)`.
+    /// Called when a window is created: install an accesskit platform adapter for it, if the backend
+    /// uses one. The adapter's activation handler returns `crate::a11y::tree_for_window(id)` and its
+    /// action handler calls `crate::a11y::do_action(id, request)`. Backends whose native controls are
+    /// already accessible (GTK, Cocoa, Win32) leave this empty.
     fn a11y_attach(_window: WidgetId) {}
-    /// The window's tree changed (debounced, main thread). Push `crate::a11y::tree_for_window(window)`
-    /// through the adapter's `update_if_active`.
+    /// The window's tree changed (debounced, main thread). Push it through the adapter's
+    /// `update_if_active`, or copy the core's names/descriptions/roles onto the native controls.
     fn a11y_changed(_window: WidgetId) {}
 }

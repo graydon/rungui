@@ -1,5 +1,6 @@
 //! Win32 backend: user32 / comctl32 v6 / gdi32 / uxtheme / COM file dialogs, all hand-declared in
-//! `win32_sys.rs` (no binding crates; accessibility uses the `accesskit_windows` adapter).
+//! `win32_sys.rs` (no binding crates). Accessibility is the stock MSAA proxies plus `IAccPropServices` overrides
+//! (`win32_a11y.rs`); there is no UIA provider.
 //!
 //! Design notes
 //! * Every widget is a child HWND of its native parent (Window, or a *container*: Page / GroupBox).
@@ -34,6 +35,8 @@ use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 #[path = "win32_sys.rs"]
 mod sys;
 use sys::*;
+#[path = "win32_a11y.rs"]
+mod a11y;
 
 const WM_WAKE: u32 = WM_APP + 1;
 const CLS_WINDOW: &str = "RunguiWindow";
@@ -176,7 +179,6 @@ thread_local! {
     static TREE_EXP: RefCell<Vec<(WidgetId, u64, bool)>> = const { RefCell::new(Vec::new()) };
     /// Set by `popup_menu`: a context menu was shown during the current `ContextMenu` emission.
     static POPUP_SHOWN: Cell<bool> = const { Cell::new(false) };
-    static ADAPTERS: RefCell<HashMap<WidgetId, accesskit_windows::SubclassingAdapter>> = RefCell::new(HashMap::new());
 }
 
 /// Short, non-reentrant access to the state. Returns `None` if the state is already borrowed
@@ -684,42 +686,8 @@ impl Backend for Win32 {
         let _ = catch_unwind(AssertUnwindSafe(|| popup_menu_impl(menu, parent_window, at)));
     }
 
-    fn a11y_attach(window: WidgetId) {
-        let Some(h) = get(window, |w| w.hwnd) else { return };
-        let r = catch_unwind(AssertUnwindSafe(|| {
-            accesskit_windows::SubclassingAdapter::new(
-                windows::Win32::Foundation::HWND(h as *mut c_void),
-                A11yActivate(window),
-                A11yAction(window),
-            )
-        }));
-        if let Ok(a) = r {
-            let _ = ADAPTERS.try_with(|m| m.borrow_mut().insert(window, a));
-        }
-    }
-
     fn a11y_changed(window: WidgetId) {
-        let Some(mut a) = ADAPTERS.try_with(|m| m.borrow_mut().remove(&window)).ok().flatten() else { return };
-        if let Some(tree) = crate::a11y::tree_for_window(window) {
-            let ev = catch_unwind(AssertUnwindSafe(|| a.update_if_active(|| tree))).ok().flatten();
-            if let Some(ev) = ev {
-                ev.raise();
-            }
-        }
-        let _ = ADAPTERS.try_with(|m| m.borrow_mut().insert(window, a));
-    }
-}
-
-struct A11yActivate(WidgetId);
-impl accesskit::ActivationHandler for A11yActivate {
-    fn request_initial_tree(&mut self) -> Option<accesskit::TreeUpdate> {
-        crate::a11y::tree_for_window(self.0)
-    }
-}
-struct A11yAction(WidgetId);
-impl accesskit::ActionHandler for A11yAction {
-    fn do_action(&mut self, request: accesskit::ActionRequest) {
-        crate::a11y::post_action(self.0, request);
+        let _ = catch_unwind(AssertUnwindSafe(|| a11y::apply(window)));
     }
 }
 
@@ -1100,12 +1068,14 @@ fn destroy_impl(id: WidgetId) {
     .flatten() else {
         return;
     };
+    if w.kind == Kind::Window {
+        a11y::forget_window(id);
+    } else {
+        a11y::forget(w.win, &[w.hwnd, w.aux]);
+    }
     unsafe {
         match w.kind {
             Kind::Window => {
-                if let Ok(Some(a)) = ADAPTERS.try_with(|m| m.borrow_mut().remove(&id)) {
-                    let _ = catch_unwind(AssertUnwindSafe(move || drop(a)));
-                }
                 if w.haccel != 0 {
                     DestroyAcceleratorTable(w.haccel);
                 }
@@ -2713,6 +2683,9 @@ fn recreate_edit(id: WidgetId) {
             w.has_tip = false;
         }
     });
+    if let Some(win) = get(id, |w| w.win) {
+        a11y::rehome(win, old, new);
+    }
     unsafe {
         DestroyWindow(old);
         if had_focus {

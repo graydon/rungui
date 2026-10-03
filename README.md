@@ -84,9 +84,7 @@ real Windows; see [`doc/STATUS.md`](doc/STATUS.md).
 
 ## Dependencies
 
-**Rust crates.** Two on Linux and macOS: `accesskit` 0.25 (the accessibility tree) and `uuid`. On Windows only, `accesskit_windows` 0.35 and the `windows`
-0.62 crate (`Foundation` feature) for the UI Automation adapter: 29 crates in total there,
-mostly the `windows-*` support crates and proc-macros. The platform C APIs themselves are
+**Rust crates.** Two on every platform: `accesskit` 0.25 (the accessibility data model) and `uuid`. The platform C APIs themselves are
 declared by hand in the crate; there are no binding crates (`gtk-rs`, `winapi`, `objc2`).
 Needs Rust 1.85+ (edition 2024); built and tested with 1.94.
 
@@ -119,10 +117,8 @@ Direct dynamic dependencies, the part the program itself asks for:
 * **GTK3:** `libgtk-3 libgdk-3 libgdk_pixbuf-2.0 libatk-1.0 libgobject-2.0 libglib-2.0 libgcc_s libc`
 * **Cocoa/macOS:** `AppKit.framework Foundation.framework CoreGraphics.framework libobjc libSystem`
 * **Cocoa/GNUstep:** `libgnustep-gui libgnustep-base libobjc libgcc_s libc`
-* **Win32** (import table, `objdump -p`; Windows has no `ldd`): `api-ms-win-core-synch-l1-2-0.dll`, `api-ms-win-core-winrt-error-l1-1-0.dll`, `bcryptprimitives.dll`, `combase.dll`, `gdi32.dll`, `kernel32.dll`, `KERNEL32.dll`, `msimg32.dll`, `msvcrt.dll`, `ntdll.dll`, `ole32.dll`, `oleaut32.dll`, `propsys.dll`, `rpcrt4.dll`, `SHELL32.dll`, `uiautomationcore.dll`, `user32.dll`, `USERENV.dll`, `UxTheme.dll`, `WS2_32.dll`
+* **Win32** (import table, `objdump -p`; Windows has no `ldd`): `api-ms-win-core-synch-l1-2-0.dll`, `api-ms-win-core-winrt-error-l1-1-0.dll`, `bcryptprimitives.dll`, `combase.dll`, `gdi32.dll`, `kernel32.dll`, `KERNEL32.dll`, `msimg32.dll`, `msvcrt.dll`, `ntdll.dll`, `ole32.dll`, `oleaut32.dll`, `propsys.dll`, `rpcrt4.dll`, `SHELL32.dll`, `user32.dll`, `USERENV.dll`, `UxTheme.dll`, `WS2_32.dll`
 
-The Win32 exe also contains the accesskit UI Automation adapter, which is most of why it is the
-largest. 
 
 ## Platform status
 

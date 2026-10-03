@@ -627,6 +627,7 @@ unsafe extern "system" {
     pub fn SetWindowTextW(h: HWND, s: *const u16) -> BOOL;
     pub fn EnableWindow(h: HWND, e: BOOL) -> BOOL;
     pub fn SetFocus(h: HWND) -> HWND;
+    pub fn NotifyWinEvent(event: u32, h: HWND, id_object: i32, id_child: i32);
     pub fn GetFocus() -> HWND;
     pub fn IsChild(parent: HWND, h: HWND) -> BOOL;
     pub fn IsWindow(h: HWND) -> BOOL;
