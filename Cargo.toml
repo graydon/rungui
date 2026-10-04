@@ -30,3 +30,6 @@ mock = []
 name = "file_manager"
 path = "examples/file_manager/main.rs"
 test = true
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+gtk = "0.18"

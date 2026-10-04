@@ -51,19 +51,7 @@ fn main() {
         }
         _ => {
             println!("cargo:rustc-cfg=rungui_gtk");
-            for l in [
-                "gtk-3",
-                "gdk-3",
-                "gdk_pixbuf-2.0",
-                "pango-1.0",
-                "cairo",
-                "atk-1.0",
-                "gio-2.0",
-                "gobject-2.0",
-                "glib-2.0",
-            ] {
-                link(l);
-            }
+            // GTK is linked by the gtk-rs crates (via pkg-config / system-deps), not here.
         }
     }
 }
