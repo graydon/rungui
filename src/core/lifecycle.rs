@@ -29,7 +29,7 @@ fn accepts(p: Kind, k: Kind) -> bool {
 }
 
 /// Create a widget. `setup` initialises the node (text etc.) before the backend sees it. On any
-/// failure the error is recorded ([`take_error`]) and `WidgetId::DEAD` returned.
+/// failure the error is recorded ([`super::take_error`]) and `WidgetId::DEAD` returned.
 pub fn create(kind: Kind, parent: Option<WidgetId>, setup: impl FnOnce(&mut Node)) -> WidgetId {
     let id = WidgetId(NEXT_ID.fetch_add(1, Ordering::Relaxed));
     let made = with(|r| {

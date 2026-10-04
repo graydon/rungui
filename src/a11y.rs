@@ -19,7 +19,7 @@ use crate::types::*;
 
 /// What a widget is, for assistive technology. Only roles that every backend can express are
 /// offered; each widget kind has a default (a `Button` is a [`Button`](A11yRole::Button)) and
-/// [`Widget::set_a11y_role`] overrides it.
+/// [`crate::Widget::set_a11y_role`] overrides it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum A11yRole {
