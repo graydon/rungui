@@ -6,8 +6,8 @@ that graph into native widgets (GTK3 / Win32 / AppKit). Target size is FLTK/libu
 ## Layers
 
 ```
-user code ──► widgets.rs   Copy handles (Button, Label, ...) deref to Widget; closures for events
-              core.rs      registry: HashMap<WidgetId, Node>, mirrored state, event dispatch,
+user code ──► widgets/     Copy handles (Button, Label, ...) deref to Widget; closures for events
+              core/        registry: HashMap<WidgetId, Node>, mirrored state, event dispatch,
                            post queue, timers, dirty tracking
               layout.rs    stack/grid layout in Rust from backend preferred sizes
               a11y.rs      accessible name/description/role of every widget, derived from the registry
@@ -95,9 +95,10 @@ and `scripts/check-all.sh`.
 
 1. `backend/mod.rs`: add a `Kind` variant (and `Prop`/`Event` variants if needed; both are `#[non_exhaustive]`, additive).
    Decide `is_native`, `in_layout`, `is_layout_container`.
-2. `core.rs`: if it is a container, extend `accepts`; if it has initial state beyond the existing fields, add the field to `Node`
-   and `sync_initial`.
-3. `widgets.rs`: add the name to the `handle!` list, a `new(parent, ..)` using `make(..)`, setters via
+2. `core/lifecycle.rs`: if it is a container, extend `accepts`. If it has state beyond the common `Node` fields, add (or reuse)
+   a `NodeData` variant in `core/model.rs` (`NodeData::for_kind` picks it, plus a typed accessor on `Node`) and push its
+   initial value in `sync_initial`.
+3. `widgets/`: add the name to the `handle!` list in `mod.rs`, then put the impl in the file for its family, a `new(parent, ..)` using `make(..)`, setters via
    `core::set(id, relayout, |n| mirror, Prop::X)`, and an `on_*` using `on(id, Ev::X, ..)`.
 4. `a11y.rs`: add the default `A11yRole` (and a naming rule if it takes its name from its text or the preceding Label).
 5. `mock.rs`: give it a `preferred_size`; add a test. Then implement it in each real backend.
