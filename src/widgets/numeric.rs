@@ -8,12 +8,14 @@ fn set_value(id: WidgetId, v: f64) {
         id,
         false,
         |n| {
-            vv = if v.is_nan() {
-                n.range.0
-            } else {
-                v.clamp(n.range.0, n.range.1.max(n.range.0))
-            };
-            n.value = vv;
+            if let Some(r) = n.range_mut() {
+                vv = if v.is_nan() {
+                    r.range.0
+                } else {
+                    v.clamp(r.range.0, r.range.1.max(r.range.0))
+                };
+                r.value = vv;
+            }
         },
         Prop::Value(v),
     );
@@ -46,16 +48,22 @@ fn set_range(id: WidgetId, min: f64, max: f64, step: f64) {
         id,
         false,
         |n| {
-            n.range = (min, max, step);
-            n.value = n.value.clamp(min, max);
+            if let Some(r) = n.range_mut() {
+                r.range = (min, max, step);
+                r.value = r.value.clamp(min, max);
+            }
         },
         Prop::Range { min, max, step },
     );
-    let v = core::read(id, |n| n.value).unwrap_or(min);
+    let v = core::read(id, |n| n.range().map(|r| r.value))
+        .flatten()
+        .unwrap_or(min);
     core::set(id, false, |_| {}, Prop::Value(v));
 }
 fn value(id: WidgetId) -> f64 {
-    core::read(id, |n| n.value).unwrap_or(0.0)
+    core::read(id, |n| n.range().map(|r| r.value))
+        .flatten()
+        .unwrap_or(0.0)
 }
 fn on_value(id: WidgetId, mut f: impl FnMut(f64) + 'static) {
     on(id, Ev::Value, move |e| {
@@ -89,7 +97,9 @@ value_methods!(SpinBox);
 impl Slider {
     pub fn new(parent: impl Into<WidgetId>, min: f64, max: f64) -> Slider {
         let s = make(Slider::from_id, Kind::Slider, parent, |n| {
-            n.range = sane_range(min, max, 1.0)
+            if let Some(r) = n.range_mut() {
+                r.range = sane_range(min, max, 1.0)
+            }
         });
         s.set_value(min);
         s
@@ -98,7 +108,9 @@ impl Slider {
 impl SpinBox {
     pub fn new(parent: impl Into<WidgetId>, min: f64, max: f64, step: f64) -> SpinBox {
         let s = make(SpinBox::from_id, Kind::SpinBox, parent, |n| {
-            n.range = sane_range(min, max, step)
+            if let Some(r) = n.range_mut() {
+                r.range = sane_range(min, max, step)
+            }
         });
         s.set_value(min);
         s
@@ -120,7 +132,11 @@ impl ProgressBar {
         core::set(
             self.id(),
             false,
-            |n| n.indeterminate = v,
+            |n| {
+                if let Some(r) = n.range_mut() {
+                    r.indeterminate = v
+                }
+            },
             Prop::Indeterminate(v),
         );
     }

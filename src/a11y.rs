@@ -193,7 +193,7 @@ fn walk(cx: &mut Ctx, id: WidgetId) {
     }
     if k == Kind::Tabs {
         // only the selected page is visible to AT
-        if let Some(c) = n.selected.and_then(|i| n.children.get(i)) {
+        if let Some(c) = n.selection().and_then(|i| n.children.get(i)) {
             walk(cx, *c);
         }
     } else {

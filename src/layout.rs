@@ -127,7 +127,7 @@ fn is_horizontal(k: Kind) -> bool {
 /// Size needed by the children (no padding, no chrome).
 fn measure_children(r: &Registry, id: WidgetId, n: &Node) -> Size {
     let sp = n.lay.spacing;
-    if let Some(split) = n.split.as_ref() {
+    if let Some(split) = n.split() {
         // natural: first pane at the requested position (else natural), sash, second pane
         let horiz = split.orient == Orientation::Horizontal;
         let ms: Vec<Size> = split_panes(r, id).iter().map(|c| measure(r, *c)).collect();
@@ -368,7 +368,7 @@ fn arrange_split(
 ) {
     let panes = split_panes(r, id);
     let thick = r.nodes[&id].lay.spacing;
-    let Some(sp) = r.nodes.get_mut(&id).and_then(|n| n.split.as_mut()) else {
+    let Some(sp) = r.nodes.get_mut(&id).and_then(|n| n.split_mut()) else {
         return;
     };
     let horiz = sp.orient == Orientation::Horizontal;
@@ -446,12 +446,16 @@ pub fn compute(r: &mut Registry, w: WidgetId) -> Out {
     let Some(n) = r.nodes.get_mut(&w) else {
         return out;
     };
-    if !n.explicit_size {
-        n.client = m;
+    let min = n.lay.min;
+    let Some(win) = n.window_mut() else {
+        return out;
+    };
+    if !win.explicit_size {
+        win.client = m;
     }
     // a window is never laid out below its minimum size (backends may not enforce Prop::MinSize)
-    n.client = Size::new(n.client.w.max(n.lay.min.w), n.client.h.max(n.lay.min.h));
-    let rect = Rect::new(0, 0, n.client.w, n.client.h);
+    win.client = Size::new(win.client.w.max(min.w), win.client.h.max(min.h));
+    let rect = Rect::new(0, 0, win.client.w, win.client.h);
     place(r, w, rect, &mut out);
     out
 }

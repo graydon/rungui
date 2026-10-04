@@ -190,8 +190,7 @@ fn desired(window: WidgetId) -> Vec<(WidgetId, HWND, Props)> {
                 let parent = r.nodes.get(&n.id)?.parent?;
                 r.nodes
                     .get(&parent)?
-                    .split
-                    .as_ref()
+                    .split()
                     .map(|sp| sp.actual.to_string())
             })
             .flatten();

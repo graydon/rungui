@@ -1,7 +1,7 @@
 //! Widget creation, initial native sync and destruction.
 
 use super::data::push;
-use super::model::{Data, Node};
+use super::model::{Data, Node, NodeData, RangeData};
 use super::props::read;
 use super::splitter::panes_of;
 use super::{post, set_error, wake, with};
@@ -37,7 +37,7 @@ pub fn create(kind: Kind, parent: Option<WidgetId>, setup: impl FnOnce(&mut Node
         if let Some(p) = parent {
             let ok = r.nodes.get(&p).is_some_and(|n| {
                 accepts(n.kind, kind)
-                    && n.split.as_ref().is_none_or(|sp| {
+                    && n.split().is_none_or(|sp| {
                         // a splitter holds one sash (created by the core) and at most two panes
                         if kind == Kind::Sash {
                             sp.sash.is_none()
@@ -59,15 +59,15 @@ pub fn create(kind: Kind, parent: Option<WidgetId>, setup: impl FnOnce(&mut Node
         if kind == Kind::Page {
             // first page of a Tabs becomes selected
             if let Some(t) = parent.and_then(|p| r.nodes.get_mut(&p)) {
-                if t.selected.is_none() {
-                    t.selected = Some(0);
+                if let NodeData::Tabs(sel @ None) = &mut t.data {
+                    *sel = Some(0);
                 }
             }
         }
         r.nodes.insert(id, n);
         if let Some(p) = parent.and_then(|p| r.nodes.get_mut(&p)) {
             p.children.push(id);
-            if let Some(sp) = p.split.as_mut().filter(|_| kind == Kind::Sash) {
+            if let Some(sp) = p.split_mut().filter(|_| kind == Kind::Sash) {
                 sp.sash = Some(id);
             }
         }
@@ -104,89 +104,113 @@ pub fn create(kind: Kind, parent: Option<WidgetId>, setup: impl FnOnce(&mut Node
 
 /// Push the non-default initial state of a freshly created native widget.
 fn sync_initial(id: WidgetId) {
-    struct S {
-        text: String,
-        tooltip: String,
-        placeholder: String,
-        accel: String,
-        enabled: bool,
-        checked: bool,
-        readonly: bool,
-        indet: bool,
-        value: f64,
-        range: (f64, f64, f64),
-        items: Vec<String>,
-        selected: Option<usize>,
-        image: Option<ImageData>,
-        kind: Kind,
+    /// The kind-specific part of the node's state, cloned out of the registry.
+    enum Init {
+        Nothing,
+        Text {
+            placeholder: String,
+            readonly: bool,
+        },
+        Range(RangeData),
+        List {
+            items: Vec<String>,
+            selected: Option<usize>,
+        },
+        Check(bool),
+        MenuItem {
+            accel: String,
+            checked: bool,
+        },
+        Image(Option<ImageData>),
     }
-    let Some(s) = with(|r| {
+    let Some((text, tooltip, enabled, kind, init)) = with(|r| {
         let n = r.nodes.get(&id)?;
-        Some(S {
-            text: n.text.clone(),
-            tooltip: n.tooltip.clone(),
-            placeholder: n.placeholder.clone(),
-            accel: n.accel.clone(),
-            enabled: n.enabled,
-            checked: n.checked,
-            readonly: n.readonly,
-            indet: n.indeterminate,
-            value: n.value,
-            range: n.range,
-            items: n.items.clone(),
-            selected: n.selected,
-            image: n.image.clone(),
-            kind: n.kind,
-        })
+        let init = match &n.data {
+            NodeData::Text(t) => Init::Text {
+                placeholder: t.placeholder.clone(),
+                readonly: t.readonly,
+            },
+            NodeData::Range(r) => Init::Range(RangeData { ..*r }),
+            NodeData::List(l) => Init::List {
+                items: l.items.clone(),
+                selected: l.selected,
+            },
+            NodeData::Check(c) => Init::Check(c.checked),
+            NodeData::MenuItem(m) => Init::MenuItem {
+                accel: m.accel.clone(),
+                checked: m.checked,
+            },
+            NodeData::Image(i) => Init::Image(i.clone()),
+            _ => Init::Nothing,
+        };
+        Some((n.text.clone(), n.tooltip.clone(), n.enabled, n.kind, init))
     })
     .flatten() else {
         return;
     };
-    if !s.text.is_empty() {
-        B::set(id, &Prop::Text(&s.text));
+    if !text.is_empty() {
+        B::set(id, &Prop::Text(&text));
     }
-    if !s.tooltip.is_empty() {
-        B::set(id, &Prop::Tooltip(&s.tooltip));
+    if !tooltip.is_empty() {
+        B::set(id, &Prop::Tooltip(&tooltip));
     }
-    if !s.placeholder.is_empty() {
-        B::set(id, &Prop::Placeholder(&s.placeholder));
+    match &init {
+        Init::Nothing => {}
+        Init::Text {
+            placeholder,
+            readonly,
+        } => {
+            if !placeholder.is_empty() {
+                B::set(id, &Prop::Placeholder(placeholder));
+            }
+            if *readonly {
+                B::set(id, &Prop::ReadOnly(true));
+            }
+        }
+        Init::Range(r) => {
+            B::set(
+                id,
+                &Prop::Range {
+                    min: r.range.0,
+                    max: r.range.1,
+                    step: r.range.2,
+                },
+            );
+            B::set(id, &Prop::Value(r.value));
+            if r.indeterminate {
+                B::set(id, &Prop::Indeterminate(true));
+            }
+        }
+        Init::List { items, selected } => {
+            if !items.is_empty() {
+                B::set(id, &Prop::Items(items));
+            }
+            if selected.is_some() {
+                B::set(id, &Prop::Selected(*selected));
+            }
+        }
+        Init::Check(checked) => {
+            if *checked {
+                B::set(id, &Prop::Checked(true));
+            }
+        }
+        Init::MenuItem { accel, checked } => {
+            if !accel.is_empty() {
+                B::set(id, &Prop::Accel(accel));
+            }
+            if *checked {
+                B::set(id, &Prop::Checked(true));
+            }
+        }
+        Init::Image(_) => {}
     }
-    if !s.accel.is_empty() {
-        B::set(id, &Prop::Accel(&s.accel));
-    }
-    if matches!(s.kind, Kind::Slider | Kind::SpinBox | Kind::ProgressBar) {
-        B::set(
-            id,
-            &Prop::Range {
-                min: s.range.0,
-                max: s.range.1,
-                step: s.range.2,
-            },
-        );
-        B::set(id, &Prop::Value(s.value));
-    }
-    if !s.items.is_empty() {
-        B::set(id, &Prop::Items(&s.items));
-    }
-    if s.selected.is_some() && matches!(s.kind, Kind::ComboBox | Kind::ListBox) {
-        B::set(id, &Prop::Selected(s.selected));
-    }
-    if s.checked {
-        B::set(id, &Prop::Checked(true));
-    }
-    if s.readonly {
-        B::set(id, &Prop::ReadOnly(true));
-    }
-    if s.indet {
-        B::set(id, &Prop::Indeterminate(true));
-    }
-    if !s.enabled {
+    if !enabled {
         B::set(id, &Prop::Enabled(false));
     }
-    if s.image.is_some() {
-        B::set(id, &Prop::Image(s.image.as_ref()));
+    if let Init::Image(Some(img)) = &init {
+        B::set(id, &Prop::Image(Some(img)));
     }
-    match s.kind {
+    match kind {
         Kind::Table => push(id, Data::TableAll),
         Kind::Tree => push(id, Data::TreeRows),
         _ => {}

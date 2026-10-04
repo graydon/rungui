@@ -30,7 +30,7 @@ pub fn create_sash(splitter: WidgetId, orient: Orientation) {
         with(|r| {
             r.nodes
                 .get_mut(&splitter)
-                .and_then(|n| n.split.as_mut())
+                .and_then(|n| n.split_mut())
                 .map(|sp| sp.sash = None)
         });
         return;
@@ -44,7 +44,7 @@ pub fn create_sash(splitter: WidgetId, orient: Orientation) {
 pub fn split_set(id: WidgetId, want: i32, user: bool) {
     let r = with(|r| {
         let win = r.window_of(id);
-        let sp = r.nodes.get_mut(&id)?.split.as_mut()?;
+        let sp = r.nodes.get_mut(&id)?.split_mut()?;
         let old = sp.actual;
         sp.pos = Some(if user && sp.laid_out {
             sp.clamp(want, main_len(sp))
@@ -65,7 +65,7 @@ pub fn split_set(id: WidgetId, want: i32, user: bool) {
     if need_wake {
         wake();
     }
-    let new = read(id, |n| n.split.as_ref().map_or(0, |s| s.actual)).unwrap_or(0);
+    let new = read(id, |n| n.split().map_or(0, |s| s.actual)).unwrap_or(0);
     if !user || new == old || !laid {
         return;
     }
@@ -110,7 +110,7 @@ fn live_sash(r: &Registry, id: WidgetId) -> Option<(WidgetId, &SplitData)> {
         cur = n.parent;
     }
     let split = r.nodes.get(&id)?.parent?;
-    let sp = r.nodes.get(&split)?.split.as_ref()?;
+    let sp = r.nodes.get(&split)?.split()?;
     (sp.sash == Some(id) && sp.laid_out).then_some((split, sp))
 }
 

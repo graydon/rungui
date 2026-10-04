@@ -13,7 +13,7 @@ impl Splitter {
         let s = make(Splitter::from_id, Kind::Splitter, parent, |n| {
             n.lay.padding = 0;
             n.lay.expand = 1.0;
-            if let Some(sp) = n.split.as_mut() {
+            if let Some(sp) = n.split_mut() {
                 sp.orient = orientation;
             }
         });
@@ -23,7 +23,7 @@ impl Splitter {
         s
     }
     pub fn orientation(&self) -> Orientation {
-        core::read(self.id(), |n| n.split.as_ref().map(|s| s.orient))
+        core::read(self.id(), |n| n.split().map(|s| s.orient))
             .flatten()
             .unwrap_or_default()
     }
@@ -37,7 +37,7 @@ impl Splitter {
     /// position, or 0 if none). Without `set_position` the space is split evenly.
     pub fn position(&self) -> i32 {
         core::read(self.id(), |n| {
-            n.split.as_ref().map_or(0, |s| {
+            n.split().map_or(0, |s| {
                 if s.laid_out {
                     s.actual
                 } else {
@@ -51,7 +51,7 @@ impl Splitter {
     /// so both fit; if the splitter is too small for both, the first pane wins.
     pub fn set_min_pane_sizes(&self, first: i32, second: i32) {
         core::update(self.id(), true, |n| {
-            if let Some(s) = n.split.as_mut() {
+            if let Some(s) = n.split_mut() {
                 s.min = (self::px(first), self::px(second));
             }
         });

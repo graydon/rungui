@@ -29,7 +29,11 @@ impl MenuItem {
         core::set(
             self.id(),
             false,
-            |n| n.accel = a.to_string(),
+            |n| {
+                if let Some(m) = n.menu_item_mut() {
+                    m.accel = a.to_string()
+                }
+            },
             Prop::Accel(a),
         );
     }
@@ -56,7 +60,11 @@ impl CheckMenuItem {
         core::set(
             self.id(),
             false,
-            |n| n.accel = a.to_string(),
+            |n| {
+                if let Some(m) = n.menu_item_mut() {
+                    m.accel = a.to_string()
+                }
+            },
             Prop::Accel(a),
         );
     }

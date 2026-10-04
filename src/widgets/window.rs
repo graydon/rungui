@@ -17,8 +17,10 @@ impl Window {
     /// Client-area size in logical pixels. Without this call the window sizes itself to its content.
     pub fn set_size(&self, w: i32, h: i32) {
         if core::update(self.id(), true, |n| {
-            n.client = Size::new(w.clamp(1, MAX_PX), h.clamp(1, MAX_PX));
-            n.explicit_size = true;
+            if let Some(win) = n.window_mut() {
+                win.client = Size::new(w.clamp(1, MAX_PX), h.clamp(1, MAX_PX));
+                win.explicit_size = true;
+            }
         })
         .is_some()
         {
@@ -26,10 +28,21 @@ impl Window {
         }
     }
     pub fn size(&self) -> (i32, i32) {
-        core::read(self.id(), |n| (n.client.w, n.client.h)).unwrap_or((0, 0))
+        core::read(self.id(), |n| n.window().map(|w| (w.client.w, w.client.h)))
+            .flatten()
+            .unwrap_or((0, 0))
     }
     pub fn set_resizable(&self, v: bool) {
-        core::set(self.id(), false, |n| n.resizable = v, Prop::Resizable(v));
+        core::set(
+            self.id(),
+            false,
+            |n| {
+                if let Some(w) = n.window_mut() {
+                    w.resizable = v
+                }
+            },
+            Prop::Resizable(v),
+        );
     }
     pub fn show(&self) {
         self.set_visible(true)
@@ -39,7 +52,11 @@ impl Window {
     }
     /// Close handler: return `true` to allow closing (default), `false` to veto.
     pub fn on_close(&self, f: impl FnMut() -> bool + 'static) {
-        core::update(self.id(), false, |n| n.on_close = Some(Box::new(f)));
+        core::update(self.id(), false, |n| {
+            if let Some(w) = n.window_mut() {
+                w.on_close = Some(Box::new(f))
+            }
+        });
     }
     /// Called with the new client size when the user resizes the window.
     pub fn on_resize(&self, mut f: impl FnMut(i32, i32) + 'static) {
@@ -55,14 +72,18 @@ impl Window {
         core::set(
             self.id(),
             false,
-            |n| n.position = Some((x, y)),
+            |n| {
+                if let Some(w) = n.window_mut() {
+                    w.position = Some((x, y))
+                }
+            },
             Prop::Position { x, y },
         );
     }
     /// The last position set with [`Window::set_position`] or reported by the platform after the
     /// user moved the window; `None` if neither happened (the window manager placed it).
     pub fn position(&self) -> Option<(i32, i32)> {
-        core::read(self.id(), |n| n.position).flatten()
+        core::read(self.id(), |n| n.window().and_then(|w| w.position)).flatten()
     }
     /// Called with the new screen position when the user moves the window (not on every
     /// platform; see [`Window::position`]).

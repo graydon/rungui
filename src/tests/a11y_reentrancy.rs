@@ -37,7 +37,7 @@ fn check_resolved(win: Window, ctx: &str) {
                 if !c.visible && c.kind != Kind::Window {
                     return Some(false);
                 }
-                if pn.kind == Kind::Tabs && pn.children.get(pn.selected?) != Some(&cur) {
+                if pn.kind == Kind::Tabs && pn.children.get(pn.selection()?) != Some(&cur) {
                     return Some(false);
                 }
                 cur = p;

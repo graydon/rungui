@@ -416,7 +416,7 @@ pub fn set_unsupported(kinds: &[Kind]) {
 }
 /// The native sash of a splitter (None if the backend refused to create one).
 pub fn sash_of(splitter: WidgetId) -> Option<WidgetId> {
-    core::read(splitter, |n| n.split.as_ref().and_then(|s| s.sash)).flatten()
+    core::read(splitter, |n| n.split().and_then(|s| s.sash)).flatten()
 }
 /// Simulate the user dragging `splitter`'s sash so that its leading edge is at `pos`
 /// (native-parent client coordinates, like its bounds). No-op without a sash.

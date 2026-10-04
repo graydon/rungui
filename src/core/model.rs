@@ -23,12 +23,22 @@ pub struct LayoutProps {
     pub cols: usize,
 }
 
-/// Table model (rows are plain strings; selection lives in `Node::selected`).
+/// Batch-update state of a table or tree: while `freeze` > 0, backend pushes are deferred and
+/// merged into `pending`.
+#[derive(Clone, Debug, Default)]
+pub struct Batch {
+    pub freeze: u32,
+    pub pending: Option<Data>,
+}
+
+/// Table model (rows are plain strings).
 #[derive(Clone, Debug, Default)]
 pub struct TableData {
     pub columns: Vec<Column>,
     pub rows: Vec<Vec<String>>,
     pub sort: Option<(usize, bool)>,
+    pub selected: Option<usize>,
+    pub batch: Batch,
 }
 
 #[derive(Clone, Debug)]
@@ -77,6 +87,7 @@ pub struct TreeData {
     pub nodes: HashMap<u64, TreeNode>,
     pub roots: Vec<u64>,
     pub selected: Option<u64>,
+    pub batch: Batch,
 }
 
 impl TreeData {
@@ -182,51 +193,100 @@ impl TreeData {
     }
 }
 
+/// One widget in the registry: the state every kind has, plus [`NodeData`], which holds the state
+/// only this kind of widget has (so a `Label` carries no table model and a `Slider` no item list).
 pub struct Node {
     pub kind: Kind,
     pub parent: Option<WidgetId>,
     pub children: Vec<WidgetId>,
     pub text: String,
     pub tooltip: String,
-    pub placeholder: String,
-    pub accel: String,
     pub enabled: bool,
     pub visible: bool,
-    pub checked: bool,
-    pub readonly: bool,
-    pub indeterminate: bool,
-    pub resizable: bool,
-    pub value: f64,
-    pub range: (f64, f64, f64),
-    pub items: Vec<String>,
-    pub selected: Option<usize>,
-    pub group: u32,
-    pub image: Option<ImageData>,
     /// Last bounds pushed to the backend (relative to the native parent).
     pub bounds: Rect,
-    /// Windows: client size; `explicit` once set by the app or the user.
-    pub client: Size,
-    pub explicit_size: bool,
     pub a11y: A11yProps,
     pub lay: LayoutProps,
     pub cbs: HashMap<Ev, Callback>,
-    pub on_close: Option<Box<dyn FnMut() -> bool>>,
-    /// Table model (Kind::Table only).
-    pub table: Option<Box<TableData>>,
-    /// Tree model (Kind::Tree only).
-    pub tree: Option<Box<TreeData>>,
     /// Attached `PopupMenu` (see `Widget::set_context_menu`).
     pub context_menu: Option<WidgetId>,
-    /// >0 while a table/tree batch update is running: pushes are deferred to the end.
-    pub freeze: u32,
-    pub pending: Option<Data>,
-    /// Splitter model (Kind::Splitter only).
-    pub split: Option<Box<SplitData>>,
-    /// TextArea/TextInput: fixed-pitch font; TextArea: soft wrap (default on).
-    pub monospace: bool,
-    pub wrap: bool,
-    /// Window: last requested (`set_position`) or reported (`Event::Moved`) screen position.
+    pub data: NodeData,
+}
+
+/// Kind-specific node state. Which variant a node has is fixed by its [`Kind`] at creation (see
+/// [`NodeData::for_kind`]); the `Node` accessors return `None` for any other kind, so a setter
+/// aimed at the wrong kind of widget is a no-op rather than silently stored state.
+pub enum NodeData {
+    /// Kinds with nothing beyond the common state (labels, buttons, boxes, menus, ...).
+    Plain,
+    /// `Window`.
+    Window(Box<WindowData>),
+    /// `Tabs`: the selected page index.
+    Tabs(Option<usize>),
+    /// `CheckBox`, `RadioButton`.
+    Check(CheckData),
+    /// `MenuItem`, `CheckMenuItem`.
+    MenuItem(MenuItemData),
+    /// `TextInput`, `PasswordInput`, `TextArea`.
+    Text(TextData),
+    /// `Slider`, `SpinBox`, `ProgressBar`.
+    Range(RangeData),
+    /// `ComboBox`, `ListBox`.
+    List(ListData),
+    /// `Image`.
+    Image(Option<ImageData>),
+    /// `Table`.
+    Table(Box<TableData>),
+    /// `Tree`.
+    Tree(Box<TreeData>),
+    /// `Splitter`.
+    Split(Box<SplitData>),
+}
+
+pub struct WindowData {
+    /// Client size; `explicit_size` once set by the app or the user.
+    pub client: Size,
+    pub explicit_size: bool,
+    pub resizable: bool,
+    /// Last requested (`set_position`) or reported (`Event::Moved`) screen position.
     pub position: Option<(i32, i32)>,
+    pub on_close: Option<Box<dyn FnMut() -> bool>>,
+}
+
+pub struct CheckData {
+    pub checked: bool,
+    /// Radio group (0 = none); checking one button unchecks the others of its group.
+    pub group: u32,
+}
+
+#[derive(Default)]
+pub struct MenuItemData {
+    pub accel: String,
+    /// Only meaningful for `CheckMenuItem`.
+    pub checked: bool,
+}
+
+pub struct TextData {
+    pub placeholder: String,
+    pub readonly: bool,
+    /// Fixed-pitch font.
+    pub monospace: bool,
+    /// Soft wrap (TextArea; default on).
+    pub wrap: bool,
+}
+
+pub struct RangeData {
+    pub value: f64,
+    /// (min, max, step).
+    pub range: (f64, f64, f64),
+    /// ProgressBar only.
+    pub indeterminate: bool,
+}
+
+#[derive(Default)]
+pub struct ListData {
+    pub items: Vec<String>,
+    pub selected: Option<usize>,
 }
 
 /// Which part of a table/tree model must be re-sent to the backend.
@@ -243,7 +303,115 @@ pub enum Data {
     TreeSelected,
 }
 
+macro_rules! accessors {
+    ($($get:ident, $get_mut:ident, $variant:ident, $ty:ty;)*) => {$(
+        pub fn $get(&self) -> Option<&$ty> {
+            match &self.data {
+                NodeData::$variant(d) => Some(d),
+                _ => None,
+            }
+        }
+        pub fn $get_mut(&mut self) -> Option<&mut $ty> {
+            match &mut self.data {
+                NodeData::$variant(d) => Some(d),
+                _ => None,
+            }
+        }
+    )*};
+}
+
+impl NodeData {
+    pub fn for_kind(kind: Kind) -> NodeData {
+        match kind {
+            Kind::Window => NodeData::Window(Box::new(WindowData {
+                client: Size::default(),
+                explicit_size: false,
+                resizable: true,
+                position: None,
+                on_close: None,
+            })),
+            Kind::Tabs => NodeData::Tabs(None),
+            Kind::CheckBox | Kind::RadioButton => NodeData::Check(CheckData {
+                checked: false,
+                group: 0,
+            }),
+            Kind::MenuItem | Kind::CheckMenuItem => NodeData::MenuItem(MenuItemData::default()),
+            Kind::TextInput | Kind::PasswordInput | Kind::TextArea => NodeData::Text(TextData {
+                placeholder: String::new(),
+                readonly: false,
+                monospace: false,
+                wrap: true,
+            }),
+            Kind::Slider | Kind::SpinBox | Kind::ProgressBar => NodeData::Range(RangeData {
+                value: 0.0,
+                range: match kind {
+                    Kind::ProgressBar => (0.0, 1.0, 0.01),
+                    _ => (0.0, 100.0, 1.0),
+                },
+                indeterminate: false,
+            }),
+            Kind::ComboBox | Kind::ListBox => NodeData::List(ListData::default()),
+            Kind::Image => NodeData::Image(None),
+            Kind::Table => NodeData::Table(Box::default()),
+            Kind::Tree => NodeData::Tree(Box::default()),
+            Kind::Splitter => NodeData::Split(Box::default()),
+            _ => NodeData::Plain,
+        }
+    }
+}
+
 impl Node {
+    accessors! {
+        window, window_mut, Window, WindowData;
+        check, check_mut, Check, CheckData;
+        menu_item, menu_item_mut, MenuItem, MenuItemData;
+        text_data, text_data_mut, Text, TextData;
+        range, range_mut, Range, RangeData;
+        list, list_mut, List, ListData;
+        table, table_mut, Table, TableData;
+        tree, tree_mut, Tree, TreeData;
+        split, split_mut, Split, SplitData;
+    }
+    /// The selected index of a list, tab strip or table.
+    pub fn selection(&self) -> Option<usize> {
+        match &self.data {
+            NodeData::List(l) => l.selected,
+            NodeData::Tabs(s) => *s,
+            NodeData::Table(t) => t.selected,
+            _ => None,
+        }
+    }
+    pub fn selection_mut(&mut self) -> Option<&mut Option<usize>> {
+        match &mut self.data {
+            NodeData::List(l) => Some(&mut l.selected),
+            NodeData::Tabs(s) => Some(s),
+            NodeData::Table(t) => Some(&mut t.selected),
+            _ => None,
+        }
+    }
+    /// The checked state of a check box, radio button or check menu item (`false` for other kinds).
+    pub fn checked(&self) -> bool {
+        match &self.data {
+            NodeData::Check(c) => c.checked,
+            NodeData::MenuItem(m) => m.checked,
+            _ => false,
+        }
+    }
+    pub fn checked_mut(&mut self) -> Option<&mut bool> {
+        match &mut self.data {
+            NodeData::Check(c) => Some(&mut c.checked),
+            NodeData::MenuItem(m) => Some(&mut m.checked),
+            _ => None,
+        }
+    }
+    /// Batch-update state of a table or tree.
+    pub fn batch_mut(&mut self) -> Option<&mut Batch> {
+        match &mut self.data {
+            NodeData::Table(t) => Some(&mut t.batch),
+            NodeData::Tree(t) => Some(&mut t.batch),
+            _ => None,
+        }
+    }
     pub(super) fn new(kind: Kind) -> Node {
         let boxy = matches!(kind, Kind::Window | Kind::Page | Kind::GroupBox);
         Node {
@@ -252,26 +420,9 @@ impl Node {
             children: vec![],
             text: String::new(),
             tooltip: String::new(),
-            placeholder: String::new(),
-            accel: String::new(),
             enabled: true,
             visible: kind != Kind::Window,
-            checked: false,
-            readonly: false,
-            indeterminate: false,
-            resizable: true,
-            value: 0.0,
-            range: match kind {
-                Kind::ProgressBar => (0.0, 1.0, 0.01),
-                _ => (0.0, 100.0, 1.0),
-            },
-            items: vec![],
-            selected: None,
-            group: 0,
-            image: None,
             bounds: Rect::default(),
-            client: Size::default(),
-            explicit_size: false,
             a11y: A11yProps::default(),
             lay: LayoutProps {
                 expand: 0.0,
@@ -284,16 +435,8 @@ impl Node {
                 cols: 2,
             },
             cbs: HashMap::new(),
-            on_close: None,
-            table: (kind == Kind::Table).then(Box::default),
-            tree: (kind == Kind::Tree).then(Box::default),
             context_menu: None,
-            freeze: 0,
-            pending: None,
-            split: (kind == Kind::Splitter).then(Box::default),
-            monospace: false,
-            wrap: true,
-            position: None,
+            data: NodeData::for_kind(kind),
         }
     }
 }

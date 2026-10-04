@@ -24,7 +24,11 @@ impl Image {
         core::set(
             self.id(),
             true,
-            |n| n.image = img.cloned(),
+            |n| {
+                if let core::NodeData::Image(i) = &mut n.data {
+                    *i = img.cloned()
+                }
+            },
             Prop::Image(img),
         );
     }

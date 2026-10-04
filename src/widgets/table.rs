@@ -22,7 +22,7 @@ impl Table {
     pub fn set_columns(&self, cols: &[Column]) {
         let v = cols.to_vec();
         core::data_update(self.id(), core::Data::TableAll, |n| {
-            if let Some(t) = n.table.as_mut() {
+            if let Some(t) = n.table_mut() {
                 t.columns = v;
                 if t.sort.is_some_and(|(c, _)| c >= t.columns.len()) {
                     t.sort = None;
@@ -32,13 +32,13 @@ impl Table {
     }
     pub fn add_column(&self, col: Column) {
         core::data_update(self.id(), core::Data::TableAll, |n| {
-            if let Some(t) = n.table.as_mut() {
+            if let Some(t) = n.table_mut() {
                 t.columns.push(col);
             }
         });
     }
     pub fn columns(&self) -> Vec<Column> {
-        core::read(self.id(), |n| n.table.as_ref().map(|t| t.columns.clone()))
+        core::read(self.id(), |n| n.table().map(|t| t.columns.clone()))
             .flatten()
             .unwrap_or_default()
     }
@@ -46,10 +46,10 @@ impl Table {
     pub fn set_rows<S: AsRef<str>>(&self, rows: &[Vec<S>]) {
         let v: Vec<Vec<String>> = rows.iter().map(|r| cells(r)).collect();
         core::data_update(self.id(), core::Data::TableRows, |n| {
-            if let Some(t) = n.table.as_mut() {
+            if let Some(t) = n.table_mut() {
                 t.rows = v;
-                if n.selected.is_some_and(|i| i >= t.rows.len()) {
-                    n.selected = None;
+                if t.selected.is_some_and(|i| i >= t.rows.len()) {
+                    t.selected = None;
                 }
             }
         });
@@ -57,7 +57,7 @@ impl Table {
     pub fn push_row<S: AsRef<str>>(&self, row: &[S]) {
         let v = cells(row);
         core::data_update(self.id(), core::Data::TableRows, |n| {
-            if let Some(t) = n.table.as_mut() {
+            if let Some(t) = n.table_mut() {
                 t.rows.push(v);
             }
         });
@@ -66,10 +66,10 @@ impl Table {
     pub fn insert_row<S: AsRef<str>>(&self, index: usize, row: &[S]) {
         let v = cells(row);
         core::data_update(self.id(), core::Data::TableRows, |n| {
-            if let Some(t) = n.table.as_mut() {
+            if let Some(t) = n.table_mut() {
                 let i = index.min(t.rows.len());
                 t.rows.insert(i, v);
-                if let Some(s) = n.selected.as_mut() {
+                if let Some(s) = t.selected.as_mut() {
                     if *s >= i {
                         *s += 1;
                     }
@@ -80,10 +80,10 @@ impl Table {
     /// Remove a row (ignored if out of range); the selection follows its row or clears.
     pub fn remove_row(&self, index: usize) {
         core::data_update(self.id(), core::Data::TableRows, |n| {
-            if let Some(t) = n.table.as_mut() {
+            if let Some(t) = n.table_mut() {
                 if index < t.rows.len() {
                     t.rows.remove(index);
-                    n.selected = match n.selected {
+                    t.selected = match t.selected {
                         Some(s) if s == index => None,
                         Some(s) if s > index => Some(s - 1),
                         o => o,
@@ -94,17 +94,17 @@ impl Table {
     }
     pub fn clear(&self) {
         core::data_update(self.id(), core::Data::TableRows, |n| {
-            if let Some(t) = n.table.as_mut() {
+            if let Some(t) = n.table_mut() {
                 t.rows.clear();
+                t.selected = None;
             }
-            n.selected = None;
         });
     }
     /// Set one cell (the row is padded with empty cells if needed; out-of-range rows are ignored).
     /// Note: this shadows the grid-placement `Widget::set_cell`, reachable as `(*table).set_cell(..)`.
     pub fn set_cell(&self, row: usize, col: usize, text: &str) {
         core::data_update(self.id(), core::Data::TableRows, |n| {
-            if let Some(r) = n.table.as_mut().and_then(|t| t.rows.get_mut(row)) {
+            if let Some(r) = n.table_mut().and_then(|t| t.rows.get_mut(row)) {
                 if col >= MAX_CELL * 64 {
                     return; // absurd column index: would allocate gigabytes
                 }
@@ -116,24 +116,22 @@ impl Table {
         });
     }
     pub fn cell(&self, row: usize, col: usize) -> String {
-        core::read(self.id(), |n| {
-            n.table.as_ref()?.rows.get(row)?.get(col).cloned()
-        })
-        .flatten()
-        .unwrap_or_default()
+        core::read(self.id(), |n| n.table()?.rows.get(row)?.get(col).cloned())
+            .flatten()
+            .unwrap_or_default()
     }
     pub fn row(&self, row: usize) -> Vec<String> {
-        core::read(self.id(), |n| n.table.as_ref()?.rows.get(row).cloned())
+        core::read(self.id(), |n| n.table()?.rows.get(row).cloned())
             .flatten()
             .unwrap_or_default()
     }
     pub fn rows(&self) -> Vec<Vec<String>> {
-        core::read(self.id(), |n| n.table.as_ref().map(|t| t.rows.clone()))
+        core::read(self.id(), |n| n.table().map(|t| t.rows.clone()))
             .flatten()
             .unwrap_or_default()
     }
     pub fn row_count(&self) -> usize {
-        core::read(self.id(), |n| n.table.as_ref().map_or(0, |t| t.rows.len())).unwrap_or(0)
+        core::read(self.id(), |n| n.table().map_or(0, |t| t.rows.len())).unwrap_or(0)
     }
     /// Run `f` and send the table to the backend once at the end (fast bulk updates).
     pub fn batch(&self, f: impl FnOnce(&Table)) {
@@ -144,8 +142,9 @@ impl Table {
     /// Select a row (out of range = clear). No callback fires.
     pub fn set_selected(&self, row: Option<usize>) {
         core::data_update(self.id(), core::Data::TableSelected, |n| {
-            let len = n.table.as_ref().map_or(0, |t| t.rows.len());
-            n.selected = row.filter(|i| *i < len);
+            if let Some(t) = n.table_mut() {
+                t.selected = row.filter(|i| *i < t.rows.len());
+            }
         });
     }
     pub fn selected(&self) -> Option<usize> {
@@ -154,20 +153,21 @@ impl Table {
     /// The selected row's cells.
     pub fn selected_row(&self) -> Option<Vec<String>> {
         core::read(self.id(), |n| {
-            n.table.as_ref()?.rows.get(n.selected?).cloned()
+            let t = n.table()?;
+            t.rows.get(t.selected?).cloned()
         })
         .flatten()
     }
     /// Show the sort arrow on `(column, ascending)`. Display only: the app reorders the rows itself.
     pub fn set_sort_indicator(&self, s: Option<(usize, bool)>) {
         core::data_update(self.id(), core::Data::TableSort, |n| {
-            if let Some(t) = n.table.as_mut() {
+            if let Some(t) = n.table_mut() {
                 t.sort = s.filter(|(c, _)| *c < t.columns.len());
             }
         });
     }
     pub fn sort_indicator(&self) -> Option<(usize, bool)> {
-        core::read(self.id(), |n| n.table.as_ref().and_then(|t| t.sort)).flatten()
+        core::read(self.id(), |n| n.table().and_then(|t| t.sort)).flatten()
     }
     pub fn on_select(&self, f: impl FnMut(Option<usize>) + 'static) {
         on_select(self.id(), f)

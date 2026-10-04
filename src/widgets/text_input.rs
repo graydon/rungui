@@ -20,15 +20,34 @@ macro_rules! text_methods {
                 })
             }
             pub fn set_read_only(&self, v: bool) {
-                core::set(self.id(), false, |n| n.readonly = v, Prop::ReadOnly(v));
+                core::set(
+                    self.id(),
+                    false,
+                    |n| {
+                        if let Some(t) = n.text_data_mut() {
+                            t.readonly = v
+                        }
+                    },
+                    Prop::ReadOnly(v),
+                );
             }
             /// Show the text in a fixed-pitch font (code, logs, hex dumps). Default off; ignored
             /// by backends that cannot change the font.
             pub fn set_monospace(&self, v: bool) {
-                core::set(self.id(), true, |n| n.monospace = v, Prop::Monospace(v));
+                core::set(
+                    self.id(),
+                    true,
+                    |n| {
+                        if let Some(t) = n.text_data_mut() {
+                            t.monospace = v
+                        }
+                    },
+                    Prop::Monospace(v),
+                );
             }
             pub fn monospace(&self) -> bool {
-                core::read(self.id(), |n| n.monospace).unwrap_or(false)
+                core::read(self.id(), |n| n.text_data().is_some_and(|t| t.monospace))
+                    .unwrap_or(false)
             }
         }
     };
@@ -48,7 +67,11 @@ impl TextInput {
         core::set(
             self.id(),
             false,
-            |n| n.placeholder = t.to_string(),
+            |n| {
+                if let Some(d) = n.text_data_mut() {
+                    d.placeholder = t.to_string()
+                }
+            },
             Prop::Placeholder(t),
         );
     }
@@ -60,9 +83,18 @@ impl TextArea {
     }
     /// Soft-wrap long lines (default `true`); `false` scrolls horizontally instead.
     pub fn set_wrap(&self, v: bool) {
-        core::set(self.id(), false, |n| n.wrap = v, Prop::Wrap(v));
+        core::set(
+            self.id(),
+            false,
+            |n| {
+                if let Some(d) = n.text_data_mut() {
+                    d.wrap = v
+                }
+            },
+            Prop::Wrap(v),
+        );
     }
     pub fn wrap(&self) -> bool {
-        core::read(self.id(), |n| n.wrap).unwrap_or(false)
+        core::read(self.id(), |n| n.text_data().is_some_and(|t| t.wrap)).unwrap_or(false)
     }
 }

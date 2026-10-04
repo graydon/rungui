@@ -20,10 +20,19 @@ impl Button {
 }
 
 pub(super) fn set_checked(id: WidgetId, v: bool) {
-    core::set(id, false, |n| n.checked = v, Prop::Checked(v));
+    core::set(
+        id,
+        false,
+        |n| {
+            if let Some(c) = n.checked_mut() {
+                *c = v
+            }
+        },
+        Prop::Checked(v),
+    );
 }
 pub(super) fn checked(id: WidgetId) -> bool {
-    core::read(id, |n| n.checked).unwrap_or(false)
+    core::read(id, |n| n.checked()).unwrap_or(false)
 }
 pub(super) fn on_toggle(id: WidgetId, mut f: impl FnMut(bool) + 'static) {
     on(id, Ev::Toggled, move |e| {
@@ -72,7 +81,9 @@ impl RadioButton {
     pub fn new(parent: impl Into<WidgetId>, group: &RadioGroup, text: &str) -> RadioButton {
         make(RadioButton::from_id, Kind::RadioButton, parent, |n| {
             n.text = text.to_string();
-            n.group = group.0;
+            if let Some(c) = n.check_mut() {
+                c.group = group.0;
+            }
         })
     }
     pub fn set_text(&self, t: &str) {
@@ -85,11 +96,13 @@ impl RadioButton {
             return;
         }
         let others = core::with(|r| {
-            let g = r.nodes.get(&self.id())?.group;
+            let g = r.nodes.get(&self.id())?.check()?.group;
             let ids: Vec<_> = r
                 .nodes
                 .iter()
-                .filter(|(k, n)| **k != self.id() && n.group == g && n.checked)
+                .filter(|(k, n)| {
+                    **k != self.id() && n.check().is_some_and(|c| c.group == g && c.checked)
+                })
                 .map(|(k, _)| *k)
                 .collect();
             Some(ids)

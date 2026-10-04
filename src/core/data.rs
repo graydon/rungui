@@ -19,8 +19,9 @@ pub fn data_update(id: WidgetId, what: Data, f: impl FnOnce(&mut Node)) {
 pub fn push(id: WidgetId, what: Data) {
     let deferred = with(|r| {
         let n = r.nodes.get_mut(&id)?;
-        if n.freeze > 0 {
-            n.pending = Some(match n.pending {
+        let b = n.batch_mut()?;
+        if b.freeze > 0 {
+            b.pending = Some(match b.pending {
                 None => what,
                 Some(p) if p == what => p,
                 Some(_) if matches!(what, Data::TreeRows | Data::TreeSelected) => Data::TreeRows,
@@ -39,14 +40,14 @@ pub fn push(id: WidgetId, what: Data) {
 /// Start/stop a batch (nested calls count). Stopping the last level sends what was deferred.
 pub fn freeze(id: WidgetId, on: bool) {
     let pending = with(|r| {
-        let n = r.nodes.get_mut(&id)?;
+        let b = r.nodes.get_mut(&id)?.batch_mut()?;
         if on {
-            n.freeze += 1;
+            b.freeze += 1;
             None
         } else {
-            n.freeze = n.freeze.saturating_sub(1);
-            if n.freeze == 0 {
-                n.pending.take()
+            b.freeze = b.freeze.saturating_sub(1);
+            if b.freeze == 0 {
+                b.pending.take()
             } else {
                 None
             }
@@ -75,18 +76,18 @@ fn send(id: WidgetId, what: Data) {
     }
     let Some(snap) = with(|r| {
         let n = r.nodes.get(&id)?;
-        if let Some(t) = &n.table {
+        if let Some(t) = n.table() {
             let all = what == Data::TableAll;
             return Some(Snap::Table {
                 cols: all.then(|| t.columns.clone()),
                 rows: (all || what == Data::TableRows).then(|| t.rows.clone()),
-                sel: n.selected,
+                sel: t.selected,
                 sort: t.sort,
                 send_sel: all || matches!(what, Data::TableRows | Data::TableSelected),
                 send_sort: all || what == Data::TableSort,
             });
         }
-        let t = n.tree.as_ref()?;
+        let t = n.tree()?;
         Some(Snap::Tree {
             rows: (what == Data::TreeRows).then(|| t.flatten()),
             sel: t.selected,

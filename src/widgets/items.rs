@@ -9,9 +9,11 @@ fn set_items<S: AsRef<str>>(id: WidgetId, items: &[S]) {
         id,
         true,
         |n| {
-            n.items = v.clone();
-            if n.selected.is_some_and(|i| i >= len) {
-                n.selected = None;
+            if let Some(l) = n.list_mut() {
+                l.items = v.clone();
+                if l.selected.is_some_and(|i| i >= len) {
+                    l.selected = None;
+                }
             }
         },
         Prop::Items(&v),
@@ -19,7 +21,7 @@ fn set_items<S: AsRef<str>>(id: WidgetId, items: &[S]) {
     set_selected(id, selected(id));
 }
 pub(super) fn selected(id: WidgetId) -> Option<usize> {
-    core::read(id, |n| n.selected).flatten()
+    core::read(id, |n| n.selection()).flatten()
 }
 pub(super) fn set_selected(id: WidgetId, i: Option<usize>) {
     let Some((tabs, len)) = core::read(id, |n| {
@@ -28,7 +30,7 @@ pub(super) fn set_selected(id: WidgetId, i: Option<usize>) {
             if n.kind == Kind::Tabs {
                 n.children.len()
             } else {
-                n.items.len()
+                n.list().map_or(0, |l| l.items.len())
             },
         )
     }) else {
@@ -38,7 +40,16 @@ pub(super) fn set_selected(id: WidgetId, i: Option<usize>) {
     if tabs && valid.is_none() {
         return; // a tab strip always has a selection
     }
-    core::set(id, false, |n| n.selected = valid, Prop::Selected(valid));
+    core::set(
+        id,
+        false,
+        |n| {
+            if let Some(s) = n.selection_mut() {
+                *s = valid
+            }
+        },
+        Prop::Selected(valid),
+    );
 }
 pub(super) fn on_select(id: WidgetId, mut f: impl FnMut(Option<usize>) + 'static) {
     on(id, Ev::Selected, move |e| {
@@ -55,7 +66,9 @@ macro_rules! item_methods {
                 set_items(self.id(), items)
             }
             pub fn items(&self) -> Vec<String> {
-                core::read(self.id(), |n| n.items.clone()).unwrap_or_default()
+                core::read(self.id(), |n| n.list().map(|l| l.items.clone()))
+                    .flatten()
+                    .unwrap_or_default()
             }
             pub fn set_selected(&self, i: Option<usize>) {
                 set_selected(self.id(), i)
@@ -65,7 +78,8 @@ macro_rules! item_methods {
             }
             pub fn selected_text(&self) -> Option<String> {
                 core::read(self.id(), |n| {
-                    n.selected.and_then(|i| n.items.get(i).cloned())
+                    let l = n.list()?;
+                    l.items.get(l.selected?).cloned()
                 })
                 .flatten()
             }

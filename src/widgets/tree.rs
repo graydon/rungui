@@ -3,7 +3,7 @@
 use super::*;
 
 fn tree_do<R>(id: WidgetId, f: impl FnOnce(&core::TreeData) -> R) -> Option<R> {
-    core::read(id, |n| n.tree.as_ref().map(|t| f(t))).flatten()
+    core::read(id, |n| n.tree().map(|t| f(t))).flatten()
 }
 
 impl Tree {
@@ -18,7 +18,7 @@ impl Tree {
     pub fn insert(&self, parent: Option<TreeNodeId>, index: usize, text: &str) -> TreeNodeId {
         let mut out = 0;
         core::data_update(self.id(), core::Data::TreeRows, |n| {
-            if let Some(t) = n.tree.as_mut() {
+            if let Some(t) = n.tree_mut() {
                 out = t.insert(parent.map(|p| p.0), index, text);
             }
         });
@@ -27,21 +27,21 @@ impl Tree {
     /// Remove a node and its subtree (the selection clears if it was inside).
     pub fn remove(&self, node: TreeNodeId) {
         core::data_update(self.id(), core::Data::TreeRows, |n| {
-            if let Some(t) = n.tree.as_mut() {
+            if let Some(t) = n.tree_mut() {
                 t.remove(node.0);
             }
         });
     }
     pub fn clear(&self) {
         core::data_update(self.id(), core::Data::TreeRows, |n| {
-            if let Some(t) = n.tree.as_mut() {
+            if let Some(t) = n.tree_mut() {
                 *t = Default::default();
             }
         });
     }
     pub fn set_text(&self, node: TreeNodeId, text: &str) {
         core::data_update(self.id(), core::Data::TreeRows, |n| {
-            if let Some(x) = n.tree.as_mut().and_then(|t| t.nodes.get_mut(&node.0)) {
+            if let Some(x) = n.tree_mut().and_then(|t| t.nodes.get_mut(&node.0)) {
                 x.text = text.to_string();
             }
         });
@@ -79,7 +79,7 @@ impl Tree {
     /// Programmatic expand/collapse (no callback fires).
     pub fn set_expanded(&self, node: TreeNodeId, v: bool) {
         core::data_update(self.id(), core::Data::TreeRows, |n| {
-            if let Some(x) = n.tree.as_mut().and_then(|t| t.nodes.get_mut(&node.0)) {
+            if let Some(x) = n.tree_mut().and_then(|t| t.nodes.get_mut(&node.0)) {
                 x.expanded = v;
             }
         });
@@ -92,7 +92,7 @@ impl Tree {
     }
     pub fn expand_all(&self, v: bool) {
         core::data_update(self.id(), core::Data::TreeRows, |n| {
-            if let Some(t) = n.tree.as_mut() {
+            if let Some(t) = n.tree_mut() {
                 t.nodes.values_mut().for_each(|x| x.expanded = v);
             }
         });
@@ -100,7 +100,7 @@ impl Tree {
     /// Lazy loading hint: show an expander even without children; fill them in `on_expand`.
     pub fn set_has_children(&self, node: TreeNodeId, v: bool) {
         core::data_update(self.id(), core::Data::TreeRows, |n| {
-            if let Some(x) = n.tree.as_mut().and_then(|t| t.nodes.get_mut(&node.0)) {
+            if let Some(x) = n.tree_mut().and_then(|t| t.nodes.get_mut(&node.0)) {
                 x.has_children = v;
             }
         });
@@ -108,7 +108,7 @@ impl Tree {
     /// Select a node (its ancestors are expanded so it is visible); `None` clears. No callback fires.
     pub fn set_selected(&self, node: Option<TreeNodeId>) {
         core::data_update(self.id(), core::Data::TreeRows, |n| {
-            if let Some(t) = n.tree.as_mut() {
+            if let Some(t) = n.tree_mut() {
                 match node.filter(|x| t.nodes.contains_key(&x.0)) {
                     Some(x) => {
                         t.reveal(x.0);
