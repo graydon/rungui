@@ -1,0 +1,35 @@
+# Cocoa backend on linux ("emulate-mac", GNUstep + libobjc2): NOT applied to Cargo.toml (dependencies
+# there are restricted to the macOS section). To enable the emulation, append this to Cargo.toml and
+# replace the `emulate-mac = []` feature by:
+#
+# emulate-mac = [
+#     "dep:objc2", "dep:objc2-foundation", "dep:objc2-app-kit",
+#     "objc2/gnustep-2-1", "objc2/disable-encoding-assertions",
+#     "objc2-foundation/gnustep-2-1", "objc2-app-kit/gnustep-2-1",
+# ]
+#
+# (`disable-encoding-assertions`: GNUstep spells struct encodings `_NSRect` where Apple has `CGRect`,
+# which objc2's debug-build message verification would reject.) Then build libobjc2 + GNUstep with
+# build-gnustep-libobjc2.sh and export RUNGUI_GNUSTEP_PREFIX=<prefix> (see run-smoke.sh).
+#
+[target.'cfg(target_os = "linux")'.dependencies]
+objc2 = { version = "0.6", optional = true }
+objc2-foundation = { version = "0.3", optional = true, default-features = false, features = [
+    "std", "NSTimer", "NSRunLoop", "NSProcessInfo", "NSThread",
+] }
+objc2-app-kit = { version = "0.3", optional = true, default-features = false, features = [
+    "std",
+    # windows, views, controls
+    "NSApplication", "NSResponder", "NSWindow", "NSView", "NSControl", "NSCell", "NSActionCell",
+    "NSButton", "NSButtonCell", "NSTextField", "NSTextFieldCell", "NSSecureTextField",
+    "NSText", "NSTextView", "NSTextContainer", "NSScrollView", "NSPopUpButton", "NSSlider",
+    "NSProgressIndicator", "NSStepper", "NSTabView", "NSTabViewItem", "NSBox", "NSImageView",
+    "NSPanel", "NSLayoutConstraint",
+    # tables and outlines
+    "NSTableView", "NSTableColumn", "NSTableHeaderCell", "NSTableHeaderView", "NSOutlineView",
+    "NSUserInterfaceItemIdentification",
+    # menus, dialogs, events, drawing
+    "NSMenu", "NSMenuItem", "NSAlert", "NSOpenPanel", "NSSavePanel", "NSEvent", "NSGraphicsContext",
+    "NSCursor", "NSColor", "NSFont", "NSScreen", "NSGraphics", "NSImage", "NSImageRep",
+    "NSBitmapImageRep", "NSRunningApplication", "NSAccessibilityProtocols", "objc2-core-foundation",
+] }
