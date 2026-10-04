@@ -65,8 +65,11 @@ Windows without an explicit `set_size` follow their content's natural size.
 flattened, hidden subtrees and unselected tabs omitted, list items as option nodes, unnamed inputs
 labelled by the preceding Label, passwords never exposed). `a11y::do_action(window, request)` turns
 AT actions (click, set value, increment, focus) into the same native update + app callback a real
-user action would cause. Overrides: `set_a11y_name/description/role`. Backends hook the accesskit
-platform adapter in `Backend::a11y_attach` and push updates in `a11y_changed`.
+user action would cause. Overrides: `set_a11y_name/description/role`. Backends push the
+core's names/descriptions/roles onto the native controls in `a11y_changed` (GTK: ATK, Cocoa:
+`accessibilityLabel`, Win32: `IAccPropServices` MSAA annotations on the few HWNDs where oleacc's
+stock proxy is inadequate: the sash, Page/GroupBox containers and explicit app overrides). No
+backend uses an accesskit platform adapter.
 
 ## Unicode
 

@@ -25,7 +25,7 @@ fn main() {
             println!("cargo:rustc-cfg=rungui_win32");
             for l in [
                 "user32", "gdi32", "kernel32", "comctl32", "comdlg32", "shell32", "ole32",
-                "uxtheme", "dwmapi", "shcore", "oleacc", "uiautomationcore", "imm32", "uuid",
+                "uxtheme", "dwmapi", "shcore", "imm32", "uuid",
             ] {
                 link(l);
             }

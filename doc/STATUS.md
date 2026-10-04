@@ -14,7 +14,7 @@ Last updated: 2026-10-03, after merging the GTK, tests/CI, file-manager, Cocoa/G
 | Hosted and emulated modes | `--features emulate-mac` (clang + GNUstep), `--features mock` (headless), Win32 via mingw-w64 and, on x86_64 Linux, run under wine (`cargo run-win`, `cargo test-win`). |
 | Cross-compile | `x86_64-pc-windows-gnu` builds and links. `*-apple-darwin` is type-checked only. |
 | Devcontainer scaffolding | `.devcontainer/`, `scripts/setup-devcontainer.sh`, `scripts/check-all.sh`, `scripts/wine-runner.sh`, `.cargo/config.toml` aliases. |
-| a11y with accesskit | The core builds an accesskit tree (`a11y.rs`, tested on mock). Win32 has a UIA adapter wired in. GTK exposes ATK name/description and (unverified) role overrides. macOS uses AppKit labels only and has no accesskit adapter. |
+| a11y with accesskit | The core builds an accesskit tree (`a11y.rs`, tested on mock). Win32 relies on the stock MSAA proxies plus `IAccPropServices` overrides (`win32_a11y.rs`, checked with MSAA and UIA clients; no UIA provider). GTK exposes ATK name/description and (unverified) role overrides. macOS uses AppKit labels only and has no accesskit adapter. |
 | Unicode | UTF-8 in Rust. UTF-16 on Win32, NSString on Cocoa, UTF-8 on GTK. Accents, CJK, emoji and Hebrew were typed on GTK in the smoke test. |
 | Native handles | `native_handle()` returns the `GtkWidget*`, `HWND` or `NSView*`. |
 | Simplicity and no panics | `Copy` id handles, stale handles are inert, borrows never held across callbacks. Fuzz, reference-model and re-entrancy tests run on the mock backend. |
@@ -67,8 +67,9 @@ R = run-tested, C = compiles and links only, T = type-checked only, N = not impl
 
 - **Win32:** never run on real Windows; verified only under wine on Xvfb with no window manager, so
   `Event::Moved`, `Prop::MinSize`, live window shrinking and DPI change are compile-checked only.
-  The UIA accesskit adapter attaches without crashing but was not tested with a UIA client. The
-  sash is mouse-only (no keyboard focus). comctl32 left-aligns the first Table column; Table
+  Accessibility is MSAA only: AT actions (increment/set value) are not available, explicit
+  `set_a11y_*` overrides on menu items are not applied (`IAccPropServices::SetHmenuProp` could do it), the SpinBox up/down control has no name or value unless the app sets one. Checked with a
+  UIA client (comtypes) and an MSAA client, not with a real screen reader. The sash is mouse-only (no keyboard focus). comctl32 left-aligns the first Table column; Table
   column widths are not re-scaled on DPI change; Shift+F10/Apps-key menus untested.
 - **macOS:** run on real macOS. Audited by reading, not run: `objc_msgSend_stret` (x86_64
   only), exact-type msgSend transmutes, BOOL/NSInteger sizes, common-modes timers, file dialogs,
@@ -97,8 +98,8 @@ are in the README ("Binary size and linkage")
 ## Next steps
 
 1. Run the Win32 backend on real Windows (CI job exists, unrun); verify move/min-size/DPI and the
-   UIA adapter with a real client.
-2. Add an accesskit macOS adapter and a GTK AT-SPI bridge; verify the Win32 UIA adapter.
+   MSAA overrides with Narrator/NVDA.
+2. Add a GTK AT-SPI bridge and sash keyboard support (focus + arrow keys) on Win32.
 3. Close the API gaps above, then a canvas/custom-draw widget and virtualised tables/trees.
 4. Clean clippy with `--all-targets -D warnings`.
 
