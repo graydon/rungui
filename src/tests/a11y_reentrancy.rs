@@ -2,7 +2,7 @@
 //! re-entrancy for every event kind, and timer / post ordering.
 
 use crate::backend::mock::{self, widget};
-use crate::tests_fuzz_layout::Rng;
+use crate::tests::fuzz_layout::Rng;
 use crate::*;
 use std::cell::{Cell, RefCell};
 use std::collections::HashSet;

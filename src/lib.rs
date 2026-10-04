@@ -129,17 +129,3 @@ pub fn set_rtl_layout(rtl: bool) {
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod tests_a11y_reentrancy;
-#[cfg(test)]
-mod tests_fuzz_layout;
-#[cfg(test)]
-mod tests_models;
-#[cfg(test)]
-mod tests_robust;
-#[cfg(test)]
-mod tests_splitter;
-#[cfg(test)]
-mod tests_table_tree;
-#[cfg(test)]
-mod tests_text;

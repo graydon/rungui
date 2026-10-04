@@ -3,7 +3,7 @@
 //! step compares the widget API and what the backend last received.
 
 use crate::backend::mock::{self, widget};
-use crate::tests_fuzz_layout::Rng;
+use crate::tests::fuzz_layout::Rng;
 use crate::*;
 
 fn init() {

@@ -2,7 +2,7 @@
 //! mnemonics) over random strings built from awkward pieces: surrogate pairs, combining marks,
 //! ZWJ sequences, flags, CRLF, Hangul, bidi controls, NULs and stray ampersands.
 
-use crate::tests_fuzz_layout::Rng;
+use crate::tests::fuzz_layout::Rng;
 use crate::text::*;
 
 const PIECES: &[&str] = &[
