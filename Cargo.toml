@@ -30,3 +30,28 @@ mock = []
 name = "file_manager"
 path = "examples/file_manager/main.rs"
 test = true
+
+# Cocoa backend (src/backend/cocoa*): the objc2 ecosystem instead of hand-declared FFI. They link
+# AppKit/Foundation/libobjc themselves. Feature lists are minimal (found by removal): every listed
+# AppKit feature is used by the backend.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std", "NSTimer", "NSRunLoop", "NSProcessInfo", "NSThread",
+] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+    "std",
+    # windows, views, controls
+    "NSApplication", "NSResponder", "NSWindow", "NSView", "NSControl", "NSCell", "NSActionCell",
+    "NSButton", "NSButtonCell", "NSTextField", "NSTextFieldCell", "NSSecureTextField",
+    "NSText", "NSTextView", "NSTextContainer", "NSScrollView", "NSPopUpButton", "NSSlider",
+    "NSProgressIndicator", "NSStepper", "NSTabView", "NSTabViewItem", "NSBox", "NSImageView",
+    "NSPanel", "NSLayoutConstraint",
+    # tables and outlines
+    "NSTableView", "NSTableColumn", "NSTableHeaderCell", "NSTableHeaderView", "NSOutlineView",
+    "NSUserInterfaceItemIdentification",
+    # menus, dialogs, events, drawing
+    "NSMenu", "NSMenuItem", "NSAlert", "NSOpenPanel", "NSSavePanel", "NSEvent", "NSGraphicsContext",
+    "NSCursor", "NSColor", "NSFont", "NSScreen", "NSGraphics", "NSImage", "NSImageRep",
+    "NSBitmapImageRep", "NSRunningApplication", "NSAccessibilityProtocols", "objc2-core-foundation",
+] }
