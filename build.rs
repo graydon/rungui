@@ -27,13 +27,8 @@ fn main() {
 
     match os.as_str() {
         "windows" => {
+            // the `windows` crate links its own import libraries (raw-dylib): nothing to emit
             println!("cargo:rustc-cfg=rungui_win32");
-            for l in [
-                "user32", "gdi32", "kernel32", "comctl32", "comdlg32", "shell32", "ole32",
-                "uxtheme", "dwmapi", "shcore", "imm32", "uuid",
-            ] {
-                link(l);
-            }
         }
         "macos" => {
             println!("cargo:rustc-cfg=rungui_cocoa");
