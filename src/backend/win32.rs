@@ -1,6 +1,6 @@
 //! Win32 backend: user32 / comctl32 v6 / gdi32 / uxtheme / COM file dialogs, all hand-declared in
-//! `win32_sys.rs` (no binding crates). Accessibility is the stock MSAA proxies plus `IAccPropServices` overrides
-//! (`win32_a11y.rs`); there is no UIA provider.
+//! `win32/sys.rs` (no binding crates). Accessibility is the stock MSAA proxies plus `IAccPropServices` overrides
+//! (`win32/a11y.rs`); there is no UIA provider.
 //!
 //! Design notes
 //! * Every widget is a child HWND of its native parent (Window, or a *container*: Page / GroupBox).
@@ -32,10 +32,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
-#[path = "win32_sys.rs"]
 mod sys;
 use sys::*;
-#[path = "win32_a11y.rs"]
 mod a11y;
 
 const WM_WAKE: u32 = WM_APP + 1;
