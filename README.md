@@ -109,8 +109,8 @@ Plain `cargo build --release` with the default profile, x86_64.
 
 | Binary | GTK3 built | GTK3 stripped | Cocoa/macOS built | Cocoa/macOS stripped | Cocoa/GNUstep built | Cocoa/GNUstep stripped | Win32 built | Win32 stripped |
 |---|---|---|---|---|---|---|---|---|
-| `hello` (a window, a label, a button) | 756 KiB | **601 KiB** | 803 KiB | **663 KiB** | 873 KiB | **711 KiB** | 2,436 KiB | **1,764 KiB** |
-| `file_manager` (the whole app above) | 1,092 KiB | **862 KiB** | 1,087 KiB | **884 KiB** | 1,173 KiB | **939 KiB** | 2,662 KiB | **1,926 KiB** |
+| `hello` (a window, a label, a button) | 756 KiB | **601 KiB** | 803 KiB | **663 KiB** | 873 KiB | **711 KiB** | 1,738 KiB | **1,266 KiB** |
+| `file_manager` (the whole app above) | 1,092 KiB | **862 KiB** | 1,087 KiB | **884 KiB** | 1,173 KiB | **939 KiB** | 1,964 KiB | **1,427 KiB** |
 
 Direct dynamic dependencies, the part the program itself asks for:
 
