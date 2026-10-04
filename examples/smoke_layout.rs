@@ -1,11 +1,11 @@
-//! Second scripted smoke target (driven by scripts/gtk-smoke.sh): splitter drag, monospace / wrap,
+//! Second scripted smoke target (driven by scripts/smoke-gtk.sh): splitter drag, monospace / wrap,
 //! window position, window shrinking and a table + tree inside splitters. Prints one line per
 //! event and the splitter / window bounds on stdout.
 use rungui::*;
 
 fn main() {
-    let app = App::new("smoke2").expect("init");
-    let w = Window::new("smoke2");
+    let app = App::new("smoke-layout").expect("init");
+    let w = Window::new("smoke-layout");
     w.set_position(120, 90);
     let col = VBox::new(w);
     let mono = TextInput::new(col);

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-# Win32 backend smoke test: runs the mingw-built examples/smoke.exe and smoke2.exe under wine on a
+# Win32 backend smoke test: runs the mingw-built examples/smoke_controls.exe and smoke_layout.exe under wine on a
 # private Xvfb, clicks/types with xdotool (wine windows are ordinary X windows) and checks the
-# callbacks fired (same checks as gtk-smoke.sh, plus table/tree/popup menu/splitter/monospace).
+# callbacks fired (same checks as smoke-gtk.sh, plus table/tree/popup menu/splitter/monospace).
 # Needs wine, Xvfb, xdotool, ImageMagick. Usage: scripts/smoke-win32.sh (honours CARGO_TARGET_DIR)
 set -u
 cd "$(dirname "$0")/.."
 command -v wine >/dev/null || { echo "SKIP: wine not installed"; exit 0; }
 [ "$(uname -m)" = x86_64 ] || { echo "SKIP: wine cannot run x86_64 PE files on $(uname -m)"; exit 0; }
-cargo build --target x86_64-pc-windows-gnu --example smoke --example smoke2 || exit 1
+cargo build --target x86_64-pc-windows-gnu --example smoke_controls --example smoke_layout || exit 1
 tdir="$(cd "${CARGO_TARGET_DIR:-target}" && pwd)"
 export WINEPREFIX="$tdir/wineprefix-smoke" WINEDEBUG=-all WINEDLLOVERRIDES="mscoree,mshtml="
-exe="$tdir/x86_64-pc-windows-gnu/debug/examples/smoke.exe"
+exe="$tdir/x86_64-pc-windows-gnu/debug/examples/smoke_controls.exe"
 xvfb-run -a -s "-screen 0 1024x768x24" bash -c '
 set -u
 export LANG=C.UTF-8 LC_ALL=C.UTF-8
@@ -53,7 +53,7 @@ exit $fail
 ' _ "$exe"
 rc1=$?
 
-exe2="$tdir/x86_64-pc-windows-gnu/debug/examples/smoke2.exe"
+exe2="$tdir/x86_64-pc-windows-gnu/debug/examples/smoke_layout.exe"
 xvfb-run -a -s "-screen 0 1024x768x24" bash -c '
 set -u
 export LANG=C.UTF-8 LC_ALL=C.UTF-8
@@ -62,7 +62,7 @@ timeout 120 wine "$exe" > "$out" 2>&1 &
 pid=$!
 for i in $(seq 150); do grep -q READY "$out" && break; sleep 0.2; done
 grep -q READY "$out" || { echo "FAIL: no READY"; cat "$out"; kill $pid; exit 1; }
-w=$(xdotool search --onlyvisible --name "^smoke2$" | head -1)
+w=$(xdotool search --onlyvisible --name "^smoke-layout$" | head -1)
 bounds() { awk -v n="$1" "\$1==\"BOUNDS\"&&\$2==n{print \$3,\$4,\$5,\$6}" "$out"; }
 eval "$(xdotool getwindowgeometry --shell $w)"; px=$X; py=$Y
 # the client area starts at the window origin (no menu bar); sash = strip after the first pane

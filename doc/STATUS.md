@@ -51,10 +51,10 @@ R = run-tested, C = compiles and links only, T = type-checked only, N = not impl
   unit tests, 15 file-manager integration tests on the mock backend (needs `--features mock`),
   2 doctests. Includes seeded random-layout fuzzing, Table/Tree reference-model tests, text
   property tests, a11y metadata consistency and a re-entrancy matrix (every event kind x hostile callback).
-- `scripts/gtk-smoke.sh`, `scripts/smoke-gtk.sh`, `scripts/smoke-filemanager.sh`: GTK under Xvfb
+- `scripts/smoke-gtk.sh`, `scripts/smoke-gtk-soak.sh`, `scripts/smoke-filemanager.sh`: GTK under Xvfb
   with xdotool and `G_DEBUG=fatal-warnings`; they check results on disk and via trace output.
 - `scripts/smoke-win32.sh`: the Win32 backend under wine + Xvfb (skips if wine is missing); the same
-  checks as `gtk-smoke.sh` plus sash drags, monospace/wrap, table/tree, popup menu.
+  checks as `smoke-gtk.sh` plus sash drags, monospace/wrap, table/tree, popup menu.
 - `cargo test-win` runs the test suite as a Windows exe under wine (76 tests at the time it was added).
 - `scripts/smoke-gnustep.sh`: the Cocoa backend on GNUstep under Xvfb, 35 checks (sash
   drags and keys, typing incl. unicode, table sort, tree expand, popup menu, accelerators, move/resize, quit).

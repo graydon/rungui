@@ -37,10 +37,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --examples
       - run: cargo test
-      - name: Launch smoke.exe briefly (real Win32 startup check)
+      - name: Launch smoke_controls.exe briefly (real Win32 startup check)
         shell: bash
         run: |
-          RUNGUI_EXIT_AFTER_MS=2000 timeout 60 target/debug/examples/smoke.exe | tee smoke.out
+          RUNGUI_EXIT_AFTER_MS=2000 timeout 60 target/debug/examples/smoke_controls.exe | tee smoke.out
           grep -q READY smoke.out
           grep -q BYE smoke.out
       - name: Launch kitchen_sink and hello briefly
@@ -64,9 +64,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --examples
       - run: cargo test
-      - name: Launch smoke briefly (real AppKit startup check)
+      - name: Launch smoke_controls briefly (real AppKit startup check)
         run: |
-          RUNGUI_EXIT_AFTER_MS=2000 perl -e 'alarm 60; exec @ARGV' target/debug/examples/smoke | tee smoke.out
+          RUNGUI_EXIT_AFTER_MS=2000 perl -e 'alarm 60; exec @ARGV' target/debug/examples/smoke_controls | tee smoke.out
           grep -q READY smoke.out
           grep -q BYE smoke.out
       - name: Launch kitchen_sink and hello briefly

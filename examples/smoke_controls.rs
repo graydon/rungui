@@ -1,4 +1,4 @@
-//! Scripted smoke-test target (driven by scripts/gtk-smoke.sh with xdotool): prints one line per
+//! Scripted smoke-test target (driven by scripts/smoke-gtk.sh with xdotool): prints one line per
 //! event / widget bounds on stdout so a shell script can click and type at known positions.
 use rungui::*;
 
