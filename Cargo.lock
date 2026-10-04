@@ -3,23 +3,5 @@
 version = 4
 
 [[package]]
-name = "accesskit"
-version = "0.25.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad442f58ee04714aaa0ba0a2768c1ea1935b29507bb22ddece8cbbc76db02932"
-dependencies = [
- "uuid",
-]
-
-[[package]]
 name = "rungui"
 version = "0.1.0"
-dependencies = [
- "accesskit",
-]
-
-[[package]]
-name = "uuid"
-version = "1.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97277d36b9c3ace13e58fa6e753f8b0bbbf302a18dd193240d70f9e29681059a"

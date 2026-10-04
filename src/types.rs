@@ -206,7 +206,12 @@ pub struct Column {
 
 impl Column {
     pub fn new(title: &str) -> Column {
-        Column { title: title.to_string(), width: 100, align: ColumnAlign::Left, sortable: false }
+        Column {
+            title: title.to_string(),
+            width: 100,
+            align: ColumnAlign::Left,
+            sortable: false,
+        }
     }
     pub fn width(mut self, w: i32) -> Self {
         self.width = w.max(1);

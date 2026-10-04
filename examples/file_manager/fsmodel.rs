@@ -62,7 +62,10 @@ impl Entry {
         } else {
             (lmeta, false)
         };
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.to_string_lossy().into_owned());
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string_lossy().into_owned());
         Some(Entry {
             name,
             path: path.to_path_buf(),
@@ -94,7 +97,11 @@ impl Entry {
     }
 
     pub fn size_text(&self) -> String {
-        if self.is_dir { String::new() } else { human_size(self.size) }
+        if self.is_dir {
+            String::new()
+        } else {
+            human_size(self.size)
+        }
     }
 
     pub fn time_text(&self) -> String {
@@ -113,7 +120,11 @@ pub struct Listing {
 /// never panicked on.
 pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Listing> {
     let rd = fs::read_dir(dir)?;
-    let mut out = Listing { entries: Vec::new(), truncated: false, unreadable: 0 };
+    let mut out = Listing {
+        entries: Vec::new(),
+        truncated: false,
+        unreadable: 0,
+    };
     for item in rd {
         let Ok(item) = item else {
             out.unreadable += 1;
@@ -134,7 +145,12 @@ pub fn read_dir(dir: &Path, show_hidden: bool) -> io::Result<Listing> {
 
 /// Immediate sub-directories of `dir`, sorted by name (for the tree).
 pub fn subdirs(dir: &Path, show_hidden: bool) -> Vec<Entry> {
-    let mut v: Vec<Entry> = read_dir(dir, show_hidden).map(|l| l.entries).unwrap_or_default().into_iter().filter(|e| e.is_dir).collect();
+    let mut v: Vec<Entry> = read_dir(dir, show_hidden)
+        .map(|l| l.entries)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|e| e.is_dir)
+        .collect();
     sort_entries(&mut v, SortKey::Name, true);
     v
 }
@@ -179,9 +195,15 @@ pub fn sort_entries(v: &mut [Entry], key: SortKey, ascending: bool) {
     use std::cmp::Ordering;
     v.sort_by(|a, b| {
         if a.is_dir != b.is_dir {
-            return if a.is_dir { Ordering::Less } else { Ordering::Greater };
+            return if a.is_dir {
+                Ordering::Less
+            } else {
+                Ordering::Greater
+            };
         }
-        let by_name = name_key(a).cmp(&name_key(b)).then_with(|| a.name.cmp(&b.name));
+        let by_name = name_key(a)
+            .cmp(&name_key(b))
+            .then_with(|| a.name.cmp(&b.name));
         let main = match key {
             SortKey::Name => by_name,
             SortKey::Size if !a.is_dir => a.size.cmp(&b.size),
@@ -208,7 +230,11 @@ pub fn human_size(n: u64) -> String {
         v /= 1024.0;
         unit += 1;
     }
-    if v < 9.95 { format!("{:.1} {}", v, U[unit - 1]) } else { format!("{:.0} {}", v, U[unit - 1]) }
+    if v < 9.95 {
+        format!("{:.1} {}", v, U[unit - 1])
+    } else {
+        format!("{:.0} {}", v, U[unit - 1])
+    }
 }
 
 /// "YYYY-MM-DD HH:MM" in UTC (the std library has no time zone support).
@@ -220,7 +246,11 @@ pub fn format_time(t: SystemTime) -> String {
     let days = secs.div_euclid(86_400);
     let rem = secs.rem_euclid(86_400);
     let (y, m, d) = civil_from_days(days);
-    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}", rem / 3600, rem % 3600 / 60)
+    format!(
+        "{y:04}-{m:02}-{d:02} {:02}:{:02}",
+        rem / 3600,
+        rem % 3600 / 60
+    )
 }
 
 /// Days since 1970-01-01 -> (year, month, day), proleptic Gregorian (Howard Hinnant's algorithm).
@@ -255,9 +285,15 @@ pub fn kind_of(e: &Entry) -> String {
         return "Broken link".into();
     }
     if e.is_dir {
-        return if e.is_link { "Folder link".into() } else { "Folder".into() };
+        return if e.is_link {
+            "Folder link".into()
+        } else {
+            "Folder".into()
+        };
     }
-    let ext = Path::new(&e.name).extension().map(|x| x.to_string_lossy().to_lowercase());
+    let ext = Path::new(&e.name)
+        .extension()
+        .map(|x| x.to_string_lossy().to_lowercase());
     let k = match ext.as_deref() {
         Some("rs") => "Rust source",
         Some("c" | "h") => "C source",
@@ -277,7 +313,11 @@ pub fn kind_of(e: &Entry) -> String {
         Some(x) if x.len() <= 5 => return format!("{} file", x.to_uppercase()),
         _ => "File",
     };
-    if e.is_link { format!("{k} link") } else { k.to_string() }
+    if e.is_link {
+        format!("{k} link")
+    } else {
+        k.to_string()
+    }
 }
 
 /// One-line description for the status bar.
@@ -404,7 +444,10 @@ pub fn check_transfer(src: &Path, dst_dir: &Path) -> Result<PathBuf, String> {
 pub fn copy_into(src: &Path, dst_dir: &Path) -> Result<PathBuf, String> {
     let dest = check_transfer(src, dst_dir)?;
     if fs::symlink_metadata(&dest).is_ok() {
-        return Err(format!("\"{}\" already exists", dest.file_name().unwrap_or_default().to_string_lossy()));
+        return Err(format!(
+            "\"{}\" already exists",
+            dest.file_name().unwrap_or_default().to_string_lossy()
+        ));
     }
     copy_tree(src, &dest).map_err(|e| {
         let _ = remove_path(&dest); // do not leave a half-copied tree behind
@@ -417,7 +460,10 @@ pub fn copy_into(src: &Path, dst_dir: &Path) -> Result<PathBuf, String> {
 pub fn move_into(src: &Path, dst_dir: &Path) -> Result<PathBuf, String> {
     let dest = check_transfer(src, dst_dir)?;
     if fs::symlink_metadata(&dest).is_ok() {
-        return Err(format!("\"{}\" already exists", dest.file_name().unwrap_or_default().to_string_lossy()));
+        return Err(format!(
+            "\"{}\" already exists",
+            dest.file_name().unwrap_or_default().to_string_lossy()
+        ));
     }
     if fs::rename(src, &dest).is_ok() {
         return Ok(dest);
@@ -463,7 +509,12 @@ pub fn preview(e: &Entry) -> Preview {
         return Preview::Dir(dir_summary(&e.path));
     }
     if e.broken {
-        return Preview::Error(format!("Broken symbolic link: {}", fs::read_link(&e.path).map(|t| t.display().to_string()).unwrap_or_default()));
+        return Preview::Error(format!(
+            "Broken symbolic link: {}",
+            fs::read_link(&e.path)
+                .map(|t| t.display().to_string())
+                .unwrap_or_default()
+        ));
     }
     let f = match fs::File::open(&e.path) {
         Ok(f) => f,
@@ -481,19 +532,42 @@ pub fn preview(e: &Entry) -> Preview {
     }
     if looks_binary(&buf) {
         let total = e.size.max(buf.len() as u64);
-        return Preview::Hex { text: hex_dump(&buf[..buf.len().min(HEX_LIMIT)], total), total };
+        return Preview::Hex {
+            text: hex_dump(&buf[..buf.len().min(HEX_LIMIT)], total),
+            total,
+        };
     }
-    Preview::Text { text: String::from_utf8_lossy(&buf).into_owned(), truncated }
+    Preview::Text {
+        text: String::from_utf8_lossy(&buf).into_owned(),
+        truncated,
+    }
 }
 
 fn image_preview(e: &Entry, head: &[u8]) -> Option<Preview> {
-    let ext = Path::new(&e.name).extension()?.to_string_lossy().to_lowercase();
+    let ext = Path::new(&e.name)
+        .extension()?
+        .to_string_lossy()
+        .to_lowercase();
     if !matches!(ext.as_str(), "ppm" | "pnm" | "bmp") || e.size > IMAGE_MAX_BYTES {
         return None;
     }
-    let bytes = if e.size as usize <= head.len() { head.to_vec() } else { fs::read(&e.path).ok()? };
-    let img = if ext == "bmp" { parse_bmp(&bytes)? } else { parse_ppm(&bytes)? };
-    let info = format!("{} image, {} x {} pixels, {}\n", ext.to_uppercase(), img.w, img.h, human_size(e.size));
+    let bytes = if e.size as usize <= head.len() {
+        head.to_vec()
+    } else {
+        fs::read(&e.path).ok()?
+    };
+    let img = if ext == "bmp" {
+        parse_bmp(&bytes)?
+    } else {
+        parse_ppm(&bytes)?
+    };
+    let info = format!(
+        "{} image, {} x {} pixels, {}\n",
+        ext.to_uppercase(),
+        img.w,
+        img.h,
+        human_size(e.size)
+    );
     Some(Preview::Image { img, info })
 }
 
@@ -511,7 +585,12 @@ pub fn looks_binary(buf: &[u8]) -> bool {
 
 pub fn hex_dump(bytes: &[u8], total: u64) -> String {
     let mut s = String::with_capacity(bytes.len() * 4 + 64);
-    s.push_str(&format!("Binary file, {} ({} bytes); hex dump of the first {} bytes\n\n", human_size(total), total, bytes.len()));
+    s.push_str(&format!(
+        "Binary file, {} ({} bytes); hex dump of the first {} bytes\n\n",
+        human_size(total),
+        total,
+        bytes.len()
+    ));
     for (i, chunk) in bytes.chunks(16).enumerate() {
         s.push_str(&format!("{:08x}  ", i * 16));
         for j in 0..16 {
@@ -524,7 +603,13 @@ pub fn hex_dump(bytes: &[u8], total: u64) -> String {
             }
         }
         s.push_str(" |");
-        s.extend(chunk.iter().map(|&b| if (0x20..0x7f).contains(&b) { b as char } else { '.' }));
+        s.extend(chunk.iter().map(|&b| {
+            if (0x20..0x7f).contains(&b) {
+                b as char
+            } else {
+                '.'
+            }
+        }));
         s.push_str("|\n");
     }
     s
@@ -537,7 +622,15 @@ pub fn dir_summary(dir: &Path) -> String {
             let dirs = l.entries.iter().filter(|e| e.is_dir).count();
             let files = l.entries.len() - dirs;
             let total: u64 = l.entries.iter().filter(|e| !e.is_dir).map(|e| e.size).sum();
-            let mut s = format!("Folder {}\n\n{} items (including hidden): {} folders, {} files\nFiles total {} ({} bytes)\n", dir.display(), l.entries.len(), dirs, files, human_size(total), total);
+            let mut s = format!(
+                "Folder {}\n\n{} items (including hidden): {} folders, {} files\nFiles total {} ({} bytes)\n",
+                dir.display(),
+                l.entries.len(),
+                dirs,
+                files,
+                human_size(total),
+                total
+            );
             if l.truncated {
                 s.push_str(&format!("(only the first {MAX_ENTRIES} entries counted)\n"));
             }
@@ -594,7 +687,12 @@ pub fn parse_ppm(b: &[u8]) -> Option<ImageData> {
         "P6" => {
             pos += 1; // the single whitespace after maxval
             let data = b.get(pos..pos + n * 3)?;
-            rgb_to_rgba(w, h, data.chunks_exact(3).map(|c| [scale(c[0] as u32), scale(c[1] as u32), scale(c[2] as u32)]))
+            rgb_to_rgba(
+                w,
+                h,
+                data.chunks_exact(3)
+                    .map(|c| [scale(c[0] as u32), scale(c[1] as u32), scale(c[2] as u32)]),
+            )
         }
         "P3" => {
             let mut px = Vec::with_capacity(n);
@@ -614,7 +712,10 @@ pub fn parse_ppm(b: &[u8]) -> Option<ImageData> {
 /// Uncompressed 24/32-bit BMP (BITMAPINFOHEADER or later).
 pub fn parse_bmp(b: &[u8]) -> Option<ImageData> {
     let u16le = |o: usize| b.get(o..o + 2).map(|s| u16::from_le_bytes([s[0], s[1]]));
-    let u32le = |o: usize| b.get(o..o + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]));
+    let u32le = |o: usize| {
+        b.get(o..o + 4)
+            .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+    };
     if b.get(..2)? != b"BM" || u32le(14)? < 40 {
         return None;
     }
@@ -656,7 +757,11 @@ mod tests {
     impl Tmp {
         fn new() -> Tmp {
             static N: AtomicU32 = AtomicU32::new(0);
-            let p = std::env::temp_dir().join(format!("rungui-fm-test-{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed)));
+            let p = std::env::temp_dir().join(format!(
+                "rungui-fm-test-{}-{}",
+                std::process::id(),
+                N.fetch_add(1, Ordering::Relaxed)
+            ));
             fs::create_dir_all(&p).unwrap();
             Tmp(p)
         }
@@ -688,15 +793,27 @@ mod tests {
         assert_eq!(human_size(3 * 1024 * 1024 * 1024), "3.0 GB");
         assert_eq!(human_size(u64::MAX), "16384 PB");
         assert_eq!(format_time(UNIX_EPOCH), "1970-01-01 00:00");
-        assert_eq!(format_time(UNIX_EPOCH + Duration::from_secs(1_000_000_000)), "2001-09-09 01:46");
-        assert_eq!(format_time(UNIX_EPOCH + Duration::from_secs(1_709_164_800)), "2024-02-29 00:00"); // leap day
-        assert_eq!(format_time(UNIX_EPOCH - Duration::from_secs(86_400)), "1969-12-31 00:00");
+        assert_eq!(
+            format_time(UNIX_EPOCH + Duration::from_secs(1_000_000_000)),
+            "2001-09-09 01:46"
+        );
+        assert_eq!(
+            format_time(UNIX_EPOCH + Duration::from_secs(1_709_164_800)),
+            "2024-02-29 00:00"
+        ); // leap day
+        assert_eq!(
+            format_time(UNIX_EPOCH - Duration::from_secs(86_400)),
+            "1969-12-31 00:00"
+        );
     }
 
     #[test]
     fn ellipsis() {
         assert_eq!(ellipsize_path("/a/b", 10), "/a/b");
-        assert_eq!(ellipsize_path("/home/user/projects/x", 10), "\u{2026}rojects/x");
+        assert_eq!(
+            ellipsize_path("/home/user/projects/x", 10),
+            "\u{2026}rojects/x"
+        );
         assert_eq!(ellipsize_path("日本語のパス名", 4), "\u{2026}パス名");
     }
 
@@ -756,10 +873,22 @@ mod tests {
         let copied = copy_into(&src, &dst).unwrap();
         assert_eq!(copied, dst.join("src"));
         assert_eq!(fs::read(dst.join("src/sub/b.txt")).unwrap(), b"world");
-        assert!(copy_into(&src, &dst).unwrap_err().contains("already exists"));
+        assert!(
+            copy_into(&src, &dst)
+                .unwrap_err()
+                .contains("already exists")
+        );
         assert!(copy_into(&src, &src).unwrap_err().contains("itself"));
-        assert!(copy_into(&src, &src.join("sub")).unwrap_err().contains("itself"));
-        assert!(copy_into(&src.join("a.txt"), &src).unwrap_err().contains("same"));
+        assert!(
+            copy_into(&src, &src.join("sub"))
+                .unwrap_err()
+                .contains("itself")
+        );
+        assert!(
+            copy_into(&src.join("a.txt"), &src)
+                .unwrap_err()
+                .contains("same")
+        );
 
         let moved = move_into(&dst.join("src"), &t.0).unwrap_err(); // t.0/src exists already
         assert!(moved.contains("already exists"));
@@ -769,7 +898,11 @@ mod tests {
 
         let r = rename_path(&dst.join("a.txt"), "renamed.txt").unwrap();
         assert!(r.exists());
-        assert!(rename_path(&r, "src").unwrap_err().contains("already exists"));
+        assert!(
+            rename_path(&r, "src")
+                .unwrap_err()
+                .contains("already exists")
+        );
         assert!(rename_path(&dst.join("src"), "src").is_ok()); // renaming to itself is a no-op
         assert!(rename_path(&dst.join("src"), "x/y").is_err());
 
@@ -828,7 +961,16 @@ mod tests {
 
     #[test]
     fn kinds() {
-        let mk = |n: &str| Entry { name: n.into(), path: n.into(), is_dir: false, is_link: false, broken: false, size: 1, modified: None, is_parent: false };
+        let mk = |n: &str| Entry {
+            name: n.into(),
+            path: n.into(),
+            is_dir: false,
+            is_link: false,
+            broken: false,
+            size: 1,
+            modified: None,
+            is_parent: false,
+        };
         assert_eq!(kind_of(&mk("a.rs")), "Rust source");
         assert_eq!(kind_of(&mk("a.PNG")), "Image");
         assert_eq!(kind_of(&mk("a.xyz")), "XYZ file");
@@ -853,7 +995,12 @@ mod tests {
             Preview::Text { text, truncated } => assert!(truncated && text.len() == PREVIEW_LIMIT),
             _ => panic!(),
         }
-        let bin = t.file("b.bin", &[0, 1, 2, 0xff, b'A', b'B', 0, 0, 9, 10, 11, 12, 13, 14, 15, 16, 17]);
+        let bin = t.file(
+            "b.bin",
+            &[
+                0, 1, 2, 0xff, b'A', b'B', 0, 0, 9, 10, 11, 12, 13, 14, 15, 16, 17,
+            ],
+        );
         match preview(&Entry::from_path(&bin).unwrap()) {
             Preview::Hex { text, total } => {
                 assert_eq!(total, 17);
@@ -863,12 +1010,20 @@ mod tests {
             _ => panic!("expected hex"),
         }
         let invalid = t.file("latin1.txt", &[0xe9; 400]); // no NULs, but not UTF-8 at all
-        assert!(matches!(preview(&Entry::from_path(&invalid).unwrap()), Preview::Hex { .. }));
+        assert!(matches!(
+            preview(&Entry::from_path(&invalid).unwrap()),
+            Preview::Hex { .. }
+        ));
         let empty = t.file("empty", b"");
-        assert!(matches!(preview(&Entry::from_path(&empty).unwrap()), Preview::Text { ref text, .. } if text.is_empty()));
+        assert!(
+            matches!(preview(&Entry::from_path(&empty).unwrap()), Preview::Text { ref text, .. } if text.is_empty())
+        );
         let d = Entry::from_path(&t.0).unwrap();
         match preview(&d) {
-            Preview::Dir(s) => assert!(s.contains("5 items (including hidden): 0 folders, 5 files"), "{s}"),
+            Preview::Dir(s) => assert!(
+                s.contains("5 items (including hidden): 0 folders, 5 files"),
+                "{s}"
+            ),
             _ => panic!(),
         }
     }
@@ -905,10 +1060,15 @@ mod tests {
         let t = Tmp::new();
         let p = t.file("pic.ppm", ppm);
         match preview(&Entry::from_path(&p).unwrap()) {
-            Preview::Image { img, info } => assert!(img.w == 2 && info.contains("PPM image, 2 x 2")),
+            Preview::Image { img, info } => {
+                assert!(img.w == 2 && info.contains("PPM image, 2 x 2"))
+            }
             _ => panic!("expected image"),
         }
         let p = t.file("fake.ppm", b"P6 not really an image\n");
-        assert!(matches!(preview(&Entry::from_path(&p).unwrap()), Preview::Text { .. }));
+        assert!(matches!(
+            preview(&Entry::from_path(&p).unwrap()),
+            Preview::Text { .. }
+        ));
     }
 }

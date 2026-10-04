@@ -30,7 +30,9 @@ use std::time::SystemTime;
 /// so scripts/smoke-filemanager.sh and the tests can follow what the app did.
 pub fn tracing() -> bool {
     static T: OnceLock<bool> = OnceLock::new();
-    *T.get_or_init(|| std::env::var_os("RUNGUI_FM_TRACE").is_some_and(|v| !v.is_empty() && v != "0"))
+    *T.get_or_init(|| {
+        std::env::var_os("RUNGUI_FM_TRACE").is_some_and(|v| !v.is_empty() && v != "0")
+    })
 }
 macro_rules! trace {
     ($($a:tt)*) => { if tracing() { println!($($a)*) } };
@@ -118,12 +120,20 @@ pub struct Fm {
 }
 
 fn home_dir() -> Option<PathBuf> {
-    std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).filter(|p| p.is_dir())
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir())
 }
 
 fn row_of(e: &Entry) -> Vec<String> {
     let mark = if e.is_dir { "\u{25B8} " } else { "   " }; // small right-pointing triangle for folders
-    vec![format!("{mark}{}", e.name), e.size_text(), e.time_text(), e.kind()]
+    vec![
+        format!("{mark}{}", e.name),
+        e.size_text(),
+        e.time_text(),
+        e.kind(),
+    ]
 }
 
 /// Integer upscale so tiny images (icons) are visible: nearest neighbour, longest edge up to ~128.
@@ -140,7 +150,11 @@ fn scaled(img: &ImageData) -> ImageData {
             rgba.extend_from_slice(&img.rgba[s..s + 4]);
         }
     }
-    ImageData { w: (w * k) as u32, h: (h * k) as u32, rgba }
+    ImageData {
+        w: (w * k) as u32,
+        h: (h * k) as u32,
+        rgba,
+    }
 }
 
 // ------------------------------------------------------------------ construction
@@ -220,7 +234,10 @@ pub fn build(opts: Options) -> Rc<Fm> {
         t.set_a11y_name(&format!("Files, pane {n}"));
         t.set_columns(&[
             Column::new("Name").width(125).sortable(true),
-            Column::new("Size").width(62).align(ColumnAlign::Right).sortable(true),
+            Column::new("Size")
+                .width(62)
+                .align(ColumnAlign::Right)
+                .sortable(true),
             Column::new("Modified").width(128).sortable(true),
             Column::new("Kind").width(90).sortable(true),
         ]);
@@ -304,13 +321,25 @@ pub fn build(opts: Options) -> Rc<Fm> {
             ctx_new,
         },
     };
-    let fm = Rc::new(Fm { ui, st: RefCell::new(State::default()), quiet: Cell::new(0), typing: Cell::new(false), dialog_ui: Cell::new(None) });
+    let fm = Rc::new(Fm {
+        ui,
+        st: RefCell::new(State::default()),
+        quiet: Cell::new(0),
+        typing: Cell::new(false),
+        dialog_ui: Cell::new(None),
+    });
     fm.wire();
     fm.init_tree();
     {
         let mut st = fm.st.borrow_mut();
         for p in &opts.dirs {
-            st.panes.push(Pane { path: p.clone(), entries: vec![], sort: (SortKey::Name, true), mtime: None, truncated: false });
+            st.panes.push(Pane {
+                path: p.clone(),
+                entries: vec![],
+                sort: (SortKey::Name, true),
+                mtime: None,
+                truncated: false,
+            });
         }
     }
     for (i, p) in opts.dirs.iter().enumerate() {
@@ -411,7 +440,12 @@ impl Fm {
     // ---------------------------------------------------------------- state helpers
 
     pub fn path_of(&self, pane: usize) -> PathBuf {
-        self.st.borrow().panes.get(pane).map(|p| p.path.clone()).unwrap_or_default()
+        self.st
+            .borrow()
+            .panes
+            .get(pane)
+            .map(|p| p.path.clone())
+            .unwrap_or_default()
     }
 
     pub fn active(&self) -> usize {
@@ -449,7 +483,14 @@ impl Fm {
 
     /// Show `path` in `pane`. `select` picks a row afterwards (e.g. the folder we came from).
     /// `reveal` also selects the folder in the tree. Returns false (and says why) on failure.
-    pub fn navigate(self: &Rc<Self>, pane: usize, path: PathBuf, select: Option<PathBuf>, reveal: bool, from_box: bool) -> bool {
+    pub fn navigate(
+        self: &Rc<Self>,
+        pane: usize,
+        path: PathBuf,
+        select: Option<PathBuf>,
+        reveal: bool,
+        from_box: bool,
+    ) -> bool {
         let hidden = self.st.borrow().show_hidden;
         let listing = match fsm::read_dir(&path, hidden) {
             Ok(l) => l,
@@ -463,7 +504,9 @@ impl Fm {
         let truncated = listing.truncated;
         {
             let mut st = self.st.borrow_mut();
-            let Some(p) = st.panes.get_mut(pane) else { return false };
+            let Some(p) = st.panes.get_mut(pane) else {
+                return false;
+            };
             let mut entries = listing.entries;
             fsm::sort_entries(&mut entries, p.sort.0, p.sort.1);
             if let Some(parent) = Entry::parent_of(&path) {
@@ -483,7 +526,12 @@ impl Fm {
             self.tree_reveal(&path);
         }
         // select + preview the requested row, else preview the directory itself
-        let row = select.and_then(|s| self.st.borrow().panes[pane].entries.iter().position(|e| e.path == s));
+        let row = select.and_then(|s| {
+            self.st.borrow().panes[pane]
+                .entries
+                .iter()
+                .position(|e| e.path == s)
+        });
         match row {
             Some(r) => self.on_row_selected(pane, Some(r)),
             None => {
@@ -493,7 +541,11 @@ impl Fm {
         }
         trace!("NAV {} {} {}", PANE_NAMES[pane], path.display(), n);
         if truncated {
-            self.say(&format!("Showing only the first {} entries of {}", fsm::MAX_ENTRIES, path.display()));
+            self.say(&format!(
+                "Showing only the first {} entries of {}",
+                fsm::MAX_ENTRIES,
+                path.display()
+            ));
         }
         true
     }
@@ -508,7 +560,8 @@ impl Fm {
         // the directory vanished: climb to the nearest one that exists
         let mut p = path.clone();
         while let Some(parent) = p.parent().map(Path::to_path_buf) {
-            if parent.is_dir() && self.navigate(pane, parent.clone(), Some(p.clone()), true, false) {
+            if parent.is_dir() && self.navigate(pane, parent.clone(), Some(p.clone()), true, false)
+            {
                 return;
             }
             p = parent;
@@ -519,7 +572,9 @@ impl Fm {
     /// unless the selection changed. Returns false if the directory cannot be read.
     fn navigate_quiet(self: &Rc<Self>, pane: usize, path: &Path, keep: Option<PathBuf>) -> bool {
         let hidden = self.st.borrow().show_hidden;
-        let Ok(listing) = fsm::read_dir(path, hidden) else { return false };
+        let Ok(listing) = fsm::read_dir(path, hidden) else {
+            return false;
+        };
         {
             let mut st = self.st.borrow_mut();
             let p = &mut st.panes[pane];
@@ -534,8 +589,16 @@ impl Fm {
         }
         self.populate(pane, keep.as_deref());
         if pane == self.active() {
-            let row = keep.and_then(|s| self.st.borrow().panes[pane].entries.iter().position(|e| e.path == s));
-            self.show_preview(row.and_then(|r| self.entry_at(pane, r)).or_else(|| Entry::from_path(path)));
+            let row = keep.and_then(|s| {
+                self.st.borrow().panes[pane]
+                    .entries
+                    .iter()
+                    .position(|e| e.path == s)
+            });
+            self.show_preview(
+                row.and_then(|r| self.entry_at(pane, r))
+                    .or_else(|| Entry::from_path(path)),
+            );
         }
         self.update_status();
         true
@@ -646,14 +709,20 @@ impl Fm {
     fn refresh_labels(&self) {
         let (active, paths) = {
             let st = self.st.borrow();
-            (st.active, st.panes.iter().map(|p| p.path.clone()).collect::<Vec<_>>())
+            (
+                st.active,
+                st.panes.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
+            )
         };
         for (i, p) in paths.iter().enumerate() {
             let mark = if i == active { "\u{25B6}" } else { " " };
             // labels do not clip, so fit the path to the pane (about 7 px per character)
             let room = (self.ui.tables[i].bounds().w / 7).max(12) as usize;
             let head = format!("{mark} {}  ", PANE_NAMES[i]);
-            let path = fsm::ellipsize_path(&p.display().to_string(), room.saturating_sub(head.chars().count()));
+            let path = fsm::ellipsize_path(
+                &p.display().to_string(),
+                room.saturating_sub(head.chars().count()),
+            );
             self.ui.pane_labels[i].set_text(&format!("{head}{path}"));
         }
         let cur = paths.get(active).cloned().unwrap_or_default();
@@ -661,9 +730,16 @@ impl Fm {
         if self.ui.path.text() != text && !self.typing.get() {
             self.ui.path.set_text(&text);
         }
-        let name = cur.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| text.clone());
-        self.ui.win.set_title(&format!("{name} [{}] - File Manager", PANE_NAMES[active]));
-        self.ui.tag.set_text(&format!("  Active pane: {}", PANE_NAMES[active]));
+        let name = cur
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| text.clone());
+        self.ui
+            .win
+            .set_title(&format!("{name} [{}] - File Manager", PANE_NAMES[active]));
+        self.ui
+            .tag
+            .set_text(&format!("  Active pane: {}", PANE_NAMES[active]));
         self.ui.up.set_enabled(cur.parent().is_some());
     }
 
@@ -675,7 +751,11 @@ impl Fm {
             let st = self.st.borrow();
             let p = &st.panes[pane];
             let rows: Vec<Vec<String>> = p.entries.iter().map(row_of).collect();
-            (rows, p.sort, select.and_then(|s| p.entries.iter().position(|e| e.path == s)))
+            (
+                rows,
+                p.sort,
+                select.and_then(|s| p.entries.iter().position(|e| e.path == s)),
+            )
         };
         let t = self.ui.tables[pane];
         self.quietly(|| {
@@ -690,7 +770,9 @@ impl Fm {
         let keep = self.selected(pane).map(|e| e.path);
         {
             let mut st = self.st.borrow_mut();
-            let Some(p) = st.panes.get_mut(pane) else { return };
+            let Some(p) = st.panes.get_mut(pane) else {
+                return;
+            };
             let asc = if p.sort.0 == key { !p.sort.1 } else { true };
             p.sort = (key, asc);
             let has_parent = p.entries.first().is_some_and(|e| e.is_parent);
@@ -698,7 +780,12 @@ impl Fm {
         }
         self.populate(pane, keep.as_deref());
         let (k, asc) = self.st.borrow().panes[pane].sort;
-        trace!("SORT {} {} {}", PANE_NAMES[pane], k.column(), if asc { "asc" } else { "desc" });
+        trace!(
+            "SORT {} {} {}",
+            PANE_NAMES[pane],
+            k.column(),
+            if asc { "asc" } else { "desc" }
+        );
     }
 
     fn on_row_selected(self: &Rc<Self>, pane: usize, row: Option<usize>) {
@@ -716,7 +803,9 @@ impl Fm {
 
     fn on_row_activated(self: &Rc<Self>, pane: usize, row: usize) {
         self.set_active(pane);
-        let Some(e) = self.entry_at(pane, row) else { return };
+        let Some(e) = self.entry_at(pane, row) else {
+            return;
+        };
         self.open_entry(pane, e);
     }
 
@@ -762,13 +851,26 @@ impl Fm {
         };
         let p = fsm::preview(&e);
         let (what, extra) = match &p {
-            Preview::Text { truncated, .. } => ("text", if *truncated { format!(" (first {} KB)", fsm::PREVIEW_LIMIT / 1024) } else { String::new() }),
-            Preview::Hex { .. } => ("binary", format!(" (hex dump of the first {} bytes)", fsm::HEX_LIMIT)),
+            Preview::Text { truncated, .. } => (
+                "text",
+                if *truncated {
+                    format!(" (first {} KB)", fsm::PREVIEW_LIMIT / 1024)
+                } else {
+                    String::new()
+                },
+            ),
+            Preview::Hex { .. } => (
+                "binary",
+                format!(" (hex dump of the first {} bytes)", fsm::HEX_LIMIT),
+            ),
             Preview::Dir(_) => ("folder", String::new()),
             Preview::Image { img, .. } => ("image", format!(" ({} x {})", img.w, img.h)),
             Preview::Error(_) => ("error", String::new()),
         };
-        u.preview_title.set_text(&format!("Preview: {}{extra}", if e.is_parent { ".." } else { &e.name }));
+        u.preview_title.set_text(&format!(
+            "Preview: {}{extra}",
+            if e.is_parent { ".." } else { &e.name }
+        ));
         u.preview.set_text(p.body());
         match &p {
             Preview::Image { img, .. } => {
@@ -794,7 +896,11 @@ impl Fm {
             (real.len(), dirs, total, p.truncated, p.entries.len())
         };
         let _ = sel;
-        let mut s = format!("{n} items ({dirs} folders, {} files), {} in files", n - dirs, fsm::human_size(total));
+        let mut s = format!(
+            "{n} items ({dirs} folders, {} files), {} in files",
+            n - dirs,
+            fsm::human_size(total)
+        );
         if trunc {
             s.push_str(" (truncated)");
         }
@@ -810,24 +916,27 @@ impl Fm {
             return;
         }
         let u = &self.ui;
-        let (b, ids): (Rect, Vec<(&str, Widget)>) = (u.win.bounds(), vec![
-            ("tree", *u.tree),
-            ("tableA", *u.tables[0]),
-            ("tableB", *u.tables[1]),
-            ("labelA", *u.pane_labels[0]),
-            ("labelB", *u.pane_labels[1]),
-            ("preview", *u.preview),
-            ("image", *u.image),
-            ("path", *u.path),
-            ("up", *u.up),
-            ("refresh", *u.refresh),
-            ("copy", *u.copy_btn),
-            ("move", *u.move_btn),
-            ("status", *u.status),
-            ("body", *u.body),
-            ("right", *u.right),
-            ("panes", *u.panes),
-        ]);
+        let (b, ids): (Rect, Vec<(&str, Widget)>) = (
+            u.win.bounds(),
+            vec![
+                ("tree", *u.tree),
+                ("tableA", *u.tables[0]),
+                ("tableB", *u.tables[1]),
+                ("labelA", *u.pane_labels[0]),
+                ("labelB", *u.pane_labels[1]),
+                ("preview", *u.preview),
+                ("image", *u.image),
+                ("path", *u.path),
+                ("up", *u.up),
+                ("refresh", *u.refresh),
+                ("copy", *u.copy_btn),
+                ("move", *u.move_btn),
+                ("status", *u.status),
+                ("body", *u.body),
+                ("right", *u.right),
+                ("panes", *u.panes),
+            ],
+        );
         let _ = b;
         for (n, w) in ids {
             let r = w.bounds();
@@ -869,7 +978,9 @@ impl Fm {
 
     /// Add the sub-folders of `node` the first time it is needed.
     pub fn tree_load(&self, node: TreeNodeId) {
-        let Some(path) = self.node_path(node) else { return };
+        let Some(path) = self.node_path(node) else {
+            return;
+        };
         if !self.st.borrow_mut().loaded.insert(node) {
             return;
         }
@@ -901,13 +1012,21 @@ impl Fm {
             }
         }
         let Some((mut node, _)) = best else { return };
-        let Some(root_path) = self.node_path(node) else { return };
-        let Ok(rest) = path.strip_prefix(&root_path) else { return };
+        let Some(root_path) = self.node_path(node) else {
+            return;
+        };
+        let Ok(rest) = path.strip_prefix(&root_path) else {
+            return;
+        };
         let mut cur = root_path;
         for comp in rest.components() {
             self.tree_load(node);
             cur.push(comp);
-            match t.children(Some(node)).into_iter().find(|c| self.node_path(*c).as_deref() == Some(cur.as_path())) {
+            match t
+                .children(Some(node))
+                .into_iter()
+                .find(|c| self.node_path(*c).as_deref() == Some(cur.as_path()))
+            {
                 Some(c) => node = c,
                 None => break,
             }
@@ -917,7 +1036,9 @@ impl Fm {
     }
 
     fn on_tree_selected(self: &Rc<Self>, n: Option<TreeNodeId>) {
-        let Some(path) = n.and_then(|n| self.node_path(n)) else { return };
+        let Some(path) = n.and_then(|n| self.node_path(n)) else {
+            return;
+        };
         let a = self.active();
         if path != self.path_of(a) {
             trace!("TREE {}", path.display());
@@ -928,7 +1049,13 @@ impl Fm {
     // ---------------------------------------------------------------- operations
 
     fn confirm(&self, title: &str, text: &str) -> bool {
-        message_box(Some(self.ui.win), MessageKind::Question, Buttons::YesNo, title, text) == Answer::Yes
+        message_box(
+            Some(self.ui.win),
+            MessageKind::Question,
+            Buttons::YesNo,
+            title,
+            text,
+        ) == Answer::Yes
     }
 
     /// Reload every pane showing `dir` (or all, if `dir` is None) and select `select` in the active one.
@@ -943,13 +1070,18 @@ impl Fm {
     fn op_new_folder(self: &Rc<Self>) {
         let a = self.active();
         let dir = self.path_of(a);
-        self.dialog("New Folder", "Name of the new folder:", "New Folder", move |fm, name| {
-            let p = fsm::make_dir(&dir, name)?;
-            trace!("MKDIR {}", p.display());
-            fm.refresh_after(Some(p));
-            fm.say(&format!("Created folder \"{name}\""));
-            Ok(())
-        });
+        self.dialog(
+            "New Folder",
+            "Name of the new folder:",
+            "New Folder",
+            move |fm, name| {
+                let p = fsm::make_dir(&dir, name)?;
+                trace!("MKDIR {}", p.display());
+                fm.refresh_after(Some(p));
+                fm.say(&format!("Created folder \"{name}\""));
+                Ok(())
+            },
+        );
     }
 
     fn op_rename(self: &Rc<Self>) {
@@ -957,7 +1089,11 @@ impl Fm {
             self.say("Select an item to rename first");
             return;
         };
-        let old = e.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let old = e
+            .path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
         let (prompt, initial) = (format!("New name for \"{old}\":"), old.clone());
         self.dialog("Rename", &prompt, &initial, move |fm, name| {
             let p = fsm::rename_path(&e.path, name)?;
@@ -973,8 +1109,18 @@ impl Fm {
             self.say("Select an item to delete first");
             return;
         };
-        let what = if e.is_dir && !e.is_link { "folder and everything in it" } else { "item" };
-        if !self.confirm("Delete", &format!("Delete the {what} \"{}\"?\n\nThis cannot be undone.", e.name)) {
+        let what = if e.is_dir && !e.is_link {
+            "folder and everything in it"
+        } else {
+            "item"
+        };
+        if !self.confirm(
+            "Delete",
+            &format!(
+                "Delete the {what} \"{}\"?\n\nThis cannot be undone.",
+                e.name
+            ),
+        ) {
             self.say("Delete cancelled");
             return;
         }
@@ -1015,7 +1161,14 @@ impl Fm {
             }
         };
         if std::fs::symlink_metadata(&dest).is_ok() {
-            if !self.confirm("Overwrite", &format!("\"{}\" already exists in {}.\n\nReplace it?", e.name, dst_dir.display())) {
+            if !self.confirm(
+                "Overwrite",
+                &format!(
+                    "\"{}\" already exists in {}.\n\nReplace it?",
+                    e.name,
+                    dst_dir.display()
+                ),
+            ) {
                 self.say(&format!("{verb} cancelled"));
                 return;
             }
@@ -1024,14 +1177,23 @@ impl Fm {
                 return;
             }
         }
-        let r = if mv { fsm::move_into(&e.path, &dst_dir) } else { fsm::copy_into(&e.path, &dst_dir) };
+        let r = if mv {
+            fsm::move_into(&e.path, &dst_dir)
+        } else {
+            fsm::copy_into(&e.path, &dst_dir)
+        };
         match r {
             Ok(new) => {
                 trace!("{} {} {}", verb.to_uppercase(), e.name, dst_dir.display());
                 // both panes re-read; the other pane shows the new item selected
                 self.reload(a, None);
                 self.reload(1 - a, Some(new));
-                self.say(&format!("{} \"{}\" to {}", if mv { "Moved" } else { "Copied" }, e.name, dst_dir.display()));
+                self.say(&format!(
+                    "{} \"{}\" to {}",
+                    if mv { "Moved" } else { "Copied" },
+                    e.name,
+                    dst_dir.display()
+                ));
             }
             Err(err) => {
                 trace!("ERROR {} {}", verb.to_uppercase(), e.name);
@@ -1054,7 +1216,13 @@ impl Fm {
 
     /// A small window with a text field and OK / Cancel (rungui has no input-dialog API).
     /// `action` returns an error message to keep the dialog open.
-    fn dialog(self: &Rc<Self>, title: &str, prompt: &str, initial: &str, action: impl Fn(&Rc<Fm>, &str) -> std::result::Result<(), String> + 'static) {
+    fn dialog(
+        self: &Rc<Self>,
+        title: &str,
+        prompt: &str,
+        initial: &str,
+        action: impl Fn(&Rc<Fm>, &str) -> std::result::Result<(), String> + 'static,
+    ) {
         if let Some(old) = self.st.borrow_mut().dialog.take() {
             old.destroy();
         }
@@ -1108,7 +1276,11 @@ impl Fm {
         input.focus();
         if tracing() {
             Timer::once(300, move || {
-                for (n, wd) in [("dlg_input", *input), ("dlg_ok", *ok), ("dlg_cancel", *cancel)] {
+                for (n, wd) in [
+                    ("dlg_input", *input),
+                    ("dlg_ok", *ok),
+                    ("dlg_cancel", *cancel),
+                ] {
                     let r = wd.bounds();
                     println!("BOUNDS {n} {} {} {} {}", r.x, r.y, r.w, r.h);
                 }

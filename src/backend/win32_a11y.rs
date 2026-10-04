@@ -20,14 +20,50 @@
 //! before the window is destroyed (`forget`).
 
 use super::*;
+use crate::a11y::{A11yRole, NameSource};
 
-const CLSID_ACC_PROP_SERVICES: GUID = guid(0xB5F8350B, 0x0548, 0x48B1, [0xA6, 0xEE, 0x88, 0xBD, 0x00, 0xB4, 0xA5, 0xE7]);
-const IID_ACC_PROP_SERVICES: GUID = guid(0x6E26E776, 0x04F0, 0x495D, [0x80, 0xE4, 0x33, 0x30, 0x35, 0x2E, 0x31, 0x69]);
-const PROP_NAME: GUID = guid(0x608D3DF8, 0x8128, 0x4AA7, [0xA4, 0x28, 0xF5, 0x5E, 0x49, 0x26, 0x72, 0x91]);
-const PROP_VALUE: GUID = guid(0x123FE443, 0x211A, 0x4615, [0x95, 0x27, 0xC4, 0x5A, 0x7E, 0x93, 0x71, 0x7A]);
-const PROP_DESCRIPTION: GUID = guid(0x4D48DFE4, 0xBD3F, 0x491F, [0xA6, 0x48, 0x49, 0x2D, 0x6F, 0x20, 0xC5, 0x88]);
-const PROP_ROLE: GUID = guid(0xCB905FF2, 0x7BD1, 0x4C05, [0xB3, 0xC8, 0xE6, 0xC2, 0x41, 0x36, 0x4D, 0x70]);
-const PROP_STATE: GUID = guid(0xA8D4D5B0, 0x0A21, 0x42D0, [0xA5, 0xC0, 0x51, 0x4E, 0x98, 0x4F, 0x45, 0x7B]);
+const CLSID_ACC_PROP_SERVICES: GUID = guid(
+    0xB5F8350B,
+    0x0548,
+    0x48B1,
+    [0xA6, 0xEE, 0x88, 0xBD, 0x00, 0xB4, 0xA5, 0xE7],
+);
+const IID_ACC_PROP_SERVICES: GUID = guid(
+    0x6E26E776,
+    0x04F0,
+    0x495D,
+    [0x80, 0xE4, 0x33, 0x30, 0x35, 0x2E, 0x31, 0x69],
+);
+const PROP_NAME: GUID = guid(
+    0x608D3DF8,
+    0x8128,
+    0x4AA7,
+    [0xA4, 0x28, 0xF5, 0x5E, 0x49, 0x26, 0x72, 0x91],
+);
+const PROP_VALUE: GUID = guid(
+    0x123FE443,
+    0x211A,
+    0x4615,
+    [0x95, 0x27, 0xC4, 0x5A, 0x7E, 0x93, 0x71, 0x7A],
+);
+const PROP_DESCRIPTION: GUID = guid(
+    0x4D48DFE4,
+    0xBD3F,
+    0x491F,
+    [0xA6, 0x48, 0x49, 0x2D, 0x6F, 0x20, 0xC5, 0x88],
+);
+const PROP_ROLE: GUID = guid(
+    0xCB905FF2,
+    0x7BD1,
+    0x4C05,
+    [0xB3, 0xC8, 0xE6, 0xC2, 0x41, 0x36, 0x4D, 0x70],
+);
+const PROP_STATE: GUID = guid(
+    0xA8D4D5B0,
+    0x0A21,
+    0x42D0,
+    [0xA5, 0xC0, 0x51, 0x4E, 0x98, 0x4F, 0x45, 0x7B],
+);
 
 const OBJID_CLIENT: i32 = -4;
 const EVENT_OBJECT_STATECHANGE: u32 = 0x800A;
@@ -78,7 +114,15 @@ fn service() -> Obj {
         return cur as Obj;
     }
     let mut o: Obj = null_mut();
-    let hr = unsafe { CoCreateInstance(&CLSID_ACC_PROP_SERVICES, null_mut(), 1, &IID_ACC_PROP_SERVICES, &mut o) };
+    let hr = unsafe {
+        CoCreateInstance(
+            &CLSID_ACC_PROP_SERVICES,
+            null_mut(),
+            1,
+            &IID_ACC_PROP_SERVICES,
+            &mut o,
+        )
+    };
     if hr < 0 {
         o = null_mut();
     }
@@ -86,114 +130,97 @@ fn service() -> Obj {
     o
 }
 
-/// ROLE_SYSTEM_* for an accesskit role; `None` = leave the native role alone.
-fn msaa_role(r: accesskit::Role) -> Option<i32> {
-    use accesskit::Role as R;
-    Some(match r {
+/// ROLE_SYSTEM_* for a role.
+fn msaa_role(r: A11yRole) -> i32 {
+    use A11yRole as R;
+    match r {
         R::Window => 9,
-        R::Pane | R::GenericContainer | R::Section | R::Region => 16,
-        R::Dialog | R::AlertDialog => 18,
-        R::Group | R::RadioGroup => 20,
+        R::Pane => 16,
+        R::Group => 20,
         R::Splitter => 21,
-        R::Toolbar => 22,
-        R::Status => 23,
-        R::Table | R::Grid => 24,
-        R::ColumnHeader => 25,
-        R::RowHeader => 26,
-        R::Row => 28,
-        R::Cell | R::GridCell => 29,
+        R::Table => 24,
         R::Link => 30,
-        R::List => 33,
-        R::ListItem => 34,
+        R::ListBox => 33,
         R::Tree => 35,
-        R::TreeItem => 36,
-        R::Tab => 37,
         R::TabPanel => 38,
         R::Image => 40,
         R::Label => 41,
-        R::TextInput | R::MultilineTextInput | R::PasswordInput | R::SearchInput => 42,
-        R::Button | R::DefaultButton => 43,
-        R::CheckBox | R::Switch => 44,
+        R::TextInput | R::PasswordInput | R::MultilineTextInput => 42,
+        R::Button => 43,
+        R::CheckBox => 44,
         R::RadioButton => 45,
-        R::ComboBox | R::EditableComboBox => 46,
-        R::ListBox => 33,
-        R::ListBoxOption => 34,
-        R::ProgressIndicator | R::Meter => 48,
+        R::ComboBox => 46,
+        R::ProgressBar => 48,
         R::Slider => 51,
         R::SpinButton => 52,
         R::TabList => 60,
         R::MenuBar => 2,
-        R::Menu | R::MenuListPopup => 11,
-        R::MenuItem | R::MenuItemCheckBox | R::MenuItemRadio | R::MenuListOption => 12,
-        R::Tooltip => 13,
-        R::Document => 15,
-        R::Alert => 8,
-        R::TitleBar => 1,
-        R::ScrollBar => 3,
-        R::Application => 14,
-        _ => return None,
-    })
+        R::Menu => 11,
+        R::MenuItem | R::MenuItemCheckBox => 12,
+    }
 }
 
-/// What each native HWND of `window` should carry, read straight from the core registry.
+/// What each native HWND of `window` should carry, from the core's resolved names and roles.
+///
+/// Only what the stock proxies get wrong or cannot know is pushed: explicit app overrides, tooltips
+/// (descriptions), and the custom controls (sash, Page/GroupBox containers). Own-text names and names
+/// derived from a preceding Label are left to oleacc, which reads the caption itself and labels an
+/// input by the preceding STATIC in z-order (how the controls are created).
 fn desired(window: WidgetId) -> Vec<(WidgetId, HWND, Props)> {
-    struct Snap {
-        id: WidgetId,
-        kind: Kind,
-        text: String,
-        tooltip: String,
-        a11y: crate::a11y::A11yProps,
-        sash: Option<i32>,
-    }
-    let snaps: Vec<Snap> = core::with(|r| {
-        r.nodes
-            .iter()
-            .filter(|(id, n)| n.kind.is_native() && r.window_of(**id) == Some(window))
-            .map(|(id, n)| Snap {
-                id: *id,
-                kind: n.kind,
-                text: n.text.clone(),
-                tooltip: n.tooltip.clone(),
-                a11y: n.a11y.clone(),
-                sash: (n.kind == Kind::Sash)
-                    .then(|| n.parent.and_then(|p| r.nodes.get(&p)).and_then(|p| p.split.as_ref()).map(|sp| sp.actual))
-                    .flatten(),
-            })
-            .collect()
-    })
-    .unwrap_or_default();
-
+    let Some(nodes) = crate::a11y::resolve(window) else {
+        return vec![];
+    };
     let mut out = vec![];
-    for s in snaps {
-        let Some((hwnd, aux)) = get(s.id, |w| (w.hwnd, w.aux)) else { continue };
+    for n in nodes {
+        let Some((hwnd, aux)) = get(n.id, |w| (w.hwnd, w.aux)) else {
+            continue;
+        };
         if hwnd == 0 {
             continue;
         }
+        let custom = matches!(n.kind, Kind::Sash | Kind::Page | Kind::GroupBox);
         let mut p = Props::default();
-        p.name = s.a11y.name.clone();
-        p.desc = s.a11y.desc.clone().or_else(|| (!s.tooltip.is_empty()).then(|| s.tooltip.clone()));
-        p.role = s.a11y.role.and_then(msaa_role);
-        match s.kind {
-            Kind::Sash => {
-                p.role = p.role.or(msaa_role(accesskit::Role::Splitter));
-                p.value = s.sash.map(|v| v.to_string());
-            }
-            Kind::Page | Kind::GroupBox => {
-                p.role = p.role.or(msaa_role(crate::a11y::default_role(s.kind)));
-                if p.name.is_none() && !s.text.is_empty() {
-                    p.name = Some(crate::text::strip_mnemonic(&s.text));
-                }
-            }
-            _ => {}
+        p.name = n.name.clone().filter(|_| {
+            n.name_source == NameSource::Explicit || matches!(n.kind, Kind::Page | Kind::GroupBox)
+        });
+        p.desc = n.description.clone();
+        p.role = (n.role_explicit || custom).then(|| msaa_role(n.role));
+        if n.kind == Kind::Sash {
+            p.value = core::with(|r| {
+                let parent = r.nodes.get(&n.id)?.parent?;
+                r.nodes
+                    .get(&parent)?
+                    .split
+                    .as_ref()
+                    .map(|sp| sp.actual.to_string())
+            })
+            .flatten();
         }
-        if s.kind == Kind::SpinBox && aux != 0 && (p.name.is_some() || p.desc.is_some()) {
-            out.push((s.id, aux, Props { name: p.name.clone(), desc: p.desc.clone(), ..Props::default() }));
+        if n.kind == Kind::SpinBox && aux != 0 && (p.name.is_some() || p.desc.is_some()) {
+            out.push((
+                n.id,
+                aux,
+                Props {
+                    name: p.name.clone(),
+                    desc: p.desc.clone(),
+                    ..Props::default()
+                },
+            ));
         }
         if !p.is_empty() {
-            out.push((s.id, hwnd, p));
+            out.push((n.id, hwnd, p));
         }
-        if s.kind == Kind::GroupBox && aux != 0 {
-            out.push((s.id, aux, Props { name: Some(String::new()), role: msaa_role(accesskit::Role::Pane), state: Some(STATE_SYSTEM_INVISIBLE), ..Props::default() }));
+        if n.kind == Kind::GroupBox && aux != 0 {
+            out.push((
+                n.id,
+                aux,
+                Props {
+                    name: Some(String::new()),
+                    role: Some(msaa_role(A11yRole::Pane)),
+                    state: Some(STATE_SYSTEM_INVISIBLE),
+                    ..Props::default()
+                },
+            ));
         }
     }
     out
@@ -204,7 +231,11 @@ unsafe fn set_str(svc: Obj, hwnd: HWND, prop: GUID, v: &str) {
     unsafe { vt::<SetHwndPropStr>(svc, 7)(svc, hwnd, OBJID_CLIENT as u32, 0, prop, w.as_ptr()) };
 }
 unsafe fn set_i4(svc: Obj, hwnd: HWND, prop: GUID, v: i32) {
-    let var = Variant { vt: VT_I4, _pad: [0; 3], val: v as i64 };
+    let var = Variant {
+        vt: VT_I4,
+        _pad: [0; 3],
+        val: v as i64,
+    };
     unsafe { vt::<SetHwndProp>(svc, 6)(svc, hwnd, OBJID_CLIENT as u32, 0, prop, var) };
 }
 unsafe fn clear(svc: Obj, hwnd: HWND, prop: GUID) {
@@ -213,7 +244,15 @@ unsafe fn clear(svc: Obj, hwnd: HWND, prop: GUID) {
 
 /// Bring one HWND's annotations from `old` to `new`; `notify` raises the matching WinEvents.
 unsafe fn sync(svc: Obj, hwnd: HWND, old: &Props, new: &Props, notify: bool) {
-    unsafe fn text(svc: Obj, hwnd: HWND, prop: GUID, ev: u32, old: &Option<String>, new: &Option<String>, notify: bool) {
+    unsafe fn text(
+        svc: Obj,
+        hwnd: HWND,
+        prop: GUID,
+        ev: u32,
+        old: &Option<String>,
+        new: &Option<String>,
+        notify: bool,
+    ) {
         if old == new {
             return;
         }
@@ -227,7 +266,15 @@ unsafe fn sync(svc: Obj, hwnd: HWND, old: &Props, new: &Props, notify: bool) {
             }
         }
     }
-    unsafe fn int(svc: Obj, hwnd: HWND, prop: GUID, ev: u32, old: Option<i32>, new: Option<i32>, notify: bool) {
+    unsafe fn int(
+        svc: Obj,
+        hwnd: HWND,
+        prop: GUID,
+        ev: u32,
+        old: Option<i32>,
+        new: Option<i32>,
+        notify: bool,
+    ) {
         if old == new {
             return;
         }
@@ -242,11 +289,43 @@ unsafe fn sync(svc: Obj, hwnd: HWND, old: &Props, new: &Props, notify: bool) {
         }
     }
     unsafe {
-        text(svc, hwnd, PROP_NAME, EVENT_OBJECT_NAMECHANGE, &old.name, &new.name, notify);
-        text(svc, hwnd, PROP_DESCRIPTION, EVENT_OBJECT_DESCRIPTIONCHANGE, &old.desc, &new.desc, notify);
-        text(svc, hwnd, PROP_VALUE, EVENT_OBJECT_VALUECHANGE, &old.value, &new.value, notify);
+        text(
+            svc,
+            hwnd,
+            PROP_NAME,
+            EVENT_OBJECT_NAMECHANGE,
+            &old.name,
+            &new.name,
+            notify,
+        );
+        text(
+            svc,
+            hwnd,
+            PROP_DESCRIPTION,
+            EVENT_OBJECT_DESCRIPTIONCHANGE,
+            &old.desc,
+            &new.desc,
+            notify,
+        );
+        text(
+            svc,
+            hwnd,
+            PROP_VALUE,
+            EVENT_OBJECT_VALUECHANGE,
+            &old.value,
+            &new.value,
+            notify,
+        );
         int(svc, hwnd, PROP_ROLE, 0, old.role, new.role, false);
-        int(svc, hwnd, PROP_STATE, EVENT_OBJECT_STATECHANGE, old.state, new.state, notify);
+        int(
+            svc,
+            hwnd,
+            PROP_STATE,
+            EVENT_OBJECT_STATECHANGE,
+            old.state,
+            new.state,
+            notify,
+        );
     }
 }
 
@@ -261,7 +340,9 @@ pub(super) fn apply(window: WidgetId) {
     for (_, h, p) in want {
         want_by_hwnd.insert(h, p);
     }
-    let mut applied = APPLIED.with(|a| a.borrow_mut().remove(&window)).unwrap_or_default();
+    let mut applied = APPLIED
+        .with(|a| a.borrow_mut().remove(&window))
+        .unwrap_or_default();
     let none = Props::default();
     for (h, old) in applied.iter() {
         if !want_by_hwnd.contains_key(h) {

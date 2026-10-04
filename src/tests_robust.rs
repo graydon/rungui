@@ -2,16 +2,11 @@
 
 use crate::backend::mock::{self, widget};
 use crate::*;
-use accesskit::{Action, ActionData, ActionRequest, NodeId, Role, TreeId};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 fn init() {
     let _ = App::new("test");
-}
-
-fn req(a: Action, id: WidgetId, data: Option<ActionData>) -> ActionRequest {
-    ActionRequest { action: a, target_tree: TreeId::ROOT, target_node: NodeId(id.0), data }
 }
 
 fn rect(w: impl Into<WidgetId>) -> Rect {
@@ -144,11 +139,18 @@ fn off_thread_misuse_is_an_error_not_a_panic() {
         assert!(b.native_handle().is_none());
         let nb = Button::new(win, "x");
         assert!(!nb.is_alive());
-        assert!(matches!(last_error(), Some(Error::NotInitialized) | Some(Error::InvalidHandle)));
+        assert!(matches!(
+            last_error(),
+            Some(Error::NotInitialized) | Some(Error::InvalidHandle)
+        ));
         let t = Timer::once(1, || {});
         let _ = t;
         t.stop();
-        assert_eq!(App::new("again").is_ok(), true, "a different thread gets its own toolkit state");
+        assert_eq!(
+            App::new("again").is_ok(),
+            true,
+            "a different thread gets its own toolkit state"
+        );
     })
     .join()
     .unwrap();
@@ -204,7 +206,14 @@ fn unicode_text_survives_round_trip_verbatim() {
     init();
     let win = Window::new("日本語 — окно 🪟");
     let col = VBox::new(win);
-    let samples = ["שלום עולם", "مرحبا بالعالم", "日本語のテキスト", "👨‍👩‍👧‍👦 e\u{301}", "a\u{200F}b", "tab\there\nnewline"];
+    let samples = [
+        "שלום עולם",
+        "مرحبا بالعالم",
+        "日本語のテキスト",
+        "👨‍👩‍👧‍👦 e\u{301}",
+        "a\u{200F}b",
+        "tab\there\nnewline",
+    ];
     let t = TextArea::new(col);
     let l = Label::new(col, "");
     for s in samples {
@@ -230,119 +239,50 @@ fn a11y_names_strip_mnemonics_and_isolate_labels() {
     let mb = MenuBar::new(win);
     let m = Menu::new(mb, "&File");
     let mi = MenuItem::new(m, "E&xit");
-    let tree = a11y::tree_for_window(win.id()).unwrap();
-    let get = |id: WidgetId| tree.nodes.iter().find(|(i, _)| i.0 == id.0).map(|(_, n)| n).unwrap();
-    assert_eq!(get(b.id()).label(), Some("Save & close"));
-    assert_eq!(get(t.id()).label(), Some("Name"));
-    assert_eq!(get(m.id()).label(), Some("File"));
-    assert_eq!(get(mi.id()).label(), Some("Exit"));
+    let tree = a11y::resolve(win.id()).unwrap();
+    let name = |id: WidgetId| {
+        tree.iter()
+            .find(|n| n.id == id)
+            .and_then(|n| n.name.clone())
+    };
+    assert_eq!(name(b.id()).as_deref(), Some("Save & close"));
+    assert_eq!(name(t.id()).as_deref(), Some("Name"));
+    assert_eq!(name(m.id()).as_deref(), Some("File"));
+    assert_eq!(name(mi.id()).as_deref(), Some("Exit"));
     let _ = l;
 }
 
 #[test]
-fn a11y_actions_respect_disabled_hidden_and_bounds() {
+fn a11y_labels_follow_layout_order_and_tabs() {
     init();
     let win = Window::new("w");
     let col = VBox::new(win);
-    let b = Button::new(col, "b");
-    let list = ListBox::new(col);
-    list.set_items(&["x", "y"]);
-    let clicks = Rc::new(Cell::new(0));
-    let c = clicks.clone();
-    b.on_click(move || c.set(c.get() + 1));
-    let sel = Rc::new(Cell::new(None));
-    let s2 = sel.clone();
-    list.on_select(move |i| s2.set(i));
-    b.set_enabled(false);
-    a11y::do_action(win.id(), &req(Action::Click, b.id(), None));
-    assert_eq!(clicks.get(), 0, "disabled");
-    b.set_enabled(true);
-    col.set_enabled(false);
-    a11y::do_action(win.id(), &req(Action::Click, b.id(), None));
-    assert_eq!(clicks.get(), 0, "disabled ancestor");
-    col.set_enabled(true);
-    b.set_visible(false);
-    a11y::do_action(win.id(), &req(Action::Click, b.id(), None));
-    assert_eq!(clicks.get(), 0, "hidden");
-    b.set_visible(true);
-    a11y::do_action(win.id(), &req(Action::Click, b.id(), None));
-    assert_eq!(clicks.get(), 1);
-    // list option ids come from the tree
-    let tree = a11y::tree_for_window(win.id()).unwrap();
-    let opts: Vec<NodeId> = tree.nodes.iter().filter(|(_, n)| n.role() == Role::ListBoxOption).map(|(i, _)| *i).collect();
-    assert_eq!(opts.len(), 2);
-    let click_opt = |i: usize| a11y::do_action(win.id(), &ActionRequest { action: Action::Click, target_tree: TreeId::ROOT, target_node: opts[i], data: None });
-    click_opt(1);
-    assert_eq!(sel.get(), Some(1));
-    assert_eq!(list.selected(), Some(1));
-    // synthetic id past the end of the list
-    let bogus = NodeId(opts[1].0 + 5);
-    a11y::do_action(win.id(), &ActionRequest { action: Action::Click, target_tree: TreeId::ROOT, target_node: bogus, data: None });
-    assert_eq!(list.selected(), Some(1));
-    // garbage ids and NaN values are ignored
-    a11y::do_action(win.id(), &req(Action::Click, WidgetId(u64::MAX), None));
-    a11y::do_action(win.id(), &req(Action::Click, WidgetId(0), None));
-    let s = Slider::new(win, 0.0, 10.0);
-    a11y::do_action(win.id(), &req(Action::SetValue, s.id(), Some(ActionData::NumericValue(f64::NAN))));
-    assert_eq!(s.value(), 0.0);
-    a11y::do_action(win.id(), &req(Action::SetValue, s.id(), Some(ActionData::NumericValue(99.0))));
-    assert_eq!(s.value(), 10.0, "clamped");
-    // wrong data type for the action
-    let t = TextInput::new(win);
-    a11y::do_action(win.id(), &req(Action::SetValue, t.id(), Some(ActionData::NumericValue(1.0))));
-    assert_eq!(t.text(), "");
-    a11y::do_action(win.id(), &req(Action::SetValue, t.id(), Some(ActionData::Value("a\0b".into()))));
-    assert_eq!(t.text(), "a\u{FFFD}b");
-}
-
-#[test]
-fn a11y_radio_click_is_exclusive_and_idempotent() {
-    init();
-    let win = Window::new("w");
-    let g = RadioGroup::new();
-    let r1 = RadioButton::new(win, &g, "1");
-    let r2 = RadioButton::new(win, &g, "2");
-    let fired = Rc::new(Cell::new(0));
-    let f = fired.clone();
-    r2.on_toggle(move |_| f.set(f.get() + 1));
-    a11y::do_action(win.id(), &req(Action::Click, r1.id(), None));
-    a11y::do_action(win.id(), &req(Action::Click, r2.id(), None));
-    a11y::do_action(win.id(), &req(Action::Click, r2.id(), None));
-    assert!(!r1.checked() && r2.checked());
-    assert_eq!(fired.get(), 1);
-    assert!(!widget(r1.id()).unwrap().checked);
-}
-
-#[test]
-fn a11y_cache_and_post_action_cross_thread() {
-    init();
-    let win = Window::new("w");
-    let b = Button::new(win, "b");
-    let clicks = Rc::new(Cell::new(0));
-    let c = clicks.clone();
-    b.on_click(move || c.set(c.get() + 1));
-    assert!(a11y::latest_tree(win.id()).is_none());
-    a11y::enable_cache(win.id());
-    let (wid, bid) = (win.id(), b.id());
-    let ui = std::thread::current().id();
-    let seen = std::thread::spawn(move || {
-        let t = a11y::latest_tree(wid).expect("cached");
-        let found = t.nodes.iter().any(|(i, _)| i.0 == bid.0);
-        core::post_to(ui, move || a11y::do_action(wid, &req(Action::Click, bid, None)));
-        found
-    })
-    .join()
-    .unwrap();
-    assert!(seen);
-    mock::pump();
-    assert_eq!(clicks.get(), 1);
-    // cache follows changes
-    b.set_text("renamed");
+    Label::new(col, "First");
+    let a = TextInput::new(col);
+    let row = HBox::new(col);
+    Label::new(row, "Second");
+    let b = TextInput::new(row);
+    let tabs = Tabs::new(col);
+    let p1 = tabs.add_page("one");
+    let p2 = tabs.add_page("two");
+    let in1 = TextInput::new(p1);
+    let in2 = TextInput::new(p2);
     App::update();
-    let t = a11y::latest_tree(win.id()).unwrap();
-    assert_eq!(t.nodes.iter().find(|(i, _)| i.0 == b.id().0).unwrap().1.label(), Some("renamed"));
-    win.destroy();
-    assert!(a11y::latest_tree(wid).is_none());
+    let find = |id: WidgetId| {
+        a11y::resolve(win.id())
+            .unwrap()
+            .into_iter()
+            .find(|n| n.id == id)
+    };
+    assert_eq!(find(a.id()).unwrap().name.as_deref(), Some("First"));
+    assert_eq!(find(b.id()).unwrap().name.as_deref(), Some("Second"));
+    // only the selected page is visible to AT, and pages are named by their caption
+    assert!(find(in1.id()).is_some() && find(in2.id()).is_none());
+    assert_eq!(find(p1.id()).unwrap().name.as_deref(), Some("one"));
+    assert!(find(p2.id()).is_none());
+    tabs.set_selected(1);
+    App::update();
+    assert!(find(in1.id()).is_none() && find(in2.id()).is_some());
 }
 
 #[test]
@@ -364,7 +304,10 @@ fn rtl_layout_mirrors_hbox_vbox_and_grid() {
     win.show();
     App::update();
     let (a0, b0, v0, g10, g20) = (rect(a), rect(b), rect(v), rect(g1), rect(g2));
-    assert!(a0.x < b0.x && v0.x == 0 && g10.x < g20.x, "{a0:?} {b0:?} {v0:?} {g10:?} {g20:?}");
+    assert!(
+        a0.x < b0.x && v0.x == 0 && g10.x < g20.x,
+        "{a0:?} {b0:?} {v0:?} {g10:?} {g20:?}"
+    );
     set_rtl_layout(true);
     App::update();
     let (a1, b1, v1, g11, g21) = (rect(a), rect(b), rect(v), rect(g1), rect(g2));

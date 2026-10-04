@@ -13,7 +13,12 @@ use std::env;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=CARGO_FEATURE_EMULATE_MAC");
-    for c in ["rungui_gtk", "rungui_win32", "rungui_cocoa", "rungui_gnustep"] {
+    for c in [
+        "rungui_gtk",
+        "rungui_win32",
+        "rungui_cocoa",
+        "rungui_gnustep",
+    ] {
         println!("cargo:rustc-check-cfg=cfg({c})");
     }
     let os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
@@ -47,8 +52,15 @@ fn main() {
         _ => {
             println!("cargo:rustc-cfg=rungui_gtk");
             for l in [
-                "gtk-3", "gdk-3", "gdk_pixbuf-2.0", "pango-1.0", "cairo", "atk-1.0",
-                "gio-2.0", "gobject-2.0", "glib-2.0",
+                "gtk-3",
+                "gdk-3",
+                "gdk_pixbuf-2.0",
+                "pango-1.0",
+                "cairo",
+                "atk-1.0",
+                "gio-2.0",
+                "gobject-2.0",
+                "glib-2.0",
             ] {
                 link(l);
             }

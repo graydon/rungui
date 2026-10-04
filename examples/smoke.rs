@@ -16,7 +16,13 @@ fn main() {
     combo.set_items(&["x", "y"]);
     let dlg = Button::new(col, "Dialog");
     dlg.on_click(move || {
-        let r = message_box(Some(a), MessageKind::Question, Buttons::YesNo, "Title ü", "Really?");
+        let r = message_box(
+            Some(a),
+            MessageKind::Question,
+            Buttons::YesNo,
+            "Title ü",
+            "Really?",
+        );
         println!("DIALOG {r:?}");
     });
     let g = RadioGroup::new();
@@ -26,7 +32,10 @@ fn main() {
     ra.on_toggle(|v| println!("RA {v}"));
     rb.on_toggle(|v| println!("RB {v}"));
     let table = Table::new(col);
-    table.set_columns(&[Column::new("Name").width(80).sortable(true), Column::new("Size").align(ColumnAlign::Right)]);
+    table.set_columns(&[
+        Column::new("Name").width(80).sortable(true),
+        Column::new("Size").align(ColumnAlign::Right),
+    ]);
     table.set_rows(&[vec!["a", "1"], vec!["b", "2"], vec!["c", "3"]]);
     table.on_select(|i| println!("TABLE_SEL {i:?}"));
     table.on_column_click(|c| println!("TABLE_COL {c}"));
@@ -70,15 +79,32 @@ fn main() {
 
     a.show();
     b.show();
-    println!("HANDLE {}", a.native_handle().is_some() && btn.native_handle().is_some());
+    println!(
+        "HANDLE {}",
+        a.native_handle().is_some() && btn.native_handle().is_some()
+    );
     let _t = Timer::once(600, move || {
-        for (n, w) in [("btn", btn.bounds()), ("txt", txt.bounds()), ("chk", chk.bounds()), ("list", list.bounds()), ("slider", slider.bounds()), ("combo", combo.bounds()), ("dlg", dlg.bounds()), ("rb", rb.bounds()), ("table", table.bounds()), ("tree", tree.bounds())] {
+        for (n, w) in [
+            ("btn", btn.bounds()),
+            ("txt", txt.bounds()),
+            ("chk", chk.bounds()),
+            ("list", list.bounds()),
+            ("slider", slider.bounds()),
+            ("combo", combo.bounds()),
+            ("dlg", dlg.bounds()),
+            ("rb", rb.bounds()),
+            ("table", table.bounds()),
+            ("tree", tree.bounds()),
+        ] {
             println!("BOUNDS {n} {} {} {} {}", w.x, w.y, w.w, w.h);
         }
         println!("READY");
     });
     // CI: RUNGUI_EXIT_AFTER_MS=n quits the loop after n ms so a startup crash shows up as a failure.
-    let _exit = std::env::var("RUNGUI_EXIT_AFTER_MS").ok().and_then(|v| v.parse::<u32>().ok()).map(|ms| Timer::once(ms, App::quit));
+    let _exit = std::env::var("RUNGUI_EXIT_AFTER_MS")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .map(|ms| Timer::once(ms, App::quit));
     app.run();
     println!("BYE");
 }

@@ -2,7 +2,6 @@
 
 use crate::backend::mock::{self, widget};
 use crate::*;
-use accesskit::{Action, ActionRequest, NodeId, Role, TreeId};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -14,7 +13,10 @@ fn setup() -> (Window, Table) {
     init();
     let win = Window::new("w");
     let t = Table::new(win);
-    t.set_columns(&[Column::new("Name").width(120), Column::new("Size").align(ColumnAlign::Right).sortable(true)]);
+    t.set_columns(&[
+        Column::new("Name").width(120),
+        Column::new("Size").align(ColumnAlign::Right).sortable(true),
+    ]);
     (win, t)
 }
 
@@ -136,7 +138,10 @@ fn table_batch_sends_once() {
         for i in 0..50 {
             t.push_row(&[i.to_string(), "x".to_string()]);
         }
-        assert!(widget(t.id()).unwrap().rows.is_empty(), "deferred inside the batch");
+        assert!(
+            widget(t.id()).unwrap().rows.is_empty(),
+            "deferred inside the batch"
+        );
         t.set_selected(Some(3));
     });
     let w = widget(t.id()).unwrap();
@@ -192,7 +197,12 @@ fn tree_setup() -> (Window, Tree, TreeNodeId, TreeNodeId, TreeNodeId) {
 }
 
 fn rows(t: Tree) -> Vec<(u64, u32, String, bool, bool)> {
-    widget(t.id()).unwrap().tree_rows.into_iter().map(|r| (r.node, r.depth, r.text, r.expanded, r.has_children)).collect()
+    widget(t.id())
+        .unwrap()
+        .tree_rows
+        .into_iter()
+        .map(|r| (r.node, r.depth, r.text, r.expanded, r.has_children))
+        .collect()
 }
 
 #[test]
@@ -203,7 +213,10 @@ fn tree_flattens_preorder_with_depth_and_flags() {
     t.set_expanded(root, true);
     let r = rows(t);
     let names: Vec<_> = r.iter().map(|x| (x.2.as_str(), x.1)).collect();
-    assert_eq!(names, [("root", 0), ("a", 1), ("a1", 2), ("b", 1), ("c", 0)]);
+    assert_eq!(
+        names,
+        [("root", 0), ("a", 1), ("a1", 2), ("b", 1), ("c", 0)]
+    );
     assert_eq!(r[0].0, root.0);
     assert!(r[0].3 && !r[1].3);
     assert!(r[0].4 && r[1].4 && !r[2].4 && !r[3].4 && !r[4].4);
@@ -289,7 +302,13 @@ fn tree_user_events_update_state_and_call_back() {
     mock::user_tree_select(t.id(), None);
     assert_eq!(
         *log.borrow(),
-        [format!("exp {} true", root.0), format!("sel Some({})", a.0), format!("act {}", a.0), format!("exp {} false", root.0), "sel None".to_string()]
+        [
+            format!("exp {} true", root.0),
+            format!("sel Some({})", a.0),
+            format!("act {}", a.0),
+            format!("exp {} false", root.0),
+            "sel None".to_string()
+        ]
     );
 }
 
@@ -382,7 +401,8 @@ fn right_click_runs_callback_then_popup_and_item_fires() {
     let order = Rc::new(RefCell::new(vec![]));
     let o = order.clone();
     lst.on_context_menu(move |x, y| {
-        o.borrow_mut().push(format!("cb {x},{y} popups={}", mock::popup_log().len()));
+        o.borrow_mut()
+            .push(format!("cb {x},{y} popups={}", mock::popup_log().len()));
         cut.set_enabled(false); // rebuilt just before display
     });
     let o = order.clone();
@@ -472,7 +492,11 @@ fn callback_only_context_menu_and_menu_attached_in_callback() {
     });
     mock::user_context_menu(b.id(), 9, 8);
     assert_eq!(got.get(), (9, 8));
-    assert_eq!(mock::popup_log().len(), 1, "menu attached by the callback is shown");
+    assert_eq!(
+        mock::popup_log().len(),
+        1,
+        "menu attached by the callback is shown"
+    );
 }
 
 #[test]
@@ -513,103 +537,53 @@ fn popup_menu_destroy_removes_native_children() {
 
 // ---------------------------------------------------------------- accessibility
 
-fn req(a: Action, id: NodeId) -> ActionRequest {
-    ActionRequest { action: a, target_tree: TreeId::ROOT, target_node: id, data: None }
-}
-
-fn node_of(t: &accesskit::TreeUpdate, id: NodeId) -> accesskit::Node {
-    t.nodes.iter().find(|(i, _)| *i == id).map(|(_, n)| n.clone()).unwrap()
-}
-
 #[test]
-fn a11y_table_structure_and_actions() {
+fn a11y_table_and_tree_roles_and_labels() {
     let (win, t) = setup();
-    t.set_rows(&[vec!["a", "1"], vec!["b", "2"]]);
-    t.set_selected(Some(1));
     win.show();
     App::update();
-    let tree = a11y::tree_for_window(win.id()).unwrap();
-    let tn = node_of(&tree, NodeId(t.id().0));
-    assert_eq!(tn.role(), Role::Table);
-    assert_eq!(tn.row_count(), Some(3));
-    assert_eq!(tn.column_count(), Some(2));
-    let kids = tn.children().to_vec();
-    assert_eq!(kids.len(), 3, "header row + 2 rows");
-    let header = node_of(&tree, kids[0]);
-    assert_eq!(header.role(), Role::Row);
-    let h1 = node_of(&tree, header.children()[1]);
-    assert_eq!(h1.role(), Role::ColumnHeader);
-    assert_eq!(h1.label(), Some("Size"));
-    assert_eq!(h1.column_index(), Some(1));
-    let r1 = node_of(&tree, kids[2]);
-    assert_eq!(r1.role(), Role::Row);
-    assert_eq!(r1.is_selected(), Some(true));
-    assert_eq!(r1.row_index(), Some(2));
-    let cell = node_of(&tree, r1.children()[1]);
-    assert_eq!(cell.role(), Role::Cell);
-    assert_eq!(cell.value(), Some("2"));
-    assert_eq!(cell.column_index(), Some(1));
-    // actions: click row 0 selects it; header click reports the column
-    let sel = Rc::new(RefCell::new(vec![]));
-    let s = sel.clone();
-    t.on_select(move |x| s.borrow_mut().push(format!("s{x:?}")));
-    let s = sel.clone();
-    t.on_column_click(move |c| s.borrow_mut().push(format!("c{c}")));
-    a11y::do_action(win.id(), &req(Action::Click, kids[1]));
-    a11y::do_action(win.id(), &req(Action::Click, header.children()[1]));
-    assert_eq!(t.selected(), Some(0));
-    assert_eq!(widget(t.id()).unwrap().selected, Some(0));
-    assert_eq!(*sel.borrow(), ["sSome(0)", "c1"]);
-}
+    let n = a11y::resolve(win.id())
+        .unwrap()
+        .into_iter()
+        .find(|n| n.id == t.id())
+        .unwrap();
+    assert_eq!(n.role, A11yRole::Table);
+    // rows and cells are the native control's business: only the widget itself is reported
+    assert_eq!(
+        a11y::resolve(win.id())
+            .unwrap()
+            .iter()
+            .filter(|n| n.kind == Kind::Table)
+            .count(),
+        1
+    );
+    t.set_a11y_name("Files");
+    t.set_a11y_description("All the files");
+    let n = a11y::resolve(win.id())
+        .unwrap()
+        .into_iter()
+        .find(|n| n.id == t.id())
+        .unwrap();
+    assert_eq!(
+        (n.name.as_deref(), n.description.as_deref()),
+        (Some("Files"), Some("All the files"))
+    );
 
-#[test]
-fn a11y_tree_items_levels_and_expand_actions() {
-    let (win, t, root, a, b) = tree_setup();
-    let a1 = t.add(Some(a), "a1");
-    t.set_expanded(root, true);
-    t.set_selected(Some(b));
+    let (win, t, ..) = tree_setup();
     win.show();
     App::update();
-    let id = |n: TreeNodeId| NodeId((1 << 62) | (1 << 60) | n.0);
-    let tree = a11y::tree_for_window(win.id()).unwrap();
-    let tn = node_of(&tree, NodeId(t.id().0));
-    assert_eq!(tn.role(), Role::Tree);
-    assert_eq!(tn.children(), &[id(root)]);
-    let rn = node_of(&tree, id(root));
-    assert_eq!(rn.role(), Role::TreeItem);
-    assert_eq!(rn.level(), Some(1));
-    assert_eq!(rn.is_expanded(), Some(true));
-    assert_eq!(rn.children(), &[id(a), id(b)]);
-    let an = node_of(&tree, id(a));
-    assert_eq!(an.level(), Some(2));
-    assert_eq!(an.is_expanded(), Some(false));
-    assert!(an.children().is_empty(), "collapsed: children hidden");
-    assert!(tree.nodes.iter().all(|(i, _)| *i != id(a1)));
-    assert_eq!(node_of(&tree, id(b)).is_selected(), Some(true));
-    assert_eq!(node_of(&tree, id(b)).is_expanded(), None, "leaf has no expanded state");
-    // actions
-    let log = Rc::new(RefCell::new(vec![]));
-    let l = log.clone();
-    t.on_expand(move |n, e| l.borrow_mut().push(format!("e{} {e}", n.0 == a.0)));
-    let l = log.clone();
-    t.on_select(move |n| l.borrow_mut().push(format!("s{}", n.map_or(0, |n| n.0) == a.0)));
-    a11y::do_action(win.id(), &req(Action::Expand, id(a)));
-    assert!(t.expanded(a));
-    assert!(widget(t.id()).unwrap().tree_rows.iter().find(|r| r.node == a.0).unwrap().expanded);
-    a11y::do_action(win.id(), &req(Action::Click, id(a)));
-    assert_eq!(t.selected(), Some(a));
-    assert_eq!(widget(t.id()).unwrap().tree_selected, Some(a.0));
-    a11y::do_action(win.id(), &req(Action::Collapse, id(a)));
-    assert!(!t.expanded(a));
-    assert_eq!(*log.borrow(), ["etrue true", "strue", "etrue false"]);
-    // synthetic ids for unknown nodes are ignored
-    a11y::do_action(win.id(), &req(Action::Click, NodeId((1 << 62) | (1 << 60) | 987654321)));
+    let n = a11y::resolve(win.id())
+        .unwrap()
+        .into_iter()
+        .find(|n| n.id == t.id())
+        .unwrap();
+    assert_eq!(n.role, A11yRole::Tree);
 }
 
 #[test]
 fn a11y_popup_menu_role() {
     let (_win, pm, ..) = menu_setup();
     assert_eq!(pm.a11y().role, None);
-    // popup menus are top-level objects: they are not part of a window tree
-    assert!(a11y::tree_for_window(pm.id()).is_none());
+    // popup menus are top-level objects: they are not part of a window's a11y list
+    assert!(a11y::resolve(pm.id()).is_none());
 }

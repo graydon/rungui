@@ -3,7 +3,7 @@
 //!
 //! # Division of labour
 //! The core (`core.rs`, `layout.rs`, `a11y.rs`) owns the widget graph, mirrored widget state
-//! (text, checked, value, items, selection...), layout and accessibility trees. A backend only
+//! (text, checked, value, items, selection...), layout and the accessible names/roles. A backend only
 //! mirrors that graph into native objects, **keyed by [`WidgetId`]**: keep a private
 //! `id -> native object` map and, in the native object, the id (g_object_set_data / GWLP_USERDATA /
 //! ivar or associated object) so native callbacks can call back into [`crate::core::event`].
@@ -52,10 +52,13 @@
 //! # Splitters
 //! `Splitter` is virtual like `HBox`: the core places its two panes (ordinary children,
 //! parented to the nearest native ancestor) and, between them, a native `Kind::Sash` child it
-//! creates itself. The sash is a thin, plain, focusable-if-convenient drag handle (a GtkEventBox
-//! / custom child HWND / NSView subclass): it gets `Prop::Orientation` once, then the usual
-//! `Bounds`/`Visible`/`Enabled`, shows a resize cursor and emits `Event::SashDragged(pos)` while
-//! dragged (see there). It needs no painting beyond the platform's usual separator look.
+//! creates itself. The sash is a thin, plain drag handle (a GtkEventBox / custom child HWND /
+//! NSView subclass): it gets `Prop::Orientation` once, then the usual `Bounds`/`Visible`/`Enabled`,
+//! shows a resize cursor and emits `Event::SashDragged(pos)` while dragged (see there). It must
+//! also be keyboard-operable: reachable with Tab (and focused by a click), showing a focus
+//! indicator, and turning the arrow keys along its axis (Shift = large step), Home and End into
+//! `Event::SashKey` (see [`SashKey`]). Otherwise it needs no painting beyond the platform's usual
+//! separator look.
 //! A backend without a sash just returns `Err(Unsupported)` from `create(Kind::Sash)`: the core
 //! keeps the splitter working (panes laid out at the default/app-set position, not draggable).
 //!
@@ -143,13 +146,18 @@ pub enum Kind {
 impl Kind {
     /// Has a native object (is passed to the backend).
     pub fn is_native(self) -> bool {
-        !matches!(self, Kind::HBox | Kind::VBox | Kind::Grid | Kind::Spacer | Kind::Splitter)
+        !matches!(
+            self,
+            Kind::HBox | Kind::VBox | Kind::Grid | Kind::Spacer | Kind::Splitter
+        )
     }
     /// Participates in layout as a widget (not a menu).
     pub fn in_layout(self) -> bool {
         !matches!(
             self,
-            Kind::MenuBar | Kind::Menu | Kind::MenuItem
+            Kind::MenuBar
+                | Kind::Menu
+                | Kind::MenuItem
                 | Kind::CheckMenuItem
                 | Kind::MenuSeparator
                 | Kind::PopupMenu
@@ -159,7 +167,13 @@ impl Kind {
     pub fn is_layout_container(self) -> bool {
         matches!(
             self,
-            Kind::Window | Kind::Page | Kind::GroupBox | Kind::HBox | Kind::VBox | Kind::Grid | Kind::Splitter
+            Kind::Window
+                | Kind::Page
+                | Kind::GroupBox
+                | Kind::HBox
+                | Kind::VBox
+                | Kind::Grid
+                | Kind::Splitter
         )
     }
 }
@@ -179,7 +193,11 @@ pub enum Prop<'a> {
     Checked(bool),
     /// Slider/SpinBox value; ProgressBar fraction in 0.0..=1.0.
     Value(f64),
-    Range { min: f64, max: f64, step: f64 },
+    Range {
+        min: f64,
+        max: f64,
+        step: f64,
+    },
     /// Full replacement of ComboBox/ListBox items.
     Items(&'a [String]),
     /// Selected item (ComboBox/ListBox) or tab index (Tabs).
@@ -220,10 +238,28 @@ pub enum Prop<'a> {
     Wrap(bool),
     /// Window: move the OUTER frame's top-left to screen position (x, y), logical pixels, origin
     /// at the top-left of the primary screen. Optional (Wayland and some WMs refuse): no-op if unsupported.
-    Position { x: i32, y: i32 },
+    Position {
+        x: i32,
+        y: i32,
+    },
     /// Window: the smallest CLIENT size the user may resize to (`Size::default()` = no limit).
     /// Optional; the core additionally never lays a window out smaller than this.
     MinSize(Size),
+}
+
+/// Keyboard commands for a focused sash. `Prev`/`Next` are the arrow keys along the sash's
+/// movement axis in SCREEN directions (Left/Up = `Prev`, Right/Down = `Next`; the backend does not
+/// mirror them for right-to-left layouts, the core does), with Shift for the `Large` variants.
+/// `Min`/`Max` (Home/End) make the first pane as small / as large as its limits allow.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[non_exhaustive]
+pub enum SashKey {
+    Prev,
+    Next,
+    PrevLarge,
+    NextLarge,
+    Min,
+    Max,
 }
 
 /// Events from the backend (user actions only; see rule 2 in the module docs).
@@ -236,7 +272,10 @@ pub enum Event {
     Selected(Option<usize>),
     Value(f64),
     Activated(usize),
-    Resized { w: i32, h: i32 },
+    Resized {
+        w: i32,
+        h: i32,
+    },
     Focus(bool),
     /// Table: a column header was clicked (user wants to sort by it).
     ColumnClicked(usize),
@@ -251,7 +290,10 @@ pub enum Event {
     /// focused item's/widget's position. The core finds the nearest widget with a context menu or
     /// `on_context_menu` callback (the widget itself, else its ancestors), runs the callback and then
     /// calls [`Backend::popup_menu`]. Emit it for every right-click: the core ignores the ones nobody wants.
-    ContextMenu { x: i32, y: i32 },
+    ContextMenu {
+        x: i32,
+        y: i32,
+    },
     /// Sash: the user dragged it (or moved it with the keyboard) so that its leading edge (left
     /// edge for a horizontal splitter, top edge for a vertical one) should be at `pos`, in the
     /// same native-parent client coordinates as the sash's `Prop::Bounds`. Easiest: remember
@@ -260,9 +302,15 @@ pub enum Event {
     /// sash yourself: the core clamps, relayouts both panes and pushes the sash's new `Bounds`
     /// synchronously from inside `core::event`. Positions out of range are fine (they are clamped).
     SashDragged(i32),
+    /// Sash: the user pressed a key while it had keyboard focus (see [`SashKey`]). The core
+    /// applies the step, clamps, relayouts and fires `on_move`, exactly as for a drag.
+    SashKey(SashKey),
     /// Window: the user moved the window; outer frame top-left in screen coordinates (as in
     /// `Prop::Position`). Optional; mirrored into `Window::position`.
-    Moved { x: i32, y: i32 },
+    Moved {
+        x: i32,
+        y: i32,
+    },
 }
 
 /// The platform backend. All functions are associated (no `self`): the backend keeps its state in
@@ -309,13 +357,9 @@ pub trait Backend {
     /// item events re-enter the core as usual (rule 4 applies). Default: no-op.
     fn popup_menu(_menu: WidgetId, _parent_window: Option<WidgetId>, _at: Option<(i32, i32)>) {}
 
-    // ---- accessibility (optional until a platform adapter is wired) ----
-    /// Called when a window is created: install an accesskit platform adapter for it, if the backend
-    /// uses one. The adapter's activation handler returns `crate::a11y::tree_for_window(id)` and its
-    /// action handler calls `crate::a11y::do_action(id, request)`. Backends whose native controls are
-    /// already accessible (GTK, Cocoa, Win32) leave this empty.
-    fn a11y_attach(_window: WidgetId) {}
-    /// The window's tree changed (debounced, main thread). Push it through the adapter's
-    /// `update_if_active`, or copy the core's names/descriptions/roles onto the native controls.
+    // ---- accessibility (optional) ----
+    /// Something accessibility-relevant in the window changed (debounced, main thread). The native
+    /// controls are already exposed to assistive technology by the platform; copy what the core knows
+    /// and the control does not (`crate::a11y::resolve(window)`: names, descriptions, roles) onto them.
     fn a11y_changed(_window: WidgetId) {}
 }

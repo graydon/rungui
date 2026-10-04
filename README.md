@@ -84,7 +84,7 @@ real Windows; see [`doc/STATUS.md`](doc/STATUS.md).
 
 ## Dependencies
 
-**Rust crates.** Two on every platform: `accesskit` 0.25 (the accessibility data model) and `uuid`. The platform C APIs themselves are
+**Rust crates.** None: rungui has no crate dependencies on any platform. The platform C APIs are
 declared by hand in the crate; there are no binding crates (`gtk-rs`, `winapi`, `objc2`).
 Needs Rust 1.85+ (edition 2024); built and tested with 1.94.
 

@@ -141,7 +141,9 @@ impl Backend for Mock {
     }
     fn set(id: WidgetId, prop: &Prop) {
         st(|s| {
-            let Some(w) = s.widgets.get_mut(&id) else { return };
+            let Some(w) = s.widgets.get_mut(&id) else {
+                return;
+            };
             match prop {
                 Prop::Text(t) => w.text = t.to_string(),
                 Prop::Tooltip(t) => w.tooltip = t.to_string(),
@@ -178,7 +180,9 @@ impl Backend for Mock {
     }
     fn preferred_size(id: WidgetId) -> Size {
         st(|s| {
-            let Some(w) = s.widgets.get(&id) else { return Size::default() };
+            let Some(w) = s.widgets.get(&id) else {
+                return Size::default();
+            };
             let tw = 8 * w.text.chars().count() as i32;
             match w.kind {
                 Some(Kind::Label) => Size::new(tw, 16),
@@ -193,9 +197,10 @@ impl Backend for Mock {
                 Some(Kind::Slider) => Size::new(150, 24),
                 Some(Kind::ProgressBar) => Size::new(150, 16),
                 Some(Kind::SpinBox) => Size::new(80, 24),
-                Some(Kind::Image) => {
-                    w.image.as_ref().map_or(Size::new(32, 32), |i| Size::new(i.w as i32, i.h as i32))
-                }
+                Some(Kind::Image) => w
+                    .image
+                    .as_ref()
+                    .map_or(Size::new(32, 32), |i| Size::new(i.w as i32, i.h as i32)),
                 _ => Size::default(),
             }
         })
@@ -231,7 +236,12 @@ impl Backend for Mock {
                 .filter(|w| w.parent == Some(menu))
                 .map(|w| (w.kind.unwrap_or(Kind::Spacer), w.text.clone(), w.enabled))
                 .collect();
-            s.popups.push(PopupRecord { menu, window: parent_window, at, items });
+            s.popups.push(PopupRecord {
+                menu,
+                window: parent_window,
+                at,
+                items,
+            });
             s.popup_choices.pop_front().flatten()
         });
         // the simulated user picks an item (enabled, a descendant of this menu) like a real nested loop would
@@ -389,7 +399,11 @@ pub fn user_tree_activate(id: WidgetId, node: u64) {
 /// Simulate the user expanding/collapsing a tree node (native state first, then the event).
 pub fn user_tree_expand(id: WidgetId, node: u64, expanded: bool) {
     st(|s| {
-        if let Some(r) = s.widgets.get_mut(&id).and_then(|w| w.tree_rows.iter_mut().find(|r| r.node == node)) {
+        if let Some(r) = s
+            .widgets
+            .get_mut(&id)
+            .and_then(|w| w.tree_rows.iter_mut().find(|r| r.node == node))
+        {
             r.expanded = expanded;
         }
     });
@@ -415,8 +429,18 @@ pub fn user_drag_sash(splitter: WidgetId, pos: i32) {
 pub fn user_drag_sash_by(splitter: WidgetId, delta: i32) {
     let Some(s) = sash_of(splitter) else { return };
     let Some(w) = widget(s) else { return };
-    let start = if w.orientation == Some(Orientation::Vertical) { w.bounds.y } else { w.bounds.x };
+    let start = if w.orientation == Some(Orientation::Vertical) {
+        w.bounds.y
+    } else {
+        w.bounds.x
+    };
     core::event(s, Event::SashDragged(start + delta));
+}
+/// Simulate a key press on `splitter`'s focused sash (see [`SashKey`](crate::SashKey)).
+pub fn user_sash_key(splitter: WidgetId, key: crate::SashKey) {
+    if let Some(s) = sash_of(splitter) {
+        core::event(s, Event::SashKey(key));
+    }
 }
 /// Simulate the user moving a window to screen position (x, y).
 pub fn user_move_window(id: WidgetId, x: i32, y: i32) {
@@ -448,7 +472,11 @@ pub fn dump() -> String {
                 if w.visible { "" } else { " hidden" },
                 if w.enabled { "" } else { " disabled" },
             ));
-            for c in s.order.iter().filter(|c| s.widgets.get(c).and_then(|x| x.parent) == Some(id)) {
+            for c in s
+                .order
+                .iter()
+                .filter(|c| s.widgets.get(c).and_then(|x| x.parent) == Some(id))
+            {
                 rec(s, *c, depth + 1, out);
             }
         }

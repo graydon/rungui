@@ -66,7 +66,9 @@ fn main() {
     code.set_monospace(true);
     code.set_wrap(false);
     code.set_read_only(true);
-    code.set_text("fn main() {\n    println!(\"a long line that does not wrap: {}\", \"-\".repeat(60));\n}\n");
+    code.set_text(
+        "fn main() {\n    println!(\"a long line that does not wrap: {}\", \"-\".repeat(60));\n}\n",
+    );
     vsplit.set_position(120);
     vsplit.set_min_pane_sizes(40, 40);
     vsplit.on_move(move |p| status.set_text(&format!("notes split at {p}px")));
@@ -80,9 +82,16 @@ fn main() {
     let table = Table::new(split);
     table.set_columns(&[
         Column::new("Name").width(140).sortable(true),
-        Column::new("Size").width(70).align(ColumnAlign::Right).sortable(true),
+        Column::new("Size")
+            .width(70)
+            .align(ColumnAlign::Right)
+            .sortable(true),
     ]);
-    table.set_rows(&[vec!["kernel", "9120"], vec!["README", "312"], vec!["Cargo.toml", "1024"]]);
+    table.set_rows(&[
+        vec!["kernel", "9120"],
+        vec!["README", "312"],
+        vec!["Cargo.toml", "1024"],
+    ]);
     table.on_select(move |r| status.set_text(&format!("row {r:?}")));
     table.on_activate(move |r| status.set_text(&format!("row {r} activated")));
     table.on_column_click(move |c| {
@@ -90,7 +99,10 @@ fn main() {
         let ascending = table.sort_indicator() != Some((c, true));
         let mut rows = table.rows();
         rows.sort_by(|a, b| match c {
-            1 => a[1].parse::<u64>().unwrap_or(0).cmp(&b[1].parse::<u64>().unwrap_or(0)),
+            1 => a[1]
+                .parse::<u64>()
+                .unwrap_or(0)
+                .cmp(&b[1].parse::<u64>().unwrap_or(0)),
             _ => a[c].cmp(&b[c]),
         });
         if !ascending {
@@ -132,7 +144,11 @@ fn main() {
     tree.set_context_menu(&popup);
 
     open.on_click(move || {
-        if let Some(p) = FileDialog::new().title("Open").filter("Text", &["txt", "md"]).open(Some(win)) {
+        if let Some(p) = FileDialog::new()
+            .title("Open")
+            .filter("Text", &["txt", "md"])
+            .open(Some(win))
+        {
             if let Ok(s) = std::fs::read_to_string(&p) {
                 area.set_text(&s);
             }
@@ -145,7 +161,13 @@ fn main() {
     Spacer::new(row);
     let about = Button::new(row, "About");
     about.on_click(move || {
-        message_box(Some(win), MessageKind::Info, Buttons::Ok, "About", "rungui kitchen sink");
+        message_box(
+            Some(win),
+            MessageKind::Info,
+            Buttons::Ok,
+            "About",
+            "rungui kitchen sink",
+        );
     });
     let ok = Button::new(row, "Close");
     ok.on_click(move || win.close());

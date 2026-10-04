@@ -25,9 +25,6 @@ emulate-mac = []
 # In-memory headless backend (src/backend/mock.rs) for tests/examples on any host.
 mock = []
 
-[dependencies]
-accesskit = "0.25.1"
-
 # Dual-pane file manager (examples/file_manager/); `test = true` runs its fsmodel unit tests.
 [[example]]
 name = "file_manager"

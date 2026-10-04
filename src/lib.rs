@@ -3,7 +3,7 @@
 //! A small portable GUI toolkit that is a thin layer over the native toolkits: GTK3 on Linux,
 //! Win32 on Windows, AppKit on macOS. Each backend declares the platform's C API by hand; there
 //! are no binding crates. Text is UTF-8 in Rust and converted at the boundary (UTF-16 on Win32,
-//! `NSString` on Cocoa). Accessibility names and roles are derived by the core ([`a11y`]).
+//! `NSString` on Cocoa). Accessibility names and roles are derived by the core and set on the native controls.
 //!
 //! ## Tutorial
 //!
@@ -56,7 +56,7 @@
 //! * Panics inside callbacks are caught and do not unwind into the toolkit.
 //! * For anything the portable API lacks, get the native object with `widget.native_handle()`
 //!   and call the toolkit directly.
-//! * Optional features (accessibility adapters, sort indicators, popup menus) degrade to
+//! * Optional features (accessibility overrides, sort indicators, popup menus) degrade to
 //!   no-ops on a backend that lacks them rather than failing.
 //! * Build modes: default is the native backend for the target; `--features mock` is a headless
 //!   in-memory backend for tests; `--features emulate-mac` builds the Cocoa backend on Linux
@@ -64,7 +64,9 @@
 
 mod link_keepalive;
 
-pub mod a11y;
+// The mock backend has no native objects to annotate, so there only the tests read the resolver.
+#[cfg_attr(all(feature = "mock", not(test)), allow(dead_code))]
+mod a11y;
 pub mod backend;
 pub mod core;
 mod layout;
@@ -72,7 +74,8 @@ pub mod text;
 mod types;
 mod widgets;
 
-pub use backend::{Event, Kind, Prop};
+pub use a11y::{A11yProps, A11yRole};
+pub use backend::{Event, Kind, Prop, SashKey};
 pub use types::*;
 pub use widgets::*;
 
@@ -124,20 +127,19 @@ pub fn set_rtl_layout(rtl: bool) {
     core::set_rtl(rtl)
 }
 
-
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
-mod tests_robust;
-#[cfg(test)]
-mod tests_table_tree;
-#[cfg(test)]
-mod tests_splitter;
+mod tests_a11y_reentrancy;
 #[cfg(test)]
 mod tests_fuzz_layout;
 #[cfg(test)]
 mod tests_models;
 #[cfg(test)]
-mod tests_text;
+mod tests_robust;
 #[cfg(test)]
-mod tests_a11y_reentrancy;
+mod tests_splitter;
+#[cfg(test)]
+mod tests_table_tree;
+#[cfg(test)]
+mod tests_text;

@@ -2,16 +2,46 @@
 //! mnemonics) over random strings built from awkward pieces: surrogate pairs, combining marks,
 //! ZWJ sequences, flags, CRLF, Hangul, bidi controls, NULs and stray ampersands.
 
-use crate::text::*;
 use crate::tests_fuzz_layout::Rng;
+use crate::text::*;
 
 const PIECES: &[&str] = &[
-    "a", "b", " ", "é", "e\u{301}", "日", "😀", "👍🏽", "👨\u{200D}👩\u{200D}👧", "🇯🇵", "🇺🇸", "\r\n", "\n", "\r", "\t", "\0", "\u{200D}", "\u{FE0F}", "\u{200F}",
-    "\u{2068}", "\u{2069}", "שלום", "مرحبا", "한", "\u{1100}\u{1161}\u{11A8}", "&", "&&", "_", "\u{10FFFF}", "\u{FFFD}",
+    "a",
+    "b",
+    " ",
+    "é",
+    "e\u{301}",
+    "日",
+    "😀",
+    "👍🏽",
+    "👨\u{200D}👩\u{200D}👧",
+    "🇯🇵",
+    "🇺🇸",
+    "\r\n",
+    "\n",
+    "\r",
+    "\t",
+    "\0",
+    "\u{200D}",
+    "\u{FE0F}",
+    "\u{200F}",
+    "\u{2068}",
+    "\u{2069}",
+    "שלום",
+    "مرحبا",
+    "한",
+    "\u{1100}\u{1161}\u{11A8}",
+    "&",
+    "&&",
+    "_",
+    "\u{10FFFF}",
+    "\u{FFFD}",
 ];
 
 fn random_string(rng: &mut Rng) -> String {
-    (0..rng.below(10)).map(|_| PIECES[rng.below(PIECES.len())]).collect()
+    (0..rng.below(10))
+        .map(|_| PIECES[rng.below(PIECES.len())])
+        .collect()
 }
 
 #[test]
@@ -29,7 +59,10 @@ fn utf8_utf16_conversions_are_consistent() {
             assert!(f <= b.min(s.len()) && c >= b.min(s.len()) && c <= s.len());
             let u = utf8_to_utf16_clamped(&s, b);
             assert!(u <= ulen);
-            assert_eq!(utf8_to_utf16(&s, b).is_some(), b <= s.len() && s.is_char_boundary(b));
+            assert_eq!(
+                utf8_to_utf16(&s, b).is_some(),
+                b <= s.len() && s.is_char_boundary(b)
+            );
             assert!(byte_to_char(&s, b) <= s.chars().count());
         }
         // every UTF-16 offset, including past the end and inside surrogate pairs
@@ -38,7 +71,10 @@ fn utf8_utf16_conversions_are_consistent() {
             let b = utf16_to_utf8_clamped(&s, u);
             assert!(s.is_char_boundary(b));
             let exact = utf16_to_utf8(&s, u);
-            let mid_pair = u < units.len() && u > 0 && (0xDC00..0xE000).contains(&units[u]) && (0xD800..0xDC00).contains(&units[u - 1]);
+            let mid_pair = u < units.len()
+                && u > 0
+                && (0xDC00..0xE000).contains(&units[u])
+                && (0xD800..0xDC00).contains(&units[u - 1]);
             assert_eq!(exact.is_some(), u <= ulen && !mid_pair, "{s:?} unit {u}");
             if let Some(e) = exact {
                 assert_eq!(e, b);
@@ -78,7 +114,10 @@ fn grapheme_stepping_is_a_consistent_partition() {
             let f = floor_grapheme(&s, b);
             assert!(starts.contains(&f), "{s:?} {b} -> {f}");
             assert!(f <= b.min(s.len()));
-            assert!(starts.iter().all(|x| *x <= f || *x > b.min(s.len())), "not the largest: {s:?} {b} {f}");
+            assert!(
+                starts.iter().all(|x| *x <= f || *x > b.min(s.len())),
+                "not the largest: {s:?} {b} {f}"
+            );
             let n = next_grapheme(&s, b);
             assert!(n <= s.len() && s.is_char_boundary(n));
             if b < s.len() {
@@ -87,11 +126,17 @@ fn grapheme_stepping_is_a_consistent_partition() {
             let p = prev_grapheme(&s, b);
             assert!(s.is_char_boundary(p) && p <= b.min(s.len()));
             if b > 0 {
-                assert!(p < floor_boundary(&s, b).max(1), "no progress back: {s:?} {b}");
+                assert!(
+                    p < floor_boundary(&s, b).max(1),
+                    "no progress back: {s:?} {b}"
+                );
             }
         }
         for k in 0..gs.len() + 2 {
-            assert_eq!(truncate_graphemes(&s, k), gs.iter().take(k).copied().collect::<String>());
+            assert_eq!(
+                truncate_graphemes(&s, k),
+                gs.iter().take(k).copied().collect::<String>()
+            );
         }
     }
 }
@@ -106,16 +151,24 @@ fn wide_and_c_string_conversions_never_lose_or_panic() {
         assert!(!w[..w.len() - 1].contains(&0), "interior NUL leaked");
         let expect = s.replace('\0', "\u{FFFD}");
         assert_eq!(from_wide_nul(&w), expect);
-        assert_eq!(from_utf16(&w[..w.len() - 1]).as_deref(), Some(expect.as_str()));
+        assert_eq!(
+            from_utf16(&w[..w.len() - 1]).as_deref(),
+            Some(expect.as_str())
+        );
         assert_eq!(unsafe { from_wide_ptr(w.as_ptr()) }, expect);
         let c = to_cstring(&s);
         assert_eq!(c.to_str().unwrap(), expect);
         assert_eq!(unsafe { from_cptr(c.as_ptr()) }, expect);
         // arbitrary u16 soup (lone surrogates): lossy decode never panics, strict decode agrees
-        let soup: Vec<u16> = (0..rng.below(8)).map(|_| [0xD800u16, 0xDC00, 0x41, 0, 0xFFFF, 0xDBFF][rng.below(6)]).collect();
+        let soup: Vec<u16> = (0..rng.below(8))
+            .map(|_| [0xD800u16, 0xDC00, 0x41, 0, 0xFFFF, 0xDBFF][rng.below(6)])
+            .collect();
         let lossy = from_wide_nul(&soup);
         let end = soup.iter().position(|c| *c == 0).unwrap_or(soup.len());
-        assert_eq!(from_utf16(&soup[..end]).is_some(), !lossy.contains('\u{FFFD}'));
+        assert_eq!(
+            from_utf16(&soup[..end]).is_some(),
+            !lossy.contains('\u{FFFD}')
+        );
     }
     assert_eq!(unsafe { from_wide_ptr(std::ptr::null()) }, "");
     assert_eq!(unsafe { from_cptr(std::ptr::null()) }, "");
@@ -178,7 +231,9 @@ fn mnemonics_translate_consistently_across_platforms() {
     let mut rng = Rng::new(14);
     let alphabet = ["a", "b", "é", "😀", "&", "&", "&&", " ", "e\u{301}", "_"];
     for _ in 0..5000 {
-        let s: String = (0..rng.below(8)).map(|_| alphabet[rng.below(alphabet.len())]).collect();
+        let s: String = (0..rng.below(8))
+            .map(|_| alphabet[rng.below(alphabet.len())])
+            .collect();
         let m = parse_mnemonic(&s);
         assert_eq!(strip_mnemonic(&s), m.text);
         if let Some(i) = m.index {
@@ -189,7 +244,11 @@ fn mnemonics_translate_consistently_across_platforms() {
         }
         // Win32: same text and same underlined character, and never more than one marker
         let w = to_win32_mnemonic(&s);
-        assert_eq!(win32_interpret(&w), (m.text.clone(), m.index), "win32 of {s:?} = {w:?}");
+        assert_eq!(
+            win32_interpret(&w),
+            (m.text.clone(), m.index),
+            "win32 of {s:?} = {w:?}"
+        );
         // GTK: literal text always preserved (the mnemonic character itself can be unrepresentable
         // only when it is an underscore, so compare the index only when the key is not one)
         let g = to_gtk_mnemonic(&s);
@@ -199,7 +258,10 @@ fn mnemonics_translate_consistently_across_platforms() {
             assert_eq!(gi, m.index, "gtk mnemonic position of {s:?} = {g:?}");
         }
         // escaping makes any text literal under Win32 prefix processing
-        assert_eq!(win32_interpret(&escape_win32_literal(&s)), (s.clone(), None));
+        assert_eq!(
+            win32_interpret(&escape_win32_literal(&s)),
+            (s.clone(), None)
+        );
     }
 }
 
@@ -210,7 +272,13 @@ fn bidi_helpers_are_total() {
         let s = random_string(&mut rng);
         let iso = isolate(&s);
         assert!(iso.starts_with('\u{2068}') && iso.ends_with('\u{2069}'));
-        assert_eq!(iso.chars().filter(|c| matches!(*c as u32, 0x2066..=0x2069)).count(), 2, "payload isolates not stripped");
+        assert_eq!(
+            iso.chars()
+                .filter(|c| matches!(*c as u32, 0x2066..=0x2069))
+                .count(),
+            2,
+            "payload isolates not stripped"
+        );
         assert!(strip_bidi_controls(&s).chars().all(|c| !is_bidi_control(c)));
         let _ = first_strong(&s);
     }

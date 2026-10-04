@@ -25,7 +25,10 @@ fn start_dir(arg: Option<String>, fallback: PathBuf) -> PathBuf {
         Some(a) => match std::fs::canonicalize(&a) {
             Ok(p) if p.is_dir() => plain(p),
             _ => {
-                eprintln!("file_manager: \"{a}\" is not a directory, using {}", fallback.display());
+                eprintln!(
+                    "file_manager: \"{a}\" is not a directory, using {}",
+                    fallback.display()
+                );
                 fallback
             }
         },
@@ -36,9 +39,15 @@ fn start_dir(arg: Option<String>, fallback: PathBuf) -> PathBuf {
 fn main() {
     let mut args = std::env::args().skip(1);
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).map(PathBuf::from).filter(|p| p.is_dir());
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .filter(|p| p.is_dir());
     let a = start_dir(args.next(), cwd.clone());
-    let b = start_dir(args.next(), home.unwrap_or_else(|| cwd.parent().map(|p| p.to_path_buf()).unwrap_or(cwd)));
+    let b = start_dir(
+        args.next(),
+        home.unwrap_or_else(|| cwd.parent().map(|p| p.to_path_buf()).unwrap_or(cwd)),
+    );
     let app = App::new("file-manager").expect("init");
     let _fm = app::build(app::Options { dirs: [a, b] });
     app.run();

@@ -184,7 +184,9 @@ thread_local! {
 /// Short, non-reentrant access to the state. Returns `None` if the state is already borrowed
 /// (never panics).
 fn st<R>(f: impl FnOnce(&mut State) -> R) -> Option<R> {
-    S.try_with(|s| s.try_borrow_mut().ok().map(|mut g| f(&mut g))).ok().flatten()
+    S.try_with(|s| s.try_borrow_mut().ok().map(|mut g| f(&mut g)))
+        .ok()
+        .flatten()
 }
 
 fn get<R>(id: WidgetId, f: impl FnOnce(&W) -> R) -> Option<R> {
@@ -216,7 +218,10 @@ fn muted() -> bool {
 // ------------------------------------------------------------------ small helpers
 
 fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().filter(|c| *c != 0).chain(std::iter::once(0)).collect()
+    s.encode_utf16()
+        .filter(|c| *c != 0)
+        .chain(std::iter::once(0))
+        .collect()
 }
 /// Core text with `&` mnemonic markers -> Win32 prefix syntax (surplus markers dropped).
 fn esc_amp(s: &str) -> String {
@@ -249,7 +254,11 @@ fn get_text(h: HWND, multiline: bool) -> String {
         let got = GetWindowTextW(h, buf.as_mut_ptr(), buf.len() as i32);
         buf.truncate(got.max(0) as usize);
         let s = String::from_utf16_lossy(&buf);
-        if multiline { s.replace("\r\n", "\n") } else { s }
+        if multiline {
+            s.replace("\r\n", "\n")
+        } else {
+            s
+        }
     }
 }
 fn set_text(h: HWND, s: &str) {
@@ -276,7 +285,11 @@ fn fmt_value(v: f64, step: f64) -> String {
 }
 fn slider_steps(r: (f64, f64, f64)) -> i32 {
     let span = r.1 - r.0;
-    if r.2 > 0.0 && span > 0.0 { (span / r.2).round().clamp(1.0, 100000.0) as i32 } else { 1000 }
+    if r.2 > 0.0 && span > 0.0 {
+        (span / r.2).round().clamp(1.0, 100000.0) as i32
+    } else {
+        1000
+    }
 }
 
 fn vk_for(key: &str) -> Option<u16> {
@@ -338,7 +351,11 @@ fn dpi_of(id: WidgetId) -> u32 {
 fn system_dpi() -> i32 {
     unsafe {
         let dc = GetDC(0);
-        let d = if dc != 0 { GetDeviceCaps(dc, LOGPIXELSY) } else { 96 };
+        let d = if dc != 0 {
+            GetDeviceCaps(dc, LOGPIXELSY)
+        } else {
+            96
+        };
         if dc != 0 {
             ReleaseDC(0, dc);
         }
@@ -354,14 +371,23 @@ fn font(dpi: u32) -> isize {
     let f = unsafe {
         let mut ncm: NONCLIENTMETRICSW = std::mem::zeroed();
         ncm.cbSize = std::mem::size_of::<NONCLIENTMETRICSW>() as u32;
-        let ok = SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, ncm.cbSize, &mut ncm as *mut _ as *mut c_void, 0);
+        let ok = SystemParametersInfoW(
+            SPI_GETNONCLIENTMETRICS,
+            ncm.cbSize,
+            &mut ncm as *mut _ as *mut c_void,
+            0,
+        );
         let mut f = 0;
         if ok != 0 {
             let mut lf = ncm.lfMessageFont;
             lf.lfHeight = (lf.lfHeight as i64 * dpi as i64 / system_dpi() as i64) as i32;
             f = CreateFontIndirectW(&lf);
         }
-        if f == 0 { GetStockObject(DEFAULT_GUI_FONT) } else { f }
+        if f == 0 {
+            GetStockObject(DEFAULT_GUI_FONT)
+        } else {
+            f
+        }
     };
     st(|s| s.fonts.insert(dpi, f));
     f
@@ -376,7 +402,12 @@ fn mono_font(dpi: u32) -> isize {
     let f = unsafe {
         let mut ncm: NONCLIENTMETRICSW = std::mem::zeroed();
         ncm.cbSize = std::mem::size_of::<NONCLIENTMETRICSW>() as u32;
-        let ok = SystemParametersInfoW(SPI_GETNONCLIENTMETRICS, ncm.cbSize, &mut ncm as *mut _ as *mut c_void, 0);
+        let ok = SystemParametersInfoW(
+            SPI_GETNONCLIENTMETRICS,
+            ncm.cbSize,
+            &mut ncm as *mut _ as *mut c_void,
+            0,
+        );
         let mut lf = ncm.lfMessageFont;
         if ok == 0 {
             lf = std::mem::zeroed();
@@ -390,7 +421,11 @@ fn mono_font(dpi: u32) -> isize {
             *d = c;
         }
         let f = CreateFontIndirectW(&lf);
-        if f == 0 { GetStockObject(ANSI_FIXED_FONT) } else { f }
+        if f == 0 {
+            GetStockObject(ANSI_FIXED_FONT)
+        } else {
+            f
+        }
     };
     st(|s| s.fonts.insert(key, f));
     f
@@ -398,7 +433,11 @@ fn mono_font(dpi: u32) -> isize {
 
 /// The font a widget should use: the UI font, or the fixed-pitch one for monospace text controls.
 fn font_of(id: WidgetId, dpi: u32) -> isize {
-    if get(id, |w| w.mono).unwrap_or(false) { mono_font(dpi) } else { font(dpi) }
+    if get(id, |w| w.mono).unwrap_or(false) {
+        mono_font(dpi)
+    } else {
+        font(dpi)
+    }
 }
 
 /// Text extent in physical pixels (multi-line aware) using the UI font for `dpi`.
@@ -445,7 +484,11 @@ fn proc_addr<T: Copy>(module: &str, name: &[u8]) -> Option<T> {
             return None;
         }
         let p = GetProcAddress(m, name.as_ptr());
-        if p.is_null() { None } else { Some(std::mem::transmute_copy::<*const c_void, T>(&p)) }
+        if p.is_null() {
+            None
+        } else {
+            Some(std::mem::transmute_copy::<*const c_void, T>(&p))
+        }
     }
 }
 
@@ -513,15 +556,21 @@ impl Backend for Win32 {
         unsafe {
             if let Some(f) = fns.set_dpi_ctx {
                 f(-4); // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
-            } else if let Some(f) = proc_addr::<unsafe extern "system" fn() -> BOOL>("user32.dll", b"SetProcessDPIAware\0") {
+            } else if let Some(f) = proc_addr::<unsafe extern "system" fn() -> BOOL>(
+                "user32.dll",
+                b"SetProcessDPIAware\0",
+            ) {
                 f();
             }
             activate_visual_styles();
-            if let Some(f) = proc_addr::<unsafe extern "system" fn(*const INITCOMMONCONTROLSEX) -> BOOL>(
-                "comctl32.dll",
-                b"InitCommonControlsEx\0",
-            ) {
-                let icc = INITCOMMONCONTROLSEX { dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32, dwICC: 0x40FF };
+            if let Some(f) = proc_addr::<
+                unsafe extern "system" fn(*const INITCOMMONCONTROLSEX) -> BOOL,
+            >("comctl32.dll", b"InitCommonControlsEx\0")
+            {
+                let icc = INITCOMMONCONTROLSEX {
+                    dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
+                    dwICC: 0x40FF,
+                };
                 f(&icc);
             }
             CoInitializeEx(null_mut(), 2);
@@ -545,7 +594,10 @@ impl Backend for Win32 {
                 null_mut(),
             );
             if h == 0 {
-                return Err(Error::Backend(format!("cannot create message window (error {})", GetLastError())));
+                return Err(Error::Backend(format!(
+                    "cannot create message window (error {})",
+                    GetLastError()
+                )));
             }
             MSG_HWND.store(h, Ordering::SeqCst);
             st(|s| {
@@ -579,7 +631,10 @@ impl Backend for Win32 {
                                 id_of(msg.hwnd).and_then(|c| get(c, |w| w.kind)),
                                 Some(Kind::ListBox | Kind::Table | Kind::Tree)
                             );
-                        if !own_enter && get(id, |w| w.kind) == Some(Kind::Window) && IsDialogMessageW(root, &msg) != 0 {
+                        if !own_enter
+                            && get(id, |w| w.kind) == Some(Kind::Window)
+                            && IsDialogMessageW(root, &msg) != 0
+                        {
                             continue;
                         }
                     }
@@ -650,7 +705,9 @@ impl Backend for Win32 {
     }
 
     fn native_handle(id: WidgetId) -> Option<NativeHandle> {
-        get(id, |w| if w.hwnd != 0 { w.hwnd } else { w.hmenu }).filter(|h| *h != 0).map(|h| NativeHandle::Win32(h as usize))
+        get(id, |w| if w.hwnd != 0 { w.hwnd } else { w.hmenu })
+            .filter(|h| *h != 0)
+            .map(|h| NativeHandle::Win32(h as usize))
     }
 
     fn message_box(parent: Option<WidgetId>, spec: &MessageSpec) -> Answer {
@@ -668,7 +725,14 @@ impl Backend for Win32 {
             MessageKind::Question => MB_ICONQUESTION,
         };
         flags |= MB_APPLMODAL;
-        let r = unsafe { MessageBoxW(owner, wide(&spec.text).as_ptr(), wide(&spec.title).as_ptr(), flags) };
+        let r = unsafe {
+            MessageBoxW(
+                owner,
+                wide(&spec.text).as_ptr(),
+                wide(&spec.title).as_ptr(),
+                flags,
+            )
+        };
         match r {
             IDOK => Answer::Ok,
             IDYES => Answer::Yes,
@@ -683,7 +747,9 @@ impl Backend for Win32 {
     }
 
     fn popup_menu(menu: WidgetId, parent_window: Option<WidgetId>, at: Option<(i32, i32)>) {
-        let _ = catch_unwind(AssertUnwindSafe(|| popup_menu_impl(menu, parent_window, at)));
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            popup_menu_impl(menu, parent_window, at)
+        }));
     }
 
     fn a11y_changed(window: WidgetId) {
@@ -703,7 +769,9 @@ unsafe extern "system" fn msg_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRE
             0
         }
         WM_TREEEXP => {
-            let q = TREE_EXP.try_with(|q| std::mem::take(&mut *q.borrow_mut())).unwrap_or_default();
+            let q = TREE_EXP
+                .try_with(|q| std::mem::take(&mut *q.borrow_mut()))
+                .unwrap_or_default();
             for (id, node, open) in q {
                 if get(id, |_| ()).is_some() {
                     let _ = catch_unwind(|| emit(id, Event::TreeExpanded(node, open)));
@@ -746,7 +814,11 @@ fn ctl_spec(kind: Kind) -> Option<(&'static str, u32, u32)> {
             WS_EX_CLIENTEDGE,
         ),
         ComboBox => ("COMBOBOX", tab | CBS_DROPDOWNLIST | WS_VSCROLL, 0),
-        ListBox => ("LISTBOX", tab | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL, WS_EX_CLIENTEDGE),
+        ListBox => (
+            "LISTBOX",
+            tab | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | WS_VSCROLL,
+            WS_EX_CLIENTEDGE,
+        ),
         Slider => ("msctls_trackbar32", tab | TBS_NOTICKS, 0),
         ProgressBar => ("msctls_progress32", 0, 0),
         SpinBox => ("EDIT", tab | ES_AUTOHSCROLL, WS_EX_CLIENTEDGE),
@@ -758,10 +830,18 @@ fn ctl_spec(kind: Kind) -> Option<(&'static str, u32, u32)> {
         ),
         Tree => (
             "SysTreeView32",
-            tab | TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS | TVS_DISABLEDRAGDROP,
+            tab | TVS_HASBUTTONS
+                | TVS_HASLINES
+                | TVS_LINESATROOT
+                | TVS_SHOWSELALWAYS
+                | TVS_DISABLEDRAGDROP,
             WS_EX_CLIENTEDGE,
         ),
-        Tabs => ("SysTabControl32", tab | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, 0),
+        Tabs => (
+            "SysTabControl32",
+            tab | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+            0,
+        ),
         _ => return None,
     })
 }
@@ -786,7 +866,9 @@ fn create_window_raw(ex: u32, class: &str, style: u32, parent: HWND, inst: isize
 }
 
 fn last_err(what: &str) -> Error {
-    Error::Backend(format!("{what} failed (Win32 error {})", unsafe { GetLastError() }))
+    Error::Backend(format!("{what} failed (Win32 error {})", unsafe {
+        GetLastError()
+    }))
 }
 
 fn subclass(h: HWND) {
@@ -853,7 +935,10 @@ fn create_impl(id: WidgetId, kind: Kind, parent: Option<WidgetId>) -> Result<()>
         get(p, |w| (w.hwnd, w.kind, w.win, w.hmenu)).ok_or(Error::InvalidHandle)?;
 
     // ---- menus ----
-    if matches!(kind, Kind::MenuBar | Kind::Menu | Kind::MenuItem | Kind::CheckMenuItem | Kind::MenuSeparator) {
+    if matches!(
+        kind,
+        Kind::MenuBar | Kind::Menu | Kind::MenuItem | Kind::CheckMenuItem | Kind::MenuSeparator
+    ) {
         let mut w = W::new(kind, pwin, Some(p));
         let empty = wide("");
         match kind {
@@ -914,8 +999,18 @@ fn create_impl(id: WidgetId, kind: Kind, parent: Option<WidgetId>) -> Result<()>
     if matches!(kind, Kind::Page | Kind::GroupBox) {
         // Pages are siblings stacked above the tab control (not its children): the tab control would
         // otherwise paint over them.
-        let chost = if kind == Kind::Page { parent_hwnd(p).unwrap_or(phwnd) } else { phwnd };
-        let h = create_window_raw(WS_EX_CONTROLPARENT, CLS_CONTAINER, WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS, chost, inst);
+        let chost = if kind == Kind::Page {
+            parent_hwnd(p).unwrap_or(phwnd)
+        } else {
+            phwnd
+        };
+        let h = create_window_raw(
+            WS_EX_CONTROLPARENT,
+            CLS_CONTAINER,
+            WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+            chost,
+            inst,
+        );
         if h == 0 {
             return Err(last_err("CreateWindowEx(container)"));
         }
@@ -946,7 +1041,12 @@ fn create_impl(id: WidgetId, kind: Kind, parent: Option<WidgetId>) -> Result<()>
                 iImage: -1,
                 lParam: 0,
             };
-            send(phwnd, TCM_INSERTITEMW, tab_index, &item as *const _ as isize);
+            send(
+                phwnd,
+                TCM_INSERTITEMW,
+                tab_index,
+                &item as *const _ as isize,
+            );
             if tab_index > 0 {
                 unsafe {
                     ShowWindow(h, SW_HIDE);
@@ -975,7 +1075,14 @@ fn create_impl(id: WidgetId, kind: Kind, parent: Option<WidgetId>) -> Result<()>
 
     // ---- splitter sash ----
     if kind == Kind::Sash {
-        let h = create_window_raw(0, CLS_SASH, WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS, phwnd, inst);
+        // WS_TABSTOP: keyboard-operable (arrows / Home / End, see `sash_msg`)
+        let h = create_window_raw(
+            0,
+            CLS_SASH,
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP,
+            phwnd,
+            inst,
+        );
         if h == 0 {
             return Err(last_err("CreateWindowEx(sash)"));
         }
@@ -1014,7 +1121,12 @@ fn create_impl(id: WidgetId, kind: Kind, parent: Option<WidgetId>) -> Result<()>
             send(h, EM_SETLIMITTEXT, 0, 0); // 0 = as much as the control supports
         }
         Kind::Table => {
-            send(h, LVM_SETEXTENDEDLISTVIEWSTYLE, 0, (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP) as isize);
+            send(
+                h,
+                LVM_SETEXTENDEDLISTVIEWSTYLE,
+                0,
+                (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP) as isize,
+            );
         }
         Kind::Tree => {
             send(h, TVM_SETEXTENDEDSTYLE, 0, TVS_EX_DOUBLEBUFFER as isize);
@@ -1127,7 +1239,9 @@ fn destroy_impl(id: WidgetId) {
 // ------------------------------------------------------------------ menus
 
 fn menu_changed(win: WidgetId) {
-    let Some((h, req)) = get(win, |w| (w.hwnd, w.client_req)) else { return };
+    let Some((h, req)) = get(win, |w| (w.hwnd, w.client_req)) else {
+        return;
+    };
     if h == 0 {
         return; // a PopupMenu has no window
     }
@@ -1175,7 +1289,12 @@ fn menu_update_text(id: WidgetId) {
     };
     let by_pos = kind == Kind::Menu;
     unsafe {
-        SetMenuItemInfoW(pm, if by_pos { pos as u32 } else { cmd as u32 }, by_pos as BOOL, &mii);
+        SetMenuItemInfoW(
+            pm,
+            if by_pos { pos as u32 } else { cmd as u32 },
+            by_pos as BOOL,
+            &mii,
+        );
     }
     menu_changed(win);
 }
@@ -1190,7 +1309,9 @@ fn rebuild_accel(win: WidgetId) {
             if w.win != win || w.cmd == 0 {
                 continue;
             }
-            let Some(a) = w.accel.as_deref().and_then(Accel::parse) else { continue };
+            let Some(a) = w.accel.as_deref().and_then(Accel::parse) else {
+                continue;
+            };
             let Some(vk) = vk_for(&a.key) else { continue };
             let mut f = FVIRTKEY;
             if a.ctrl {
@@ -1202,12 +1323,20 @@ fn rebuild_accel(win: WidgetId) {
             if a.alt {
                 f |= FALT;
             }
-            v.push(ACCEL { fVirt: f, key: vk, cmd: w.cmd });
+            v.push(ACCEL {
+                fVirt: f,
+                key: vk,
+                cmd: w.cmd,
+            });
         }
         v
     })
     .unwrap_or_default();
-    let new = if list.is_empty() { 0 } else { unsafe { CreateAcceleratorTableW(list.as_ptr(), list.len() as i32) } };
+    let new = if list.is_empty() {
+        0
+    } else {
+        unsafe { CreateAcceleratorTableW(list.as_ptr(), list.len() as i32) }
+    };
     let old = with_w(win, |w| std::mem::replace(&mut w.haccel, new)).unwrap_or(0);
     if old != 0 {
         unsafe {
@@ -1221,7 +1350,15 @@ fn rebuild_accel(win: WidgetId) {
 fn set_client_size(win: WidgetId, sz: Size) {
     let Some((h, dpi, has_menu, fns)) = st(|s| {
         let w = s.widgets.get(&win)?;
-        Some((w.hwnd, w.dpi, w.menubar != 0 || w.children.iter().any(|c| s.widgets.get(c).is_some_and(|x| x.kind == Kind::MenuBar)), s.fns))
+        Some((
+            w.hwnd,
+            w.dpi,
+            w.menubar != 0
+                || w.children
+                    .iter()
+                    .any(|c| s.widgets.get(c).is_some_and(|x| x.kind == Kind::MenuBar)),
+            s.fns,
+        ))
     })
     .flatten() else {
         return;
@@ -1231,7 +1368,12 @@ fn set_client_size(win: WidgetId, sz: Size) {
     unsafe {
         let style = GetWindowLongPtrW(h, GWL_STYLE) as u32;
         let ex = GetWindowLongPtrW(h, GWL_EXSTYLE) as u32;
-        let mut rc = RECT { left: 0, top: 0, right: cw, bottom: ch };
+        let mut rc = RECT {
+            left: 0,
+            top: 0,
+            right: cw,
+            bottom: ch,
+        };
         match fns.adjust_rect_dpi {
             Some(f) => {
                 f(&mut rc, style, has_menu as BOOL, ex, dpi);
@@ -1247,7 +1389,15 @@ fn set_client_size(win: WidgetId, sz: Size) {
         GetClientRect(h, &mut cr);
         let (dx, dy) = (cw - (cr.right - cr.left), ch - (cr.bottom - cr.top));
         if dx != 0 || dy != 0 {
-            SetWindowPos(h, 0, 0, 0, rc.right - rc.left + dx, rc.bottom - rc.top + dy, flags);
+            SetWindowPos(
+                h,
+                0,
+                0,
+                0,
+                rc.right - rc.left + dx,
+                rc.bottom - rc.top + dy,
+                flags,
+            );
         }
     }
 }
@@ -1258,7 +1408,10 @@ fn client_logical(win: WidgetId) -> Option<Size> {
     unsafe {
         GetClientRect(h, &mut cr);
     }
-    Some(Size::new(lp(cr.right - cr.left, dpi), lp(cr.bottom - cr.top, dpi)))
+    Some(Size::new(
+        lp(cr.right - cr.left, dpi),
+        lp(cr.bottom - cr.top, dpi),
+    ))
 }
 
 /// Offset of a GroupBox's inner client area inside its outer rect, physical pixels.
@@ -1277,7 +1430,12 @@ fn apply_bounds(id: WidgetId) {
         return;
     };
     let flags = SWP_NOZORDER | SWP_NOACTIVATE;
-    let (mut x, mut y, w, hh) = (px(r.x, dpi), px(r.y, dpi), px(r.w.max(0), dpi), px(r.h.max(0), dpi));
+    let (mut x, mut y, w, hh) = (
+        px(r.x, dpi),
+        px(r.y, dpi),
+        px(r.w.max(0), dpi),
+        px(r.h.max(0), dpi),
+    );
     match kind {
         Kind::Window => set_client_size(id, Size::new(r.w, r.h)),
         Kind::Page => {}
@@ -1333,7 +1491,12 @@ fn tab_display_rect(tabs: HWND) -> RECT {
 fn position_pages(tabs: WidgetId) {
     let Some((th, pages, sel)) = st(|s| {
         let t = s.widgets.get(&tabs)?;
-        let pages: Vec<(HWND, bool)> = t.children.iter().filter_map(|c| s.widgets.get(c)).map(|p| (p.hwnd, p.vis)).collect();
+        let pages: Vec<(HWND, bool)> = t
+            .children
+            .iter()
+            .filter_map(|c| s.widgets.get(c))
+            .map(|p| (p.hwnd, p.vis))
+            .collect();
         Some((t.hwnd, pages, t.selected))
     })
     .flatten() else {
@@ -1348,19 +1511,40 @@ fn position_pages(tabs: WidgetId) {
     let (ox, oy) = (origin.x + d.left, origin.y + d.top);
     unsafe {
         for (i, (ph, vis)) in pages.iter().enumerate() {
-            SetWindowPos(*ph, 0, ox, oy, (d.right - d.left).max(0), (d.bottom - d.top).max(0), SWP_NOACTIVATE);
+            SetWindowPos(
+                *ph,
+                0,
+                ox,
+                oy,
+                (d.right - d.left).max(0),
+                (d.bottom - d.top).max(0),
+                SWP_NOACTIVATE,
+            );
             let show = *vis && sel == Some(i);
             ShowWindow(*ph, if show { SW_SHOWNOACTIVATE } else { SW_HIDE });
             if show {
-                RedrawWindow(*ph, null(), 0, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+                RedrawWindow(
+                    *ph,
+                    null(),
+                    0,
+                    RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW,
+                );
             }
         }
     }
 }
 
 fn preferred_impl(id: WidgetId) -> Option<Size> {
-    let (kind, text, items, image, range, mono) =
-        get(id, |w| (w.kind, w.text.clone(), w.items.clone(), w.image.clone(), w.range, w.mono))?;
+    let (kind, text, items, image, range, mono) = get(id, |w| {
+        (
+            w.kind,
+            w.text.clone(),
+            w.items.clone(),
+            w.image.clone(),
+            w.range,
+            w.mono,
+        )
+    })?;
     let dpi = dpi_of(id);
     let th = text_h(dpi);
     let widest = |items: &[String]| items.iter().map(|i| measure(dpi, i).0).max().unwrap_or(0);
@@ -1372,28 +1556,43 @@ fn preferred_impl(id: WidgetId) -> Option<Size> {
         }
         Kind::Button => {
             let (w, _) = measure(dpi, &esc_text(&text));
-            ((w + px(24, dpi)).max(px(60, dpi)), (th + px(10, dpi)).max(px(23, dpi)))
+            (
+                (w + px(24, dpi)).max(px(60, dpi)),
+                (th + px(10, dpi)).max(px(23, dpi)),
+            )
         }
         Kind::CheckBox | Kind::RadioButton => {
             let (w, _) = measure(dpi, &esc_text(&text));
             (w + px(22, dpi), th.max(px(16, dpi)) + px(2, dpi))
         }
         Kind::TextInput | Kind::PasswordInput => {
-            let th = if mono { measure_with(mono_font(dpi), "Ag").1 } else { th };
+            let th = if mono {
+                measure_with(mono_font(dpi), "Ag").1
+            } else {
+                th
+            };
             (px(160, dpi), th + px(8, dpi))
         }
         Kind::TextArea => {
-            let th = if mono { measure_with(mono_font(dpi), "Ag").1 } else { th };
+            let th = if mono {
+                measure_with(mono_font(dpi), "Ag").1
+            } else {
+                th
+            };
             (px(if mono { 240 } else { 200 }, dpi), th * 5 + px(8, dpi))
         }
         Kind::Table => (px(300, dpi), px(150, dpi)),
         Kind::Tree => (px(200, dpi), px(200, dpi)),
-        Kind::ComboBox => {
-            ((widest(&items) + px(34, dpi)).max(px(80, dpi)), th + px(10, dpi))
-        }
+        Kind::ComboBox => (
+            (widest(&items) + px(34, dpi)).max(px(80, dpi)),
+            th + px(10, dpi),
+        ),
         Kind::ListBox => {
             let rows = items.len().clamp(3, 8) as i32;
-            ((widest(&items) + px(30, dpi)).max(px(120, dpi)), rows * (th + px(1, dpi)) + px(6, dpi))
+            (
+                (widest(&items) + px(30, dpi)).max(px(120, dpi)),
+                rows * (th + px(1, dpi)) + px(6, dpi),
+            )
         }
         Kind::Slider => (px(150, dpi), px(28, dpi)),
         Kind::ProgressBar => (px(150, dpi), px(16, dpi)),
@@ -1419,7 +1618,12 @@ fn chrome_impl(id: WidgetId) -> Option<Size> {
             Some(Size::new(lp(l + r, dpi), lp(t + b, dpi)))
         }
         Kind::Tabs => {
-            let mut rc = RECT { left: 0, top: 0, right: 1000, bottom: 1000 };
+            let mut rc = RECT {
+                left: 0,
+                top: 0,
+                right: 1000,
+                bottom: 1000,
+            };
             send(h, TCM_ADJUSTRECT, 0, &mut rc as *mut _ as isize);
             let (dw, dh) = (1000 - (rc.right - rc.left), 1000 - (rc.bottom - rc.top));
             Some(Size::new(lp(dw, dpi), lp(dh, dpi)))
@@ -1431,8 +1635,12 @@ fn chrome_impl(id: WidgetId) -> Option<Size> {
 // ------------------------------------------------------------------ properties
 
 fn update_tooltip(id: WidgetId, text: &str) {
-    let Some((h, win, had)) = get(id, |w| (w.hwnd, w.win, w.has_tip)) else { return };
-    let Some((owner, mut tip, dpi)) = get(win, |w| (w.hwnd, w.tip_hwnd, w.dpi)) else { return };
+    let Some((h, win, had)) = get(id, |w| (w.hwnd, w.win, w.has_tip)) else {
+        return;
+    };
+    let Some((owner, mut tip, dpi)) = get(win, |w| (w.hwnd, w.tip_hwnd, w.dpi)) else {
+        return;
+    };
     let inst = st(|s| s.inst).unwrap_or(0);
     if h == 0 || matches!(get(id, |w| w.kind), Some(Kind::Window)) {
         return;
@@ -1491,7 +1699,16 @@ fn update_tooltip(id: WidgetId, text: &str) {
         });
         let Some(ptr) = ptr else { return };
         ti.lpszText = ptr;
-        send(tip, if had { TTM_UPDATETIPTEXTW } else { TTM_ADDTOOLW }, 0, &ti as *const _ as isize);
+        send(
+            tip,
+            if had {
+                TTM_UPDATETIPTEXTW
+            } else {
+                TTM_ADDTOOLW
+            },
+            0,
+            &ti as *const _ as isize,
+        );
     }
 }
 
@@ -1518,7 +1735,8 @@ fn build_bitmap(img: &ImageData) -> isize {
         if bmp == 0 || bits.is_null() {
             return 0;
         }
-        let dst = std::slice::from_raw_parts_mut(bits as *mut u8, img.w as usize * img.h as usize * 4);
+        let dst =
+            std::slice::from_raw_parts_mut(bits as *mut u8, img.w as usize * img.h as usize * 4);
         for (d, s) in dst.chunks_exact_mut(4).zip(img.rgba.chunks_exact(4)) {
             let a = s[3] as u32;
             d[0] = (s[2] as u32 * a / 255) as u8;
@@ -1535,7 +1753,9 @@ fn set_pages_visible(tabs: WidgetId) {
 }
 
 fn set_impl(id: WidgetId, prop: &Prop) {
-    let Some((kind, h, aux, win)) = get(id, |w| (w.kind, w.hwnd, w.w_aux(), w.win)) else { return };
+    let Some((kind, h, aux, win)) = get(id, |w| (w.kind, w.hwnd, w.w_aux(), w.win)) else {
+        return;
+    };
     let dpi = dpi_of(id);
     match prop {
         Prop::Text(t) => {
@@ -1557,7 +1777,10 @@ fn set_impl(id: WidgetId, prop: &Prop) {
                     }
                 }
                 Kind::Page => {
-                    if let Some(th) = get(id, |w| w.parent).flatten().and_then(|p| get(p, |x| x.hwnd)) {
+                    if let Some(th) = get(id, |w| w.parent)
+                        .flatten()
+                        .and_then(|p| get(p, |x| x.hwnd))
+                    {
                         let idx = page_index(id);
                         let mut buf = wide(t);
                         let item = TCITEMW {
@@ -1578,7 +1801,15 @@ fn set_impl(id: WidgetId, prop: &Prop) {
             }
         }
         Prop::Tooltip(t) => {
-            if matches!(kind, Kind::MenuItem | Kind::CheckMenuItem | Kind::Menu | Kind::MenuBar | Kind::MenuSeparator | Kind::Page) {
+            if matches!(
+                kind,
+                Kind::MenuItem
+                    | Kind::CheckMenuItem
+                    | Kind::Menu
+                    | Kind::MenuBar
+                    | Kind::MenuSeparator
+                    | Kind::Page
+            ) {
                 return;
             }
             update_tooltip(id, t);
@@ -1602,7 +1833,11 @@ fn set_impl(id: WidgetId, prop: &Prop) {
                     .flatten() else {
                         return;
                     };
-                    let (item, by) = if kind == Kind::Menu { (pos as u32, MF_BYPOSITION) } else { (cmd as u32, MF_BYCOMMAND) };
+                    let (item, by) = if kind == Kind::Menu {
+                        (pos as u32, MF_BYPOSITION)
+                    } else {
+                        (cmd as u32, MF_BYCOMMAND)
+                    };
                     unsafe {
                         EnableMenuItem(pm, item, by | if *e { 0 } else { MF_GRAYED });
                     }
@@ -1622,13 +1857,16 @@ fn set_impl(id: WidgetId, prop: &Prop) {
             match kind {
                 Kind::Window => unsafe {
                     if *v {
-                        let first = with_w(id, |w| !std::mem::replace(&mut w.shown, true)).unwrap_or(false);
+                        let first =
+                            with_w(id, |w| !std::mem::replace(&mut w.shown, true)).unwrap_or(false);
                         ShowWindow(h, SW_SHOW);
                         UpdateWindow(h);
                         if first {
                             let mut rc = RECT::default();
                             GetWindowRect(h, &mut rc);
-                            with_w(id, |w| w.last_pos = Some((lp(rc.left, w.dpi), lp(rc.top, w.dpi))));
+                            with_w(id, |w| {
+                                w.last_pos = Some((lp(rc.left, w.dpi), lp(rc.top, w.dpi)))
+                            });
                         }
                         if first {
                             // DefWindowProc ignores WM_NEXTDLGCTL: pick the first tab stop ourselves
@@ -1646,7 +1884,11 @@ fn set_impl(id: WidgetId, prop: &Prop) {
                         set_pages_visible(t);
                     }
                 }
-                Kind::Menu | Kind::MenuBar | Kind::MenuItem | Kind::CheckMenuItem | Kind::MenuSeparator => {}
+                Kind::Menu
+                | Kind::MenuBar
+                | Kind::MenuItem
+                | Kind::CheckMenuItem
+                | Kind::MenuSeparator => {}
                 _ => unsafe {
                     let c = if *v { SW_SHOWNOACTIVATE } else { SW_HIDE };
                     ShowWindow(h, c);
@@ -1670,7 +1912,11 @@ fn set_impl(id: WidgetId, prop: &Prop) {
                     .flatten()
                     {
                         unsafe {
-                            CheckMenuItem(pm, cmd as u32, MF_BYCOMMAND | if *c { MF_CHECKED } else { 0 });
+                            CheckMenuItem(
+                                pm,
+                                cmd as u32,
+                                MF_BYCOMMAND | if *c { MF_CHECKED } else { 0 },
+                            );
                         }
                     }
                 }
@@ -1680,7 +1926,12 @@ fn set_impl(id: WidgetId, prop: &Prop) {
         Prop::Range { min, max, step } => {
             with_w(id, |w| w.range = (*min, *max, *step));
             if kind == Kind::Slider {
-                send(h, TBM_SETRANGE, 1, (slider_steps((*min, *max, *step)) as isize) << 16);
+                send(
+                    h,
+                    TBM_SETRANGE,
+                    1,
+                    (slider_steps((*min, *max, *step)) as isize) << 16,
+                );
                 let v = get(id, |w| w.value).unwrap_or(*min);
                 apply_value(id, v);
             }
@@ -1698,7 +1949,9 @@ fn set_impl(id: WidgetId, prop: &Prop) {
                 let w = wide(it);
                 send(h, add, 0, w.as_ptr() as isize);
             }
-            let sel = get(id, |w| w.selected).flatten().filter(|i| *i < items.len());
+            let sel = get(id, |w| w.selected)
+                .flatten()
+                .filter(|i| *i < items.len());
             set_selection(id, sel);
         }
         Prop::Selected(s) => {
@@ -1732,7 +1985,13 @@ fn set_impl(id: WidgetId, prop: &Prop) {
             }
         }
         Prop::Accel(a) => {
-            with_w(id, |w| w.accel = if a.is_empty() { None } else { Some(a.to_string()) });
+            with_w(id, |w| {
+                w.accel = if a.is_empty() {
+                    None
+                } else {
+                    Some(a.to_string())
+                }
+            });
             if matches!(kind, Kind::MenuItem | Kind::CheckMenuItem) {
                 menu_update_text(id);
                 rebuild_accel(win);
@@ -1740,7 +1999,10 @@ fn set_impl(id: WidgetId, prop: &Prop) {
         }
         Prop::ReadOnly(b) => {
             with_w(id, |w| w.readonly = *b);
-            if matches!(kind, Kind::TextInput | Kind::PasswordInput | Kind::TextArea | Kind::SpinBox) {
+            if matches!(
+                kind,
+                Kind::TextInput | Kind::PasswordInput | Kind::TextArea | Kind::SpinBox
+            ) {
                 send(h, EM_SETREADONLY, *b as usize, 0);
             }
         }
@@ -1748,7 +2010,11 @@ fn set_impl(id: WidgetId, prop: &Prop) {
             if kind == Kind::ProgressBar {
                 unsafe {
                     let st_ = GetWindowLongPtrW(h, GWL_STYLE);
-                    let n = if *b { st_ | PBS_MARQUEE as isize } else { st_ & !(PBS_MARQUEE as isize) };
+                    let n = if *b {
+                        st_ | PBS_MARQUEE as isize
+                    } else {
+                        st_ & !(PBS_MARQUEE as isize)
+                    };
                     SetWindowLongPtrW(h, GWL_STYLE, n);
                 }
                 send(h, PBM_SETMARQUEE, *b as usize, 30);
@@ -1760,7 +2026,15 @@ fn set_impl(id: WidgetId, prop: &Prop) {
                     let s0 = GetWindowLongPtrW(h, GWL_STYLE);
                     let bits = (WS_THICKFRAME | WS_MAXIMIZEBOX) as isize;
                     SetWindowLongPtrW(h, GWL_STYLE, if *b { s0 | bits } else { s0 & !bits });
-                    SetWindowPos(h, 0, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                    SetWindowPos(
+                        h,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+                    );
                 }
                 if let Some(sz) = get(id, |w| w.client_req).flatten() {
                     set_client_size(id, sz);
@@ -1812,7 +2086,15 @@ fn set_impl(id: WidgetId, prop: &Prop) {
         Prop::Position { x, y } => {
             if kind == Kind::Window {
                 unsafe {
-                    SetWindowPos(h, 0, px(*x, dpi), px(*y, dpi), 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                    SetWindowPos(
+                        h,
+                        0,
+                        px(*x, dpi),
+                        px(*y, dpi),
+                        0,
+                        0,
+                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+                    );
                 }
                 with_w(id, |w| w.last_pos = Some((*x, *y)));
             }
@@ -1863,7 +2145,9 @@ fn page_index(page: WidgetId) -> usize {
 }
 
 fn set_selection(id: WidgetId, sel: Option<usize>) {
-    let Some((kind, h)) = get(id, |w| (w.kind, w.hwnd)) else { return };
+    let Some((kind, h)) = get(id, |w| (w.kind, w.hwnd)) else {
+        return;
+    };
     let v = sel.map_or(usize::MAX, |i| i);
     match kind {
         Kind::ComboBox => {
@@ -1878,7 +2162,17 @@ fn set_selection(id: WidgetId, sel: Option<usize>) {
             }
         }
         Kind::Table => {
-            let mut it = LVITEMW { mask: 0, iItem: 0, iSubItem: 0, state: 0, stateMask: LVIS_SELECTED, pszText: null_mut(), cchTextMax: 0, iImage: 0, lParam: 0 };
+            let mut it = LVITEMW {
+                mask: 0,
+                iItem: 0,
+                iSubItem: 0,
+                state: 0,
+                stateMask: LVIS_SELECTED,
+                pszText: null_mut(),
+                cchTextMax: 0,
+                iImage: 0,
+                lParam: 0,
+            };
             send(h, LVM_SETITEMSTATE, usize::MAX, &it as *const _ as isize);
             if let Some(i) = sel {
                 it.state = LVIS_SELECTED | LVIS_FOCUSED;
@@ -1893,17 +2187,28 @@ fn set_selection(id: WidgetId, sel: Option<usize>) {
 }
 
 fn apply_value(id: WidgetId, v: f64) {
-    let Some((kind, h, r)) = get(id, |w| (w.kind, w.hwnd, w.range)) else { return };
+    let Some((kind, h, r)) = get(id, |w| (w.kind, w.hwnd, w.range)) else {
+        return;
+    };
     with_w(id, |w| w.value = v);
     match kind {
         Kind::Slider => {
             let n = slider_steps(r);
             let span = r.1 - r.0;
-            let pos = if span > 0.0 { ((v - r.0) / span * n as f64).round() as i32 } else { 0 };
+            let pos = if span > 0.0 {
+                ((v - r.0) / span * n as f64).round() as i32
+            } else {
+                0
+            };
             send(h, TBM_SETPOS, 1, pos.clamp(0, n) as isize);
         }
         Kind::ProgressBar => {
-            send(h, PBM_SETPOS, (v.clamp(0.0, 1.0) * 1000.0).round() as usize, 0);
+            send(
+                h,
+                PBM_SETPOS,
+                (v.clamp(0.0, 1.0) * 1000.0).round() as usize,
+                0,
+            );
         }
         Kind::SpinBox => set_text(h, &fmt_value(v, r.2)),
         _ => {}
@@ -1934,7 +2239,10 @@ fn handle_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
         WM_SIZE if kind == Kind::Window => {
             if !muted() && w != SIZE_MINIMIZED {
                 let dpi = get(id, |x| x.dpi).unwrap_or(96);
-                let sz = Size::new(lp(loword(l as usize) as i32, dpi), lp(hiword(l as usize) as i32, dpi));
+                let sz = Size::new(
+                    lp(loword(l as usize) as i32, dpi),
+                    lp(hiword(l as usize) as i32, dpi),
+                );
                 with_w(id, |x| x.client_req = Some(sz));
                 emit(id, Event::Resized { w: sz.w, h: sz.h });
             }
@@ -1944,7 +2252,17 @@ fn handle_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
             // controls handle their own (ctl_proc); this is the window, a container or a
             // non-subclassed child (label, image, progress bar) whose message bubbled up
             let src = id_of(w as HWND).unwrap_or(id);
-            let own = get(src, |x| x.kind).is_some_and(|k| !matches!(k, Kind::Label | Kind::Image | Kind::ProgressBar | Kind::Window | Kind::Page | Kind::GroupBox));
+            let own = get(src, |x| x.kind).is_some_and(|k| {
+                !matches!(
+                    k,
+                    Kind::Label
+                        | Kind::Image
+                        | Kind::ProgressBar
+                        | Kind::Window
+                        | Kind::Page
+                        | Kind::GroupBox
+                )
+            });
             if !own {
                 context_menu(src, l);
             }
@@ -1969,7 +2287,14 @@ fn handle_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
         WM_GETMINMAXINFO if kind == Kind::Window => {
             let (ms, dpi, has_menu, fns) = st(|s| {
                 let x = s.widgets.get(&id)?;
-                Some((x.min_size, x.dpi, x.children.iter().any(|c| s.widgets.get(c).is_some_and(|k| k.kind == Kind::MenuBar)), s.fns))
+                Some((
+                    x.min_size,
+                    x.dpi,
+                    x.children
+                        .iter()
+                        .any(|c| s.widgets.get(c).is_some_and(|k| k.kind == Kind::MenuBar)),
+                    s.fns,
+                ))
             })
             .flatten()?;
             if ms.w <= 0 && ms.h <= 0 {
@@ -1978,7 +2303,12 @@ fn handle_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
             unsafe {
                 let style = GetWindowLongPtrW(h, GWL_STYLE) as u32;
                 let ex = GetWindowLongPtrW(h, GWL_EXSTYLE) as u32;
-                let mut rc = RECT { left: 0, top: 0, right: px(ms.w.max(0), dpi), bottom: px(ms.h.max(0), dpi) };
+                let mut rc = RECT {
+                    left: 0,
+                    top: 0,
+                    right: px(ms.w.max(0), dpi),
+                    bottom: px(ms.h.max(0), dpi),
+                };
                 match fns.adjust_rect_dpi {
                     Some(f) => {
                         f(&mut rc, style, has_menu as BOOL, ex, dpi);
@@ -1988,12 +2318,15 @@ fn handle_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                     }
                 }
                 let mmi = &mut *(l as *mut MINMAXINFO);
-                mmi.ptMinTrackSize = POINT { x: rc.right - rc.left, y: rc.bottom - rc.top };
+                mmi.ptMinTrackSize = POINT {
+                    x: rc.right - rc.left,
+                    y: rc.bottom - rc.top,
+                };
             }
             Some(0)
         }
         WM_DPICHANGED if kind == Kind::Window => {
-            on_dpi_changed(id, h, loword(w) , l);
+            on_dpi_changed(id, h, loword(w), l);
             Some(0)
         }
         WM_ACTIVATE if kind == Kind::Window => {
@@ -2015,7 +2348,8 @@ fn handle_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                     if let Some((r, old)) = get(sid, |x| (x.range, x.value)) {
                         let n = slider_steps(r);
                         let pos = send(l, TBM_GETPOS, 0, 0) as i32;
-                        let v = (r.0 + (r.1 - r.0) * pos as f64 / n as f64).clamp(r.0.min(r.1), r.1.max(r.0));
+                        let v = (r.0 + (r.1 - r.0) * pos as f64 / n as f64)
+                            .clamp(r.0.min(r.1), r.1.max(r.0));
                         if (v - old).abs() > f64::EPSILON {
                             with_w(sid, |x| x.value = v);
                             emit(sid, Event::Value(v));
@@ -2035,7 +2369,16 @@ fn handle_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
         }
         WM_CTLCOLORSTATIC | WM_CTLCOLORBTN => {
             let sid = id_of(l)?;
-            if matches!(get(sid, |x| x.kind), Some(Kind::Label | Kind::GroupBox | Kind::CheckBox | Kind::RadioButton | Kind::Slider)) {
+            if matches!(
+                get(sid, |x| x.kind),
+                Some(
+                    Kind::Label
+                        | Kind::GroupBox
+                        | Kind::CheckBox
+                        | Kind::RadioButton
+                        | Kind::Slider
+                )
+            ) {
                 unsafe {
                     // paint what the parent would show behind the label (page body, group box...)
                     fill_bg(l, w as isize, true);
@@ -2069,7 +2412,11 @@ fn handle_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
 /// `h` (client origin of `h`). Returns false when there is no theme.
 unsafe fn paint_page_body(page: HWND, h: HWND, dc: isize) -> bool {
     unsafe {
-        let Some(tabs) = id_of(page).and_then(|i| get(i, |x| x.parent)).flatten().and_then(|p| get(p, |x| x.hwnd)) else {
+        let Some(tabs) = id_of(page)
+            .and_then(|i| get(i, |x| x.parent))
+            .flatten()
+            .and_then(|p| get(p, |x| x.hwnd))
+        else {
             return false;
         };
         let theme = OpenThemeData(page, wide("TAB").as_ptr());
@@ -2081,7 +2428,12 @@ unsafe fn paint_page_body(page: HWND, h: HWND, dc: isize) -> bool {
         GetClientRect(tabs, &mut tc);
         let mut o = POINT::default();
         MapWindowPoints(tabs, h, &mut o, 1);
-        let rc = RECT { left: o.x, top: o.y, right: o.x + tc.right, bottom: o.y + tc.bottom };
+        let rc = RECT {
+            left: o.x,
+            top: o.y,
+            right: o.x + tc.right,
+            bottom: o.y + tc.bottom,
+        };
         let mut vis = RECT::default();
         GetClientRect(h, &mut vis);
         DrawThemeBackground(theme, dc, TABP_BODY, 0, &rc, &vis);
@@ -2114,7 +2466,13 @@ unsafe fn fill_bg(h: HWND, dc: isize, parent_bg: bool) {
 fn draw_image(id: WidgetId, ds: &DRAWITEMSTRUCT) {
     unsafe {
         fill_bg(ds.hwndItem, ds.hDC, true);
-        let Some((bmp, iw, ih)) = get(id, |w| (w.hbmp, w.image.as_ref().map_or(0, |i| i.w as i32), w.image.as_ref().map_or(0, |i| i.h as i32))) else {
+        let Some((bmp, iw, ih)) = get(id, |w| {
+            (
+                w.hbmp,
+                w.image.as_ref().map_or(0, |i| i.w as i32),
+                w.image.as_ref().map_or(0, |i| i.h as i32),
+            )
+        }) else {
             return;
         };
         if bmp == 0 || iw == 0 || ih == 0 {
@@ -2125,9 +2483,26 @@ fn draw_image(id: WidgetId, ds: &DRAWITEMSTRUCT) {
             return;
         }
         let old = SelectObject(mem, bmp);
-        let bf = BLENDFUNCTION { BlendOp: 0, BlendFlags: 0, SourceConstantAlpha: 255, AlphaFormat: 1 };
+        let bf = BLENDFUNCTION {
+            BlendOp: 0,
+            BlendFlags: 0,
+            SourceConstantAlpha: 255,
+            AlphaFormat: 1,
+        };
         let r = ds.rcItem;
-        AlphaBlend(ds.hDC, r.left, r.top, r.right - r.left, r.bottom - r.top, mem, 0, 0, iw, ih, bf);
+        AlphaBlend(
+            ds.hDC,
+            r.left,
+            r.top,
+            r.right - r.left,
+            r.bottom - r.top,
+            mem,
+            0,
+            0,
+            iw,
+            ih,
+            bf,
+        );
         SelectObject(mem, old);
         DeleteDC(mem);
     }
@@ -2142,11 +2517,25 @@ fn on_dpi_changed(id: WidgetId, h: HWND, dpi: u32, l: LPARAM) {
         with_w(id, |w| w.dpi = dpi);
         let r = unsafe { *(l as *const RECT) };
         unsafe {
-            SetWindowPos(h, 0, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
+            SetWindowPos(
+                h,
+                0,
+                r.left,
+                r.top,
+                r.right - r.left,
+                r.bottom - r.top,
+                SWP_NOZORDER | SWP_NOACTIVATE,
+            );
         }
         let f = font(dpi) as usize;
-        let list: Vec<(WidgetId, HWND, HWND)> =
-            st(|s| s.widgets.iter().filter(|(_, w)| w.win == id && w.hwnd != 0).map(|(i, w)| (*i, w.hwnd, w.aux)).collect()).unwrap_or_default();
+        let list: Vec<(WidgetId, HWND, HWND)> = st(|s| {
+            s.widgets
+                .iter()
+                .filter(|(_, w)| w.win == id && w.hwnd != 0)
+                .map(|(i, w)| (*i, w.hwnd, w.aux))
+                .collect()
+        })
+        .unwrap_or_default();
         for (wid_, hw, aux) in &list {
             send(*hw, WM_SETFONT, font_of(*wid_, dpi) as usize, 1);
             if *aux != 0 {
@@ -2297,7 +2686,12 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
         (Kind::Table, LVN_KEYDOWN) if !muted() => {
             let vk = unsafe { *((l as *const u8).add(std::mem::size_of::<NMHDR>()) as *const u16) };
             if vk as usize == VK_RETURN {
-                let i = send(hdr.hwndFrom, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as isize);
+                let i = send(
+                    hdr.hwndFrom,
+                    LVM_GETNEXTITEM,
+                    usize::MAX,
+                    LVNI_SELECTED as isize,
+                );
                 if i >= 0 {
                     emit(cid, Event::Activated(i as usize));
                 }
@@ -2317,7 +2711,8 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
             let nm = unsafe { &*(l as *const NMTREEVIEWW) };
             let open = nm.action & 3 == TVE_EXPAND as u32;
             // the app usually reacts by replacing the rows: deliver outside this notification
-            let _ = TREE_EXP.try_with(|q| q.borrow_mut().push((cid, nm.itemNew.lParam as u64, open)));
+            let _ =
+                TREE_EXP.try_with(|q| q.borrow_mut().push((cid, nm.itemNew.lParam as u64, open)));
             unsafe {
                 PostMessageW(MSG_HWND.load(Ordering::SeqCst), WM_TREEEXP, 0, 0);
             }
@@ -2325,7 +2720,11 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
         }
         (Kind::Tree, NM_DBLCLK) if !muted() => {
             let mut p = POINT::default();
-            let mut ht = TVHITTESTINFO { pt: p, flags: 0, hItem: 0 };
+            let mut ht = TVHITTESTINFO {
+                pt: p,
+                flags: 0,
+                hItem: 0,
+            };
             unsafe {
                 GetCursorPos(&mut p);
                 ScreenToClient(hdr.hwndFrom, &mut p);
@@ -2352,7 +2751,11 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
                 let (r, old, eh) = get(cid, |x| (x.range, x.value, x.hwnd))?;
                 let step = if r.2 > 0.0 { r.2 } else { 1.0 };
                 // the field may hold unparsed text: start from what is shown
-                let shown = get_text(eh, false).trim().replace(',', ".").parse::<f64>().unwrap_or(old);
+                let shown = get_text(eh, false)
+                    .trim()
+                    .replace(',', ".")
+                    .parse::<f64>()
+                    .unwrap_or(old);
                 let v = (shown + nm.iDelta as f64 * step).clamp(r.0.min(r.1), r.1.max(r.0));
                 {
                     let _m = MuteGuard::new();
@@ -2368,16 +2771,28 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
 
 /// Subclass procedure for native controls: focus events, Enter in list boxes, spin-box normalisation.
 unsafe extern "system" fn ctl_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
-    let orig = ORIG.try_with(|o| o.borrow().get(&h).copied()).ok().flatten().unwrap_or(0);
+    let orig = ORIG
+        .try_with(|o| o.borrow().get(&h).copied())
+        .ok()
+        .flatten()
+        .unwrap_or(0);
     let call = || unsafe {
-        if orig != 0 { CallWindowProcW(orig, h, m, w, l) } else { DefWindowProcW(h, m, w, l) }
+        if orig != 0 {
+            CallWindowProcW(orig, h, m, w, l)
+        } else {
+            DefWindowProcW(h, m, w, l)
+        }
     };
     if m == WM_CONTEXTMENU {
         if let Some(id) = id_of(h) {
             let kind = get(id, |x| x.kind);
             let shown = catch_unwind(AssertUnwindSafe(|| context_menu(id, l))).unwrap_or(false);
             // edit controls keep their own menu unless the app popped one up
-            return if matches!(kind, Some(Kind::TextInput | Kind::PasswordInput | Kind::TextArea | Kind::SpinBox)) && !shown {
+            return if matches!(
+                kind,
+                Some(Kind::TextInput | Kind::PasswordInput | Kind::TextArea | Kind::SpinBox)
+            ) && !shown
+            {
                 call()
             } else {
                 0
@@ -2396,7 +2811,9 @@ unsafe extern "system" fn ctl_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRE
                 return;
             }
             let Some(id) = id_of(h) else { return };
-            let Some((kind, win)) = get(id, |x| (x.kind, x.win)) else { return };
+            let Some((kind, win)) = get(id, |x| (x.kind, x.win)) else {
+                return;
+            };
             if m == WM_SETFOCUS {
                 with_w(win, |x| x.last_focus = h);
             }
@@ -2425,8 +2842,14 @@ unsafe extern "system" fn ctl_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRE
 
 /// Spin box lost focus: clamp, reformat the text and report a changed value.
 fn spin_commit(id: WidgetId) {
-    let Some((h, r, old)) = get(id, |x| (x.hwnd, x.range, x.value)) else { return };
-    let parsed = get_text(h, false).trim().replace(',', ".").parse::<f64>().unwrap_or(old);
+    let Some((h, r, old)) = get(id, |x| (x.hwnd, x.range, x.value)) else {
+        return;
+    };
+    let parsed = get_text(h, false)
+        .trim()
+        .replace(',', ".")
+        .parse::<f64>()
+        .unwrap_or(old);
     let v = parsed.clamp(r.0.min(r.1), r.1.max(r.0));
     {
         let _m = MuteGuard::new();
@@ -2466,7 +2889,9 @@ fn table_set_columns(id: WidgetId, cols: &[Column]) {
 }
 
 fn table_set_rows(id: WidgetId, rows: &[Vec<String>]) {
-    let Some((h, ncols)) = get(id, |w| (w.hwnd, w.cols.len().max(1))) else { return };
+    let Some((h, ncols)) = get(id, |w| (w.hwnd, w.cols.len().max(1))) else {
+        return;
+    };
     let item_y = |h: HWND| -> Option<i32> {
         if send(h, LVM_GETITEMCOUNT, 0, 0) == 0 {
             return None;
@@ -2513,13 +2938,25 @@ fn table_set_rows(id: WidgetId, rows: &[Vec<String>]) {
 }
 
 fn table_set_sort(id: WidgetId, sort: Option<(usize, bool)>) {
-    let Some((h, n)) = get(id, |w| (w.hwnd, w.cols.len())) else { return };
+    let Some((h, n)) = get(id, |w| (w.hwnd, w.cols.len())) else {
+        return;
+    };
     let hdr = send(h, LVM_GETHEADER, 0, 0);
     if hdr == 0 {
         return;
     }
     for i in 0..n {
-        let mut it = HDITEMW { mask: HDI_FORMAT, cxy: 0, pszText: null_mut(), hbm: 0, cchTextMax: 0, fmt: 0, lParam: 0, iImage: 0, iOrder: 0 };
+        let mut it = HDITEMW {
+            mask: HDI_FORMAT,
+            cxy: 0,
+            pszText: null_mut(),
+            hbm: 0,
+            cchTextMax: 0,
+            fmt: 0,
+            lParam: 0,
+            iImage: 0,
+            iOrder: 0,
+        };
         if send(hdr, HDM_GETITEMW, i, &mut it as *mut _ as isize) == 0 {
             continue;
         }
@@ -2536,7 +2973,9 @@ fn table_set_sort(id: WidgetId, sort: Option<(usize, bool)>) {
 /// The table's selection may have changed natively: report it once the notification burst is over
 /// (a click deselects the old row and selects the new one in two notifications).
 fn table_sel_check(id: WidgetId) {
-    let Some((h, last)) = get(id, |w| (w.hwnd, w.last_sel)) else { return };
+    let Some((h, last)) = get(id, |w| (w.hwnd, w.last_sel)) else {
+        return;
+    };
     let i = send(h, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as isize);
     let sel = if i < 0 { None } else { Some(i as usize) };
     if sel != last {
@@ -2548,8 +2987,20 @@ fn table_sel_check(id: WidgetId) {
 // ------------------------------------------------------------------ tree (SysTreeView32)
 
 fn tree_node_of(h: HWND, item: isize) -> Option<u64> {
-    let mut it = TVITEMEXW { mask: TVIF_PARAM, hItem: item, state: 0, stateMask: 0, pszText: null_mut(), cchTextMax: 0, iImage: 0, iSelectedImage: 0, cChildren: 0, lParam: 0 };
-    (item != 0 && send(h, TVM_GETITEMW, 0, &mut it as *mut _ as isize) != 0).then_some(it.lParam as u64)
+    let mut it = TVITEMEXW {
+        mask: TVIF_PARAM,
+        hItem: item,
+        state: 0,
+        stateMask: 0,
+        pszText: null_mut(),
+        cchTextMax: 0,
+        iImage: 0,
+        iSelectedImage: 0,
+        cChildren: 0,
+        lParam: 0,
+    };
+    (item != 0 && send(h, TVM_GETITEMW, 0, &mut it as *mut _ as isize) != 0)
+        .then_some(it.lParam as u64)
 }
 
 fn tree_set_rows(id: WidgetId, rows: &[TreeRow]) {
@@ -2593,7 +3044,12 @@ fn tree_set_rows(id: WidgetId, rows: &[TreeRow]) {
     }
     send(h, WM_SETREDRAW, 1, 0);
     if top > 0 {
-        send(h, 0x115 /* WM_VSCROLL */, 4 /* SB_THUMBPOSITION */ | ((top as usize) << 16), 0);
+        send(
+            h,
+            0x115, /* WM_VSCROLL */
+            4 /* SB_THUMBPOSITION */ | ((top as usize) << 16),
+            0,
+        );
     }
     unsafe {
         InvalidateRect(h, null(), 1);
@@ -2605,7 +3061,11 @@ fn tree_set_rows(id: WidgetId, rows: &[TreeRow]) {
 }
 
 fn tree_select(id: WidgetId, node: Option<u64>) {
-    let Some((h, item)) = get(id, |w| (w.hwnd, node.and_then(|n| w.nodes.get(&n).copied()))) else { return };
+    let Some((h, item)) = get(id, |w| {
+        (w.hwnd, node.and_then(|n| w.nodes.get(&n).copied()))
+    }) else {
+        return;
+    };
     send(h, TVM_SELECTITEM, TVGN_CARET, item.unwrap_or(0));
     let cur = send(h, TVM_GETNEXTITEM, TVGN_CARET, 0);
     let sel = tree_node_of(h, cur);
@@ -2626,16 +3086,33 @@ fn tree_activate_selected(id: WidgetId) {
 /// right styles and move all state over.
 fn recreate_edit(id: WidgetId) {
     let Some((old, wrap, vis, enabled, ro, has_tip, tip, parent)) = get(id, |w| {
-        (w.hwnd, w.wrap, w.vis, w.enabled, w.readonly, w.has_tip, String::from_utf16_lossy(&w.tip[..w.tip.len().saturating_sub(1)]), w.parent)
+        (
+            w.hwnd,
+            w.wrap,
+            w.vis,
+            w.enabled,
+            w.readonly,
+            w.has_tip,
+            String::from_utf16_lossy(&w.tip[..w.tip.len().saturating_sub(1)]),
+            w.parent,
+        )
     }) else {
         return;
     };
-    let Some(phwnd) = parent.and_then(|p| get(p, |x| x.hwnd)) else { return };
+    let Some(phwnd) = parent.and_then(|p| get(p, |x| x.hwnd)) else {
+        return;
+    };
     let (inst, dpi) = (st(|s| s.inst).unwrap_or(0), dpi_of(id));
     let text = get_text(old, true);
     let (mut s0, mut s1) = (0u32, 0u32);
-    send(old, EM_GETSEL, &mut s0 as *mut _ as usize, &mut s1 as *mut _ as isize);
-    let mut style = WS_CHILD | WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL;
+    send(
+        old,
+        EM_GETSEL,
+        &mut s0 as *mut _ as usize,
+        &mut s1 as *mut _ as isize,
+    );
+    let mut style =
+        WS_CHILD | WS_TABSTOP | ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN | WS_VSCROLL;
     if !wrap {
         style |= ES_AUTOHSCROLL | WS_HSCROLL;
     }
@@ -2718,17 +3195,75 @@ fn sash_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
     let axis = |p: POINT| if vertical { p.y } else { p.x };
     match m {
         WM_SETCURSOR => unsafe {
-            SetCursor(LoadCursorW(0, if vertical { IDC_SIZENS } else { IDC_SIZEWE }));
+            SetCursor(LoadCursorW(
+                0,
+                if vertical { IDC_SIZENS } else { IDC_SIZEWE },
+            ));
             Some(1)
         },
         WM_ERASEBKGND => unsafe {
             fill_bg(h, w as isize, true);
+            // keyboard focus: a plain focus rectangle (erasing is how a sash repaints)
+            if GetFocus() == h {
+                let mut rc = RECT::default();
+                GetClientRect(h, &mut rc);
+                DrawFocusRect(w as isize, &rc);
+            }
             Some(1)
         },
+        // the dialog manager (IsDialogMessage) would otherwise use the arrow keys to move the focus
+        WM_GETDLGCODE => Some(DLGC_WANTARROWS),
+        WM_SETFOCUS | WM_KILLFOCUS => unsafe {
+            if m == WM_SETFOCUS {
+                // so that re-activating the window puts the focus back here
+                if let Some(win) = get(id, |x| x.win) {
+                    with_w(win, |x| x.last_focus = h);
+                }
+            }
+            InvalidateRect(h, std::ptr::null(), 1);
+            None
+        },
+        // Arrow keys along the sash's axis (Shift = large step), Home and End. Other keys, and any
+        // chord with Ctrl, are not ours.
+        WM_KEYDOWN => unsafe {
+            if muted() || GetKeyState(VK_CONTROL) < 0 {
+                return None;
+            }
+            let big = GetKeyState(VK_SHIFT) < 0;
+            let (prev, next) = if vertical {
+                (VK_UP, VK_DOWN)
+            } else {
+                (VK_LEFT, VK_RIGHT)
+            };
+            let key = match w {
+                VK_HOME => SashKey::Min,
+                VK_END => SashKey::Max,
+                k if k == prev => {
+                    if big {
+                        SashKey::PrevLarge
+                    } else {
+                        SashKey::Prev
+                    }
+                }
+                k if k == next => {
+                    if big {
+                        SashKey::NextLarge
+                    } else {
+                        SashKey::Next
+                    }
+                }
+                _ => return None,
+            };
+            emit(id, Event::SashKey(key));
+            Some(0)
+        },
         WM_LBUTTONDOWN => unsafe {
+            SetFocus(h);
             let mut p = POINT::default();
             GetCursorPos(&mut p);
-            with_w(id, |x| x.drag = Some((axis(p), if vertical { bounds.y } else { bounds.x })));
+            with_w(id, |x| {
+                x.drag = Some((axis(p), if vertical { bounds.y } else { bounds.x }))
+            });
             SetCapture(h);
             Some(0)
         },
@@ -2737,7 +3272,10 @@ fn sash_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                 if GetCapture() == h && !muted() {
                     let mut p = POINT::default();
                     GetCursorPos(&mut p);
-                    emit(id, Event::SashDragged(pos0 + lp(axis(p) - start, dpi_of(id))));
+                    emit(
+                        id,
+                        Event::SashDragged(pos0 + lp(axis(p) - start, dpi_of(id))),
+                    );
                 }
             }
             Some(0)
@@ -2763,10 +3301,17 @@ fn sash_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
 /// `WM_CONTEXTMENU` for widget `id` (`l` = screen position or -1 from the keyboard): select the
 /// item under the pointer in tables/trees, then tell the core. Returns true if a popup was shown.
 fn context_menu(id: WidgetId, l: LPARAM) -> bool {
-    let Some((kind, h, win)) = get(id, |x| (x.kind, x.hwnd, x.win)) else { return false };
-    let Some((whwnd, dpi)) = get(win, |x| (x.hwnd, x.dpi)) else { return false };
+    let Some((kind, h, win)) = get(id, |x| (x.kind, x.hwnd, x.win)) else {
+        return false;
+    };
+    let Some((whwnd, dpi)) = get(win, |x| (x.hwnd, x.dpi)) else {
+        return false;
+    };
     let keyboard = (l as u32) == u32::MAX;
-    let mut pt = POINT { x: (l & 0xFFFF) as u16 as i16 as i32, y: ((l >> 16) & 0xFFFF) as u16 as i16 as i32 };
+    let mut pt = POINT {
+        x: (l & 0xFFFF) as u16 as i16 as i32,
+        y: ((l >> 16) & 0xFFFF) as u16 as i16 as i32,
+    };
     unsafe {
         if keyboard {
             // at the selected item when there is one, else near the control's top-left
@@ -2776,8 +3321,13 @@ fn context_menu(id: WidgetId, l: LPARAM) -> bool {
                 Kind::Table => {
                     let i = send(h, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as isize);
                     rc.left = LVIR_LABEL;
-                    if i >= 0 && send(h, LVM_GETITEMRECT, i as usize, &mut rc as *mut _ as isize) != 0 {
-                        pt = POINT { x: rc.left + 8, y: rc.bottom };
+                    if i >= 0
+                        && send(h, LVM_GETITEMRECT, i as usize, &mut rc as *mut _ as isize) != 0
+                    {
+                        pt = POINT {
+                            x: rc.left + 8,
+                            y: rc.bottom,
+                        };
                     }
                 }
                 Kind::Tree => {
@@ -2786,8 +3336,13 @@ fn context_menu(id: WidgetId, l: LPARAM) -> bool {
                     let mut raw = [0u8; 16];
                     raw[..8].copy_from_slice(&cur.to_ne_bytes());
                     if cur != 0 && send(h, TVM_GETITEMRECT, 1, raw.as_mut_ptr() as isize) != 0 {
-                        let r = |i: usize| i32::from_ne_bytes(raw[i * 4..i * 4 + 4].try_into().unwrap_or([0; 4]));
-                        pt = POINT { x: r(0) + 8, y: r(3) };
+                        let r = |i: usize| {
+                            i32::from_ne_bytes(raw[i * 4..i * 4 + 4].try_into().unwrap_or([0; 4]))
+                        };
+                        pt = POINT {
+                            x: r(0) + 8,
+                            y: r(3),
+                        };
                     }
                 }
                 _ => {}
@@ -2798,7 +3353,13 @@ fn context_menu(id: WidgetId, l: LPARAM) -> bool {
             let mut c = pt;
             ScreenToClient(h, &mut c);
             if kind == Kind::Table {
-                let mut ht = LVHITTESTINFO { pt: c, flags: 0, iItem: -1, iSubItem: 0, iGroup: 0 };
+                let mut ht = LVHITTESTINFO {
+                    pt: c,
+                    flags: 0,
+                    iItem: -1,
+                    iSubItem: 0,
+                    iGroup: 0,
+                };
                 send(h, LVM_HITTEST, 0, &mut ht as *mut _ as isize);
                 if ht.iItem >= 0 && get(id, |x| x.last_sel) != Some(Some(ht.iItem as usize)) {
                     {
@@ -2808,7 +3369,11 @@ fn context_menu(id: WidgetId, l: LPARAM) -> bool {
                     emit(id, Event::Selected(Some(ht.iItem as usize)));
                 }
             } else {
-                let mut ht = TVHITTESTINFO { pt: c, flags: 0, hItem: 0 };
+                let mut ht = TVHITTESTINFO {
+                    pt: c,
+                    flags: 0,
+                    hItem: 0,
+                };
                 send(h, TVM_HITTEST, 0, &mut ht as *mut _ as isize);
                 if let Some(n) = tree_node_of(h, ht.hItem) {
                     if get(id, |x| x.last_tsel) != Some(Some(n)) {
@@ -2827,12 +3392,20 @@ fn context_menu(id: WidgetId, l: LPARAM) -> bool {
         ScreenToClient(whwnd, &mut cp);
     }
     POPUP_SHOWN.with(|p| p.set(false));
-    emit(id, Event::ContextMenu { x: lp(cp.x, dpi), y: lp(cp.y, dpi) });
+    emit(
+        id,
+        Event::ContextMenu {
+            x: lp(cp.x, dpi),
+            y: lp(cp.y, dpi),
+        },
+    );
     POPUP_SHOWN.with(|p| p.replace(false))
 }
 
 fn popup_menu_impl(menu: WidgetId, parent_window: Option<WidgetId>, at: Option<(i32, i32)>) {
-    let Some(hm) = get(menu, |w| w.hmenu).filter(|m| *m != 0) else { return };
+    let Some(hm) = get(menu, |w| w.hmenu).filter(|m| *m != 0) else {
+        return;
+    };
     let win = parent_window.and_then(|p| get(p, |w| (w.hwnd, w.dpi)));
     let owner = match win {
         Some((h, _)) if h != 0 => h,
@@ -2845,7 +3418,10 @@ fn popup_menu_impl(menu: WidgetId, parent_window: Option<WidgetId>, at: Option<(
     unsafe {
         match (at, win) {
             (Some((x, y)), Some((_, dpi))) => {
-                pt = POINT { x: px(x, dpi), y: px(y, dpi) };
+                pt = POINT {
+                    x: px(x, dpi),
+                    y: px(y, dpi),
+                };
                 ClientToScreen(owner, &mut pt);
             }
             _ => {
@@ -2856,7 +3432,14 @@ fn popup_menu_impl(menu: WidgetId, parent_window: Option<WidgetId>, at: Option<(
     POPUP_SHOWN.with(|p| p.set(true));
     let cmd = unsafe {
         SetForegroundWindow(owner); // otherwise the menu does not dismiss on an outside click
-        let c = TrackPopupMenuEx(hm, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, pt.x, pt.y, owner, null());
+        let c = TrackPopupMenuEx(
+            hm,
+            TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
+            pt.x,
+            pt.y,
+            owner,
+            null(),
+        );
         PostMessageW(owner, WM_NULL, 0, 0);
         c
     };
@@ -2870,11 +3453,36 @@ fn popup_menu_impl(menu: WidgetId, parent_window: Option<WidgetId>, at: Option<(
 const fn guid(d1: u32, d2: u16, d3: u16, d4: [u8; 8]) -> GUID {
     GUID { d1, d2, d3, d4 }
 }
-static CLSID_FILE_OPEN: GUID = guid(0xDC1C5A9C, 0xE88A, 0x4DDE, [0xA5, 0xA1, 0x60, 0xF8, 0x2A, 0x20, 0xAE, 0xF7]);
-static IID_FILE_OPEN: GUID = guid(0xD57C7288, 0xD4AD, 0x4768, [0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60]);
-static CLSID_FILE_SAVE: GUID = guid(0xC0B4E2F3, 0xBA21, 0x4773, [0x8D, 0xBA, 0x33, 0x5E, 0xC9, 0x46, 0xEB, 0x8B]);
-static IID_FILE_SAVE: GUID = guid(0x84BCCD23, 0x5FDE, 0x4CDB, [0xAE, 0xA4, 0xAF, 0x64, 0xB8, 0x3D, 0x78, 0xAB]);
-static IID_SHELL_ITEM: GUID = guid(0x43826D1E, 0xE718, 0x42EE, [0xBC, 0x55, 0xA1, 0xE2, 0x61, 0xC3, 0x7B, 0xFE]);
+static CLSID_FILE_OPEN: GUID = guid(
+    0xDC1C5A9C,
+    0xE88A,
+    0x4DDE,
+    [0xA5, 0xA1, 0x60, 0xF8, 0x2A, 0x20, 0xAE, 0xF7],
+);
+static IID_FILE_OPEN: GUID = guid(
+    0xD57C7288,
+    0xD4AD,
+    0x4768,
+    [0xBE, 0x02, 0x9D, 0x96, 0x95, 0x32, 0xD9, 0x60],
+);
+static CLSID_FILE_SAVE: GUID = guid(
+    0xC0B4E2F3,
+    0xBA21,
+    0x4773,
+    [0x8D, 0xBA, 0x33, 0x5E, 0xC9, 0x46, 0xEB, 0x8B],
+);
+static IID_FILE_SAVE: GUID = guid(
+    0x84BCCD23,
+    0x5FDE,
+    0x4CDB,
+    [0xAE, 0xA4, 0xAF, 0x64, 0xB8, 0x3D, 0x78, 0xAB],
+);
+static IID_SHELL_ITEM: GUID = guid(
+    0x43826D1E,
+    0xE718,
+    0x42EE,
+    [0xBC, 0x55, 0xA1, 0xE2, 0x61, 0xC3, 0x7B, 0xFE],
+);
 
 type Obj = *mut c_void;
 
@@ -2893,7 +3501,9 @@ unsafe fn release(o: Obj) {
 unsafe fn item_path(item: Obj) -> Option<String> {
     unsafe {
         let mut p: *mut u16 = null_mut();
-        let hr = vt::<unsafe extern "system" fn(Obj, u32, *mut *mut u16) -> i32>(item, 5)(item, 0x80058000, &mut p);
+        let hr = vt::<unsafe extern "system" fn(Obj, u32, *mut *mut u16) -> i32>(item, 5)(
+            item, 0x80058000, &mut p,
+        );
         if hr < 0 || p.is_null() {
             return None;
         }
@@ -2909,7 +3519,11 @@ unsafe fn item_path(item: Obj) -> Option<String> {
 
 fn file_dialog_impl(owner: HWND, spec: &FileSpec) -> Vec<String> {
     let save = spec.mode == FileMode::Save;
-    let (clsid, iid) = if save { (&CLSID_FILE_SAVE, &IID_FILE_SAVE) } else { (&CLSID_FILE_OPEN, &IID_FILE_OPEN) };
+    let (clsid, iid) = if save {
+        (&CLSID_FILE_SAVE, &IID_FILE_SAVE)
+    } else {
+        (&CLSID_FILE_OPEN, &IID_FILE_OPEN)
+    };
     let mut out = vec![];
     unsafe {
         let mut dlg: Obj = null_mut();
@@ -2928,7 +3542,10 @@ fn file_dialog_impl(owner: HWND, spec: &FileSpec) -> Vec<String> {
         }
         vt::<unsafe extern "system" fn(Obj, u32) -> i32>(dlg, 9)(dlg, opts);
         if !spec.title.is_empty() {
-            vt::<unsafe extern "system" fn(Obj, *const u16) -> i32>(dlg, 17)(dlg, wide(&spec.title).as_ptr());
+            vt::<unsafe extern "system" fn(Obj, *const u16) -> i32>(dlg, 17)(
+                dlg,
+                wide(&spec.title).as_ptr(),
+            );
         }
         if spec.mode != FileMode::PickFolder && !spec.filters.is_empty() {
             let names: Vec<Vec<u16>> = spec.filters.iter().map(|(n, _)| wide(n)).collect();
@@ -2939,34 +3556,71 @@ fn file_dialog_impl(owner: HWND, spec: &FileSpec) -> Vec<String> {
                     if e.is_empty() {
                         wide("*.*")
                     } else {
-                        wide(&e.iter().map(|x| format!("*.{}", x.trim_start_matches("*.").trim_start_matches('.'))).collect::<Vec<_>>().join(";"))
+                        wide(
+                            &e.iter()
+                                .map(|x| {
+                                    format!(
+                                        "*.{}",
+                                        x.trim_start_matches("*.").trim_start_matches('.')
+                                    )
+                                })
+                                .collect::<Vec<_>>()
+                                .join(";"),
+                        )
                     }
                 })
                 .collect();
-            let specs: Vec<COMDLG_FILTERSPEC> =
-                names.iter().zip(&pats).map(|(n, p)| COMDLG_FILTERSPEC { name: n.as_ptr(), spec: p.as_ptr() }).collect();
-            vt::<unsafe extern "system" fn(Obj, u32, *const COMDLG_FILTERSPEC) -> i32>(dlg, 4)(dlg, specs.len() as u32, specs.as_ptr());
+            let specs: Vec<COMDLG_FILTERSPEC> = names
+                .iter()
+                .zip(&pats)
+                .map(|(n, p)| COMDLG_FILTERSPEC {
+                    name: n.as_ptr(),
+                    spec: p.as_ptr(),
+                })
+                .collect();
+            vt::<unsafe extern "system" fn(Obj, u32, *const COMDLG_FILTERSPEC) -> i32>(dlg, 4)(
+                dlg,
+                specs.len() as u32,
+                specs.as_ptr(),
+            );
         }
         if let Some(dir) = &spec.initial_dir {
             let mut item: Obj = null_mut();
-            if SHCreateItemFromParsingName(wide(dir).as_ptr(), null_mut(), &IID_SHELL_ITEM, &mut item) >= 0 && !item.is_null() {
+            if SHCreateItemFromParsingName(
+                wide(dir).as_ptr(),
+                null_mut(),
+                &IID_SHELL_ITEM,
+                &mut item,
+            ) >= 0
+                && !item.is_null()
+            {
                 vt::<unsafe extern "system" fn(Obj, Obj) -> i32>(dlg, 12)(dlg, item);
                 release(item);
             }
         }
         if let Some(name) = &spec.initial_name {
-            vt::<unsafe extern "system" fn(Obj, *const u16) -> i32>(dlg, 15)(dlg, wide(name).as_ptr());
+            vt::<unsafe extern "system" fn(Obj, *const u16) -> i32>(dlg, 15)(
+                dlg,
+                wide(name).as_ptr(),
+            );
         }
         let hr = vt::<unsafe extern "system" fn(Obj, HWND) -> i32>(dlg, 3)(dlg, owner);
         if hr >= 0 {
             if spec.mode == FileMode::OpenMany {
                 let mut arr: Obj = null_mut();
-                if vt::<unsafe extern "system" fn(Obj, *mut Obj) -> i32>(dlg, 27)(dlg, &mut arr) >= 0 && !arr.is_null() {
+                if vt::<unsafe extern "system" fn(Obj, *mut Obj) -> i32>(dlg, 27)(dlg, &mut arr)
+                    >= 0
+                    && !arr.is_null()
+                {
                     let mut n = 0u32;
                     vt::<unsafe extern "system" fn(Obj, *mut u32) -> i32>(arr, 7)(arr, &mut n);
                     for i in 0..n {
                         let mut item: Obj = null_mut();
-                        if vt::<unsafe extern "system" fn(Obj, u32, *mut Obj) -> i32>(arr, 8)(arr, i, &mut item) >= 0 && !item.is_null() {
+                        if vt::<unsafe extern "system" fn(Obj, u32, *mut Obj) -> i32>(arr, 8)(
+                            arr, i, &mut item,
+                        ) >= 0
+                            && !item.is_null()
+                        {
                             out.extend(item_path(item));
                             release(item);
                         }
@@ -2975,7 +3629,10 @@ fn file_dialog_impl(owner: HWND, spec: &FileSpec) -> Vec<String> {
                 }
             } else {
                 let mut item: Obj = null_mut();
-                if vt::<unsafe extern "system" fn(Obj, *mut Obj) -> i32>(dlg, 20)(dlg, &mut item) >= 0 && !item.is_null() {
+                if vt::<unsafe extern "system" fn(Obj, *mut Obj) -> i32>(dlg, 20)(dlg, &mut item)
+                    >= 0
+                    && !item.is_null()
+                {
                     out.extend(item_path(item));
                     release(item);
                 }

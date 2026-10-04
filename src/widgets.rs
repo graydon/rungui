@@ -3,7 +3,7 @@
 //! return defaults, so nothing here can panic. All handles deref to [`Widget`], which carries the
 //! operations common to every widget (enable/visible/layout hints/accessibility/native handle).
 
-use crate::a11y::A11yProps;
+use crate::a11y::{A11yProps, A11yRole};
 use crate::backend::{Backend, Event, Kind, Native as B, Prop};
 use crate::core::{self, Ev};
 use crate::types::*;
@@ -72,7 +72,12 @@ impl From<Widget> for WidgetId {
     }
 }
 
-fn make<T>(wrap: fn(WidgetId) -> T, kind: Kind, parent: impl Into<WidgetId>, setup: impl FnOnce(&mut core::Node)) -> T {
+fn make<T>(
+    wrap: fn(WidgetId) -> T,
+    kind: Kind,
+    parent: impl Into<WidgetId>,
+    setup: impl FnOnce(&mut core::Node),
+) -> T {
     wrap(core::create(kind, Some(parent.into()), setup))
 }
 
@@ -124,7 +129,12 @@ impl Widget {
         core::read(self.0, |n| n.visible).unwrap_or(false)
     }
     pub fn set_tooltip(&self, t: &str) {
-        core::set(self.0, false, |n| n.tooltip = t.to_string(), Prop::Tooltip(t));
+        core::set(
+            self.0,
+            false,
+            |n| n.tooltip = t.to_string(),
+            Prop::Tooltip(t),
+        );
     }
     pub fn focus(&self) {
         core::set(self.0, false, |_| {}, Prop::Focus);
@@ -147,7 +157,9 @@ impl Widget {
     }
     /// Force the natural size (overrides the toolkit's preferred size).
     pub fn set_fixed_size(&self, w: i32, h: i32) {
-        core::update(self.0, true, |n| n.lay.fixed = Some(Size::new(px(w), px(h))));
+        core::update(self.0, true, |n| {
+            n.lay.fixed = Some(Size::new(px(w), px(h)))
+        });
     }
     /// Space between children (stacks/grids/containers).
     pub fn set_spacing(&self, px: i32) {
@@ -159,7 +171,14 @@ impl Widget {
     }
     /// Explicit grid cell in the parent [`Grid`] (otherwise children auto-flow).
     pub fn set_cell(&self, col: usize, row: usize, colspan: usize, rowspan: usize) {
-        core::update(self.0, true, |n| n.lay.cell = Some((col.min(MAX_CELL), row.min(MAX_CELL), colspan.clamp(1, MAX_CELL), rowspan.clamp(1, MAX_CELL))));
+        core::update(self.0, true, |n| {
+            n.lay.cell = Some((
+                col.min(MAX_CELL),
+                row.min(MAX_CELL),
+                colspan.clamp(1, MAX_CELL),
+                rowspan.clamp(1, MAX_CELL),
+            ))
+        });
     }
     /// Last laid-out bounds, relative to the nearest native parent (logical pixels).
     pub fn bounds(&self) -> Rect {
@@ -172,7 +191,7 @@ impl Widget {
     pub fn set_a11y_description(&self, s: &str) {
         core::update(self.0, false, |n| n.a11y.desc = Some(s.to_string()));
     }
-    pub fn set_a11y_role(&self, r: accesskit::Role) {
+    pub fn set_a11y_role(&self, r: A11yRole) {
         core::update(self.0, false, |n| n.a11y.role = Some(r));
     }
     pub fn a11y(&self) -> A11yProps {
@@ -206,7 +225,9 @@ impl Widget {
 
 impl Window {
     pub fn new(title: &str) -> Window {
-        Window::from_id(core::create(Kind::Window, None, |n| n.text = title.to_string()))
+        Window::from_id(core::create(Kind::Window, None, |n| {
+            n.text = title.to_string()
+        }))
     }
     pub fn set_title(&self, t: &str) {
         set_text(self.id(), t, false)
@@ -252,7 +273,12 @@ impl Window {
     /// Move the window's outer frame to screen position (x, y) in logical pixels. Some platforms
     /// (Wayland, some window managers) ignore this.
     pub fn set_position(&self, x: i32, y: i32) {
-        core::set(self.id(), false, |n| n.position = Some((x, y)), Prop::Position { x, y });
+        core::set(
+            self.id(),
+            false,
+            |n| n.position = Some((x, y)),
+            Prop::Position { x, y },
+        );
     }
     /// The last position set with [`Window::set_position`] or reported by the platform after the
     /// user moved the window; `None` if neither happened (the window manager placed it).
@@ -278,7 +304,9 @@ impl Window {
 
 impl Label {
     pub fn new(parent: impl Into<WidgetId>, text: &str) -> Label {
-        make(Label::from_id, Kind::Label, parent, |n| n.text = text.to_string())
+        make(Label::from_id, Kind::Label, parent, |n| {
+            n.text = text.to_string()
+        })
     }
     pub fn set_text(&self, t: &str) {
         set_text(self.id(), t, true)
@@ -290,7 +318,9 @@ impl Label {
 
 impl Button {
     pub fn new(parent: impl Into<WidgetId>, text: &str) -> Button {
-        make(Button::from_id, Kind::Button, parent, |n| n.text = text.to_string())
+        make(Button::from_id, Kind::Button, parent, |n| {
+            n.text = text.to_string()
+        })
     }
     pub fn set_text(&self, t: &str) {
         set_text(self.id(), t, true)
@@ -319,7 +349,9 @@ fn on_toggle(id: WidgetId, mut f: impl FnMut(bool) + 'static) {
 
 impl CheckBox {
     pub fn new(parent: impl Into<WidgetId>, text: &str) -> CheckBox {
-        make(CheckBox::from_id, Kind::CheckBox, parent, |n| n.text = text.to_string())
+        make(CheckBox::from_id, Kind::CheckBox, parent, |n| {
+            n.text = text.to_string()
+        })
     }
     pub fn set_text(&self, t: &str) {
         set_text(self.id(), t, true)
@@ -368,7 +400,12 @@ impl RadioButton {
         }
         let others = core::with(|r| {
             let g = r.nodes.get(&self.id())?.group;
-            let ids: Vec<_> = r.nodes.iter().filter(|(k, n)| **k != self.id() && n.group == g && n.checked).map(|(k, _)| *k).collect();
+            let ids: Vec<_> = r
+                .nodes
+                .iter()
+                .filter(|(k, n)| **k != self.id() && n.group == g && n.checked)
+                .map(|(k, _)| *k)
+                .collect();
             Some(ids)
         })
         .flatten()
@@ -430,7 +467,12 @@ impl TextInput {
         make(TextInput::from_id, Kind::PasswordInput, parent, |_| {})
     }
     pub fn set_placeholder(&self, t: &str) {
-        core::set(self.id(), false, |n| n.placeholder = t.to_string(), Prop::Placeholder(t));
+        core::set(
+            self.id(),
+            false,
+            |n| n.placeholder = t.to_string(),
+            Prop::Placeholder(t),
+        );
     }
 }
 
@@ -469,7 +511,16 @@ fn selected(id: WidgetId) -> Option<usize> {
     core::read(id, |n| n.selected).flatten()
 }
 fn set_selected(id: WidgetId, i: Option<usize>) {
-    let Some((tabs, len)) = core::read(id, |n| (n.kind == Kind::Tabs, if n.kind == Kind::Tabs { n.children.len() } else { n.items.len() })) else {
+    let Some((tabs, len)) = core::read(id, |n| {
+        (
+            n.kind == Kind::Tabs,
+            if n.kind == Kind::Tabs {
+                n.children.len()
+            } else {
+                n.items.len()
+            },
+        )
+    }) else {
         return;
     };
     let valid = i.filter(|i| *i < len);
@@ -502,7 +553,10 @@ macro_rules! item_methods {
                 selected(self.id())
             }
             pub fn selected_text(&self) -> Option<String> {
-                core::read(self.id(), |n| n.selected.and_then(|i| n.items.get(i).cloned())).flatten()
+                core::read(self.id(), |n| {
+                    n.selected.and_then(|i| n.items.get(i).cloned())
+                })
+                .flatten()
             }
             pub fn on_select(&self, f: impl FnMut(Option<usize>) + 'static) {
                 on_select(self.id(), f)
@@ -540,7 +594,11 @@ fn set_value(id: WidgetId, v: f64) {
         id,
         false,
         |n| {
-            vv = if v.is_nan() { n.range.0 } else { v.clamp(n.range.0, n.range.1.max(n.range.0)) };
+            vv = if v.is_nan() {
+                n.range.0
+            } else {
+                v.clamp(n.range.0, n.range.1.max(n.range.0))
+            };
             n.value = vv;
         },
         Prop::Value(v),
@@ -552,8 +610,20 @@ fn set_value(id: WidgetId, v: f64) {
 /// would make `f64::clamp` panic later).
 fn sane_range(min: f64, max: f64, step: f64) -> (f64, f64, f64) {
     let min = if min.is_finite() { min } else { 0.0 };
-    let max = if max.is_finite() { max.max(min) } else { min.max(min + 100.0) };
-    (min, max, if step.is_finite() && step > 0.0 { step } else { 1.0 })
+    let max = if max.is_finite() {
+        max.max(min)
+    } else {
+        min.max(min + 100.0)
+    };
+    (
+        min,
+        max,
+        if step.is_finite() && step > 0.0 {
+            step
+        } else {
+            1.0
+        },
+    )
 }
 
 fn set_range(id: WidgetId, min: f64, max: f64, step: f64) {
@@ -604,7 +674,9 @@ value_methods!(SpinBox);
 
 impl Slider {
     pub fn new(parent: impl Into<WidgetId>, min: f64, max: f64) -> Slider {
-        let s = make(Slider::from_id, Kind::Slider, parent, |n| n.range = sane_range(min, max, 1.0));
+        let s = make(Slider::from_id, Kind::Slider, parent, |n| {
+            n.range = sane_range(min, max, 1.0)
+        });
         s.set_value(min);
         s
     }
@@ -631,7 +703,12 @@ impl ProgressBar {
         value(self.id())
     }
     pub fn set_indeterminate(&self, v: bool) {
-        core::set(self.id(), false, |n| n.indeterminate = v, Prop::Indeterminate(v));
+        core::set(
+            self.id(),
+            false,
+            |n| n.indeterminate = v,
+            Prop::Indeterminate(v),
+        );
     }
 }
 
@@ -642,7 +719,9 @@ impl Tabs {
         make(Tabs::from_id, Kind::Tabs, parent, |_| {})
     }
     pub fn add_page(&self, title: &str) -> Page {
-        make(Page::from_id, Kind::Page, self.id(), |n| n.text = title.to_string())
+        make(Page::from_id, Kind::Page, self.id(), |n| {
+            n.text = title.to_string()
+        })
     }
     pub fn set_selected(&self, i: usize) {
         set_selected(self.id(), Some(i))
@@ -663,7 +742,9 @@ impl Page {
 
 impl GroupBox {
     pub fn new(parent: impl Into<WidgetId>, title: &str) -> GroupBox {
-        make(GroupBox::from_id, Kind::GroupBox, parent, |n| n.text = title.to_string())
+        make(GroupBox::from_id, Kind::GroupBox, parent, |n| {
+            n.text = title.to_string()
+        })
     }
     pub fn set_title(&self, t: &str) {
         set_text(self.id(), t, true)
@@ -682,10 +763,19 @@ impl VBox {
 }
 impl Grid {
     pub fn new(parent: impl Into<WidgetId>, cols: usize) -> Grid {
-        make(Grid::from_id, Kind::Grid, parent, |n| n.lay.cols = cols.max(1))
+        make(Grid::from_id, Kind::Grid, parent, |n| {
+            n.lay.cols = cols.max(1)
+        })
     }
     /// Place an existing child of this grid in an explicit cell.
-    pub fn place(&self, child: impl Into<WidgetId>, col: usize, row: usize, colspan: usize, rowspan: usize) {
+    pub fn place(
+        &self,
+        child: impl Into<WidgetId>,
+        col: usize,
+        row: usize,
+        colspan: usize,
+        rowspan: usize,
+    ) {
         Widget(child.into()).set_cell(col, row, colspan, rowspan)
     }
 }
@@ -710,7 +800,9 @@ impl Splitter {
         s
     }
     pub fn orientation(&self) -> Orientation {
-        core::read(self.id(), |n| n.split.as_ref().map(|s| s.orient)).flatten().unwrap_or_default()
+        core::read(self.id(), |n| n.split.as_ref().map(|s| s.orient))
+            .flatten()
+            .unwrap_or_default()
     }
     /// Size of the first pane along the main axis, in pixels. Remembered as requested and clamped
     /// to the current size (and the pane minimums) at every layout, so shrinking and re-growing
@@ -722,7 +814,13 @@ impl Splitter {
     /// position, or 0 if none). Without `set_position` the space is split evenly.
     pub fn position(&self) -> i32 {
         core::read(self.id(), |n| {
-            n.split.as_ref().map_or(0, |s| if s.laid_out { s.actual } else { s.pos.unwrap_or(0) })
+            n.split.as_ref().map_or(0, |s| {
+                if s.laid_out {
+                    s.actual
+                } else {
+                    s.pos.unwrap_or(0)
+                }
+            })
         })
         .unwrap_or(0)
     }
@@ -747,7 +845,9 @@ impl Splitter {
 
 impl Spacer {
     pub fn new(parent: impl Into<WidgetId>) -> Spacer {
-        make(Spacer::from_id, Kind::Spacer, parent, |n| n.lay.expand = 1.0)
+        make(Spacer::from_id, Kind::Spacer, parent, |n| {
+            n.lay.expand = 1.0
+        })
     }
 }
 
@@ -756,7 +856,12 @@ impl Image {
         make(Image::from_id, Kind::Image, parent, |_| {})
     }
     pub fn set_image(&self, img: Option<&ImageData>) {
-        core::set(self.id(), true, |n| n.image = img.cloned(), Prop::Image(img));
+        core::set(
+            self.id(),
+            true,
+            |n| n.image = img.cloned(),
+            Prop::Image(img),
+        );
     }
 }
 
@@ -770,19 +875,28 @@ impl MenuBar {
 impl Menu {
     /// `parent` is a `MenuBar` (top-level menu) or a `Menu` (submenu).
     pub fn new(parent: impl Into<WidgetId>, title: &str) -> Menu {
-        make(Menu::from_id, Kind::Menu, parent, |n| n.text = title.to_string())
+        make(Menu::from_id, Kind::Menu, parent, |n| {
+            n.text = title.to_string()
+        })
     }
 }
 impl MenuItem {
     pub fn new(menu: impl Into<WidgetId>, text: &str) -> MenuItem {
-        make(MenuItem::from_id, Kind::MenuItem, menu, |n| n.text = text.to_string())
+        make(MenuItem::from_id, Kind::MenuItem, menu, |n| {
+            n.text = text.to_string()
+        })
     }
     pub fn on_click(&self, mut f: impl FnMut() + 'static) {
         on(self.id(), Ev::Click, move |_| f())
     }
     /// e.g. "Ctrl+S" (Ctrl is Command on macOS), "F5", "Alt+Enter".
     pub fn set_accel(&self, a: &str) {
-        core::set(self.id(), false, |n| n.accel = a.to_string(), Prop::Accel(a));
+        core::set(
+            self.id(),
+            false,
+            |n| n.accel = a.to_string(),
+            Prop::Accel(a),
+        );
     }
     pub fn set_text(&self, t: &str) {
         set_text(self.id(), t, false)
@@ -790,7 +904,9 @@ impl MenuItem {
 }
 impl CheckMenuItem {
     pub fn new(menu: impl Into<WidgetId>, text: &str) -> CheckMenuItem {
-        make(CheckMenuItem::from_id, Kind::CheckMenuItem, menu, |n| n.text = text.to_string())
+        make(CheckMenuItem::from_id, Kind::CheckMenuItem, menu, |n| {
+            n.text = text.to_string()
+        })
     }
     pub fn set_checked(&self, v: bool) {
         set_checked(self.id(), v)
@@ -802,7 +918,12 @@ impl CheckMenuItem {
         on_toggle(self.id(), f)
     }
     pub fn set_accel(&self, a: &str) {
-        core::set(self.id(), false, |n| n.accel = a.to_string(), Prop::Accel(a));
+        core::set(
+            self.id(),
+            false,
+            |n| n.accel = a.to_string(),
+            Prop::Accel(a),
+        );
     }
 }
 impl MenuSeparator {
@@ -868,7 +989,9 @@ impl Table {
         });
     }
     pub fn columns(&self) -> Vec<Column> {
-        core::read(self.id(), |n| n.table.as_ref().map(|t| t.columns.clone())).flatten().unwrap_or_default()
+        core::read(self.id(), |n| n.table.as_ref().map(|t| t.columns.clone()))
+            .flatten()
+            .unwrap_or_default()
     }
     /// Replace all rows. The selection is cleared if it is now out of range.
     pub fn set_rows<S: AsRef<str>>(&self, rows: &[Vec<S>]) {
@@ -944,13 +1067,21 @@ impl Table {
         });
     }
     pub fn cell(&self, row: usize, col: usize) -> String {
-        core::read(self.id(), |n| n.table.as_ref()?.rows.get(row)?.get(col).cloned()).flatten().unwrap_or_default()
+        core::read(self.id(), |n| {
+            n.table.as_ref()?.rows.get(row)?.get(col).cloned()
+        })
+        .flatten()
+        .unwrap_or_default()
     }
     pub fn row(&self, row: usize) -> Vec<String> {
-        core::read(self.id(), |n| n.table.as_ref()?.rows.get(row).cloned()).flatten().unwrap_or_default()
+        core::read(self.id(), |n| n.table.as_ref()?.rows.get(row).cloned())
+            .flatten()
+            .unwrap_or_default()
     }
     pub fn rows(&self) -> Vec<Vec<String>> {
-        core::read(self.id(), |n| n.table.as_ref().map(|t| t.rows.clone())).flatten().unwrap_or_default()
+        core::read(self.id(), |n| n.table.as_ref().map(|t| t.rows.clone()))
+            .flatten()
+            .unwrap_or_default()
     }
     pub fn row_count(&self) -> usize {
         core::read(self.id(), |n| n.table.as_ref().map_or(0, |t| t.rows.len())).unwrap_or(0)
@@ -973,7 +1104,10 @@ impl Table {
     }
     /// The selected row's cells.
     pub fn selected_row(&self) -> Option<Vec<String>> {
-        core::read(self.id(), |n| n.table.as_ref()?.rows.get(n.selected?).cloned()).flatten()
+        core::read(self.id(), |n| {
+            n.table.as_ref()?.rows.get(n.selected?).cloned()
+        })
+        .flatten()
     }
     /// Show the sort arrow on `(column, ascending)`. Display only: the app reorders the rows itself.
     pub fn set_sort_indicator(&self, s: Option<(usize, bool)>) {
@@ -1054,15 +1188,24 @@ impl Tree {
         });
     }
     pub fn text(&self, node: TreeNodeId) -> String {
-        tree_do(self.id(), |t| t.nodes.get(&node.0).map(|n| n.text.clone())).flatten().unwrap_or_default()
+        tree_do(self.id(), |t| t.nodes.get(&node.0).map(|n| n.text.clone()))
+            .flatten()
+            .unwrap_or_default()
     }
     /// Children of `parent` (`None` = top level).
     pub fn children(&self, parent: Option<TreeNodeId>) -> Vec<TreeNodeId> {
-        tree_do(self.id(), |t| t.children_of(parent.map(|p| p.0)).iter().map(|c| TreeNodeId(*c)).collect())
-            .unwrap_or_default()
+        tree_do(self.id(), |t| {
+            t.children_of(parent.map(|p| p.0))
+                .iter()
+                .map(|c| TreeNodeId(*c))
+                .collect()
+        })
+        .unwrap_or_default()
     }
     pub fn parent(&self, node: TreeNodeId) -> Option<TreeNodeId> {
-        tree_do(self.id(), |t| t.nodes.get(&node.0).and_then(|n| n.parent)).flatten().map(TreeNodeId)
+        tree_do(self.id(), |t| t.nodes.get(&node.0).and_then(|n| n.parent))
+            .flatten()
+            .map(TreeNodeId)
     }
     pub fn contains(&self, node: TreeNodeId) -> bool {
         tree_do(self.id(), |t| t.nodes.contains_key(&node.0)).unwrap_or(false)
@@ -1083,7 +1226,10 @@ impl Tree {
         });
     }
     pub fn expanded(&self, node: TreeNodeId) -> bool {
-        tree_do(self.id(), |t| t.nodes.get(&node.0).is_some_and(|n| n.expanded)).unwrap_or(false)
+        tree_do(self.id(), |t| {
+            t.nodes.get(&node.0).is_some_and(|n| n.expanded)
+        })
+        .unwrap_or(false)
     }
     pub fn expand_all(&self, v: bool) {
         core::data_update(self.id(), core::Data::TreeRows, |n| {
@@ -1182,8 +1328,19 @@ fn pid(parent: Option<Window>) -> Option<WidgetId> {
 }
 
 /// Modal message box; returns which button was pressed.
-pub fn message_box(parent: Option<Window>, kind: MessageKind, buttons: Buttons, title: &str, text: &str) -> Answer {
-    let spec = MessageSpec { kind, buttons, title: title.into(), text: text.into() };
+pub fn message_box(
+    parent: Option<Window>,
+    kind: MessageKind,
+    buttons: Buttons,
+    title: &str,
+    text: &str,
+) -> Answer {
+    let spec = MessageSpec {
+        kind,
+        buttons,
+        title: title.into(),
+        text: text.into(),
+    };
     B::message_box(pid(parent), &spec)
 }
 
@@ -1206,7 +1363,8 @@ impl FileDialog {
     }
     /// e.g. `.filter("Images", &["png", "jpg"])`.
     pub fn filter(mut self, label: &str, exts: &[&str]) -> Self {
-        self.filters.push((label.into(), exts.iter().map(|e| e.to_string()).collect()));
+        self.filters
+            .push((label.into(), exts.iter().map(|e| e.to_string()).collect()));
         self
     }
     pub fn directory(mut self, d: &str) -> Self {
@@ -1225,7 +1383,10 @@ impl FileDialog {
             initial_dir: self.dir.clone(),
             initial_name: self.name.clone(),
         };
-        B::file_dialog(pid(parent), &spec).into_iter().map(PathBuf::from).collect()
+        B::file_dialog(pid(parent), &spec)
+            .into_iter()
+            .map(PathBuf::from)
+            .collect()
     }
     pub fn open(&self, parent: Option<Window>) -> Option<PathBuf> {
         self.run(parent, FileMode::Open).into_iter().next()

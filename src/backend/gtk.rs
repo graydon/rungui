@@ -11,6 +11,7 @@
 mod sys;
 
 use super::*;
+use crate::a11y::A11yRole;
 use crate::core;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -86,7 +87,11 @@ fn cs(s: &str) -> CString {
     CString::new(s.replace('\0', "")).unwrap_or_default()
 }
 unsafe fn from_c(p: *const c_char) -> String {
-    if p.is_null() { String::new() } else { unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned() }
+    if p.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
+    }
 }
 fn data(id: WidgetId) -> P {
     id.0 as usize as P
@@ -105,6 +110,21 @@ fn connect(obj: P, sig: &'static [u8], f: *const (), id: WidgetId) {
     unsafe {
         let cb: Callback = std::mem::transmute::<*const (), Callback>(f);
         g_signal_connect_data(obj, sig.as_ptr() as *const c_char, cb, data(id), NULL, 0);
+    }
+}
+/// Like [`connect`], but the handler runs after the widget's own (e.g. to draw over its child).
+fn connect_after(obj: P, sig: &'static [u8], f: *const (), id: WidgetId) {
+    debug_assert!(sig.ends_with(&[0]));
+    unsafe {
+        let cb: Callback = std::mem::transmute::<*const (), Callback>(f);
+        g_signal_connect_data(
+            obj,
+            sig.as_ptr() as *const c_char,
+            cb,
+            data(id),
+            NULL,
+            CONNECT_AFTER,
+        );
     }
 }
 fn emit(id: WidgetId, ev: Event) {
@@ -156,7 +176,11 @@ unsafe extern "C" fn h_combo_changed(w: P, d: P) {
     emit(wid(d), Event::Selected((i >= 0).then_some(i as usize)));
 }
 unsafe extern "C" fn h_row_selected(_lb: P, row: P, d: P) {
-    let i = if row.is_null() { -1 } else { unsafe { gtk_list_box_row_get_index(row) } };
+    let i = if row.is_null() {
+        -1
+    } else {
+        unsafe { gtk_list_box_row_get_index(row) }
+    };
     emit(wid(d), Event::Selected((i >= 0).then_some(i as usize)));
 }
 unsafe extern "C" fn h_row_activated(_lb: P, row: P, d: P) {
@@ -193,7 +217,12 @@ unsafe extern "C" fn resized_idle(d: P) -> c_int {
     RESIZE_PENDING.with(|p| p.borrow_mut().remove(&id));
     if let Some(w) = get(id) {
         let area = if w.view.is_null() { w.inner } else { w.view };
-        let (cw, ch) = unsafe { (gtk_widget_get_allocated_width(area), gtk_widget_get_allocated_height(area)) };
+        let (cw, ch) = unsafe {
+            (
+                gtk_widget_get_allocated_width(area),
+                gtk_widget_get_allocated_height(area),
+            )
+        };
         if cw > 1 && ch > 1 && (cw, ch) != w.emitted {
             upd(id, |w| w.emitted = (cw, ch));
             core::event(id, Event::Resized { w: cw, h: ch });
@@ -208,10 +237,18 @@ unsafe extern "C" fn h_sel_changed(sel: P, d: P) {
     let mut model = NULL;
     let any = unsafe { gtk_tree_selection_get_selected(sel, &mut model, &mut it) } != 0;
     if w.kind == Kind::Tree {
-        let node = if any { unsafe { tree_node(model, &mut it) } } else { 0 };
+        let node = if any {
+            unsafe { tree_node(model, &mut it) }
+        } else {
+            0
+        };
         emit(id, Event::TreeSelected((node != 0).then_some(node)));
     } else {
-        let row = if any { unsafe { path_index(model, &mut it) } } else { None };
+        let row = if any {
+            unsafe { path_index(model, &mut it) }
+        } else {
+            None
+        };
         emit(id, Event::Selected(row));
     }
 }
@@ -254,7 +291,10 @@ unsafe extern "C" fn h_tv_activated(tv: P, path: P, _col: P, d: P) {
 }
 unsafe extern "C" fn h_col_clicked(_col: P, d: P) {
     let v = d as usize as u64;
-    emit(WidgetId(v >> 16), Event::ColumnClicked((v & 0xffff) as usize));
+    emit(
+        WidgetId(v >> 16),
+        Event::ColumnClicked((v & 0xffff) as usize),
+    );
 }
 unsafe extern "C" fn h_row_expanded(tv: P, it: *mut TreeIter, _path: P, d: P) {
     unsafe { tree_expand_event(tv, it, d, true) }
@@ -286,7 +326,14 @@ unsafe fn client_xy(win: &W, root_x: f64, root_y: f64) -> (i32, i32) {
         let (mut ox, mut oy) = (0, 0);
         gdk_window_get_origin(gtk_widget_get_window(win.w), &mut ox, &mut oy);
         let (mut cx, mut cy) = (0, 0);
-        gtk_widget_translate_coordinates(win.w, win.inner, root_x as i32 - ox, root_y as i32 - oy, &mut cx, &mut cy);
+        gtk_widget_translate_coordinates(
+            win.w,
+            win.inner,
+            root_x as i32 - ox,
+            root_y as i32 - oy,
+            &mut cx,
+            &mut cy,
+        );
         (cx, cy)
     }
 }
@@ -296,20 +343,23 @@ unsafe extern "C" fn h_button_press(_w: P, ev: *const EventButton, d: P) -> c_in
     if ev.ty != 4 || ev.button != 3 || suppressed() {
         return 0;
     }
-    let Some(win) = get(id).and_then(|w| w.win).and_then(get) else { return 0 };
+    let Some(win) = get(id).and_then(|w| w.win).and_then(get) else {
+        return 0;
+    };
     let (x, y) = unsafe { client_xy(&win, ev.x_root, ev.y_root) };
     core::event(id, Event::ContextMenu { x, y });
     1
 }
 /// Sash drag: the new leading-edge position is the position at press plus the pointer delta (root
 /// coordinates, so it does not drift while the core moves the sash). The core clamps and relayouts.
-unsafe extern "C" fn h_sash_press(_w: P, ev: *const EventButton, d: P) -> c_int {
+unsafe extern "C" fn h_sash_press(widget: P, ev: *const EventButton, d: P) -> c_int {
     let id = wid(d);
     let ev = unsafe { &*ev };
     if ev.ty != 4 || ev.button != 1 {
         return 0;
     }
     let Some(w) = get(id) else { return 0 };
+    unsafe { gtk_widget_grab_focus(widget) };
     let root = if w.sash_v { ev.y_root } else { ev.x_root };
     upd(id, |w| w.drag = Some((root, w.sash_pos)));
     1
@@ -318,7 +368,9 @@ unsafe extern "C" fn h_sash_motion(_w: P, ev: *const EventMotion, d: P) -> c_int
     let id = wid(d);
     let ev = unsafe { &*ev };
     let Some(w) = get(id) else { return 0 };
-    let Some((start, pos0)) = w.drag else { return 0 };
+    let Some((start, pos0)) = w.drag else {
+        return 0;
+    };
     if ev.state & EV_BUTTON1_MASK == 0 {
         upd(id, |w| w.drag = None);
         return 0;
@@ -335,10 +387,84 @@ unsafe extern "C" fn h_sash_release(_w: P, ev: *const EventButton, d: P) -> c_in
     upd(wid(d), |w| w.drag = None);
     1
 }
+/// Arrow keys along the sash's axis (Shift = large step), Home and End; everything else (Tab, other
+/// modifiers' shortcuts) is left to GTK.
+unsafe extern "C" fn h_sash_key(_w: P, ev: *const EventKey, d: P) -> c_int {
+    let id = wid(d);
+    let ev = unsafe { &*ev };
+    let Some(w) = get(id) else { return 0 };
+    if ev.state & (MOD_CTRL | MOD_ALT) != 0 {
+        return 0;
+    }
+    let big = ev.state & MOD_SHIFT != 0;
+    let key = match ev.keyval {
+        KEY_HOME | KEY_KP_HOME => SashKey::Min,
+        KEY_END | KEY_KP_END => SashKey::Max,
+        // the sash of a stacked (vertical) splitter moves up and down, otherwise left and right
+        KEY_UP | KEY_KP_UP if w.sash_v => {
+            if big {
+                SashKey::PrevLarge
+            } else {
+                SashKey::Prev
+            }
+        }
+        KEY_DOWN | KEY_KP_DOWN if w.sash_v => {
+            if big {
+                SashKey::NextLarge
+            } else {
+                SashKey::Next
+            }
+        }
+        KEY_LEFT | KEY_KP_LEFT if !w.sash_v => {
+            if big {
+                SashKey::PrevLarge
+            } else {
+                SashKey::Prev
+            }
+        }
+        KEY_RIGHT | KEY_KP_RIGHT if !w.sash_v => {
+            if big {
+                SashKey::NextLarge
+            } else {
+                SashKey::Next
+            }
+        }
+        _ => return 0,
+    };
+    emit(id, Event::SashKey(key));
+    1
+}
+/// The sash is a plain event box, which draws nothing when focused: draw the focus ring ourselves,
+/// over its separator.
+unsafe extern "C" fn h_sash_draw(w: P, cr: P, _d: P) -> c_int {
+    unsafe {
+        if gtk_widget_has_focus(w) != 0 {
+            let ctx = gtk_widget_get_style_context(w);
+            gtk_render_focus(
+                ctx,
+                cr,
+                0.0,
+                0.0,
+                gtk_widget_get_allocated_width(w) as f64,
+                gtk_widget_get_allocated_height(w) as f64,
+            );
+        }
+    }
+    0
+}
+/// Repaint the sash when it gains or loses focus (the focus ring comes and goes).
+unsafe extern "C" fn h_sash_focus(w: P, _ev: P, _d: P) -> c_int {
+    unsafe { gtk_widget_queue_draw(w) };
+    0
+}
 unsafe extern "C" fn h_sash_enter(w: P, _ev: P, d: P) -> c_int {
     if let Some(s) = get(wid(d)) {
         unsafe {
-            let name = if s.sash_v { c"row-resize" } else { c"col-resize" };
+            let name = if s.sash_v {
+                c"row-resize"
+            } else {
+                c"col-resize"
+            };
             let cur = gdk_cursor_new_from_name(gtk_widget_get_display(w), name.as_ptr());
             let win = gtk_widget_get_window(w);
             if !cur.is_null() {
@@ -369,7 +495,9 @@ unsafe extern "C" fn h_configure(w: P, _ev: *const EventConfigure, d: P) -> c_in
 }
 unsafe extern "C" fn h_popup_key(w: P, d: P) -> c_int {
     let id = wid(d);
-    let Some(win) = get(id).and_then(|w| w.win).and_then(get) else { return 0 };
+    let Some(win) = get(id).and_then(|w| w.win).and_then(get) else {
+        return 0;
+    };
     unsafe {
         let (mut x, mut y) = (0, 0);
         gtk_widget_translate_coordinates(
@@ -513,7 +641,12 @@ unsafe fn put(parent: &W, child: P) {
 }
 
 fn ctx_hooks(obj: P, id: WidgetId) {
-    connect(obj, b"button-press-event\0", h_button_press as *const (), id);
+    connect(
+        obj,
+        b"button-press-event\0",
+        h_button_press as *const (),
+        id,
+    );
     connect(obj, b"popup-menu\0", h_popup_key as *const (), id);
 }
 
@@ -565,7 +698,12 @@ fn measure_chrome(key: u8) -> Size {
         gtk_container_add(win, outer);
         gtk_widget_show_all(win);
         gtk_widget_realize(win);
-        let r = Rectangle { x: 0, y: 0, w: 400, h: 300 };
+        let r = Rectangle {
+            x: 0,
+            y: 0,
+            w: 400,
+            h: 300,
+        };
         gtk_widget_size_allocate(win, &r);
         let s = Size::new(
             gtk_widget_get_allocated_width(outer) - gtk_widget_get_allocated_width(page),
@@ -584,8 +722,8 @@ fn has_inner(k: Kind) -> bool {
 
 /// ATK role to force for a node, when GTK's own would be wrong. Only roles whose ATK equivalent is
 /// unambiguous are mapped; anything else keeps GTK's default.
-fn atk_role_for(kind: Kind, role: accesskit::Role) -> Option<c_int> {
-    use accesskit::Role as R;
+fn atk_role_for(kind: Kind, role: A11yRole) -> Option<c_int> {
+    use A11yRole as R;
     match kind {
         Kind::Sash => return Some(ATK_ROLE_SPLIT_PANE),
         Kind::Table => return Some(ATK_ROLE_TABLE),
@@ -599,7 +737,7 @@ fn atk_role_for(kind: Kind, role: accesskit::Role) -> Option<c_int> {
     Some(match role {
         R::Label => ATK_ROLE_LABEL,
         R::Group => ATK_ROLE_GROUPING,
-        R::GenericContainer => ATK_ROLE_PANEL,
+        R::Pane => ATK_ROLE_PANEL,
         R::Image => ATK_ROLE_IMAGE,
         R::ListBox => ATK_ROLE_LIST_BOX,
         R::TextInput => ATK_ROLE_ENTRY,
@@ -661,7 +799,11 @@ impl Backend for Gtk {
 
     fn create(id: WidgetId, kind: Kind, parent: Option<WidgetId>) -> Result<()> {
         let pw = parent.and_then(get);
-        let win = if kind == Kind::Window { Some(id) } else { pw.and_then(|p| p.win) };
+        let win = if kind == Kind::Window {
+            Some(id)
+        } else {
+            pw.and_then(|p| p.win)
+        };
         let ok = match kind {
             Kind::Window | Kind::PopupMenu => parent.is_none(),
             Kind::MenuBar => pw.is_some_and(|p| p.kind == Kind::Window),
@@ -704,7 +846,9 @@ impl Backend for Gtk {
     }
 
     fn preferred_size(id: WidgetId) -> Size {
-        let Some(w) = get(id) else { return Size::default() };
+        let Some(w) = get(id) else {
+            return Size::default();
+        };
         if is_container(w.kind) || w.kind == Kind::Tabs {
             return Size::default();
         }
@@ -742,7 +886,9 @@ impl Backend for Gtk {
 
     fn message_box(parent: Option<WidgetId>, spec: &MessageSpec) -> Answer {
         unsafe {
-            let pw = parent.and_then(get).map_or(NULL, |p| p.win.and_then(get).map_or(NULL, |w| w.w));
+            let pw = parent
+                .and_then(get)
+                .map_or(NULL, |p| p.win.and_then(get).map_or(NULL, |w| w.w));
             let ty = match spec.kind {
                 MessageKind::Info => MSG_INFO,
                 MessageKind::Warning => MSG_WARNING,
@@ -779,7 +925,18 @@ impl Backend for Gtk {
                     (Answer::Cancel, ())
                 }
             };
-            gtk_dialog_set_default_response(d, if default_ans == Answer::Ok { 1 } else { 3.min(if spec.buttons == Buttons::OkCancel { 1 } else { 3 }) });
+            gtk_dialog_set_default_response(
+                d,
+                if default_ans == Answer::Ok {
+                    1
+                } else {
+                    3.min(if spec.buttons == Buttons::OkCancel {
+                        1
+                    } else {
+                        3
+                    })
+                },
+            );
             let r = gtk_dialog_run(d);
             gtk_widget_destroy(d);
             match r {
@@ -794,7 +951,9 @@ impl Backend for Gtk {
 
     fn file_dialog(parent: Option<WidgetId>, spec: &FileSpec) -> Vec<String> {
         unsafe {
-            let pw = parent.and_then(get).map_or(NULL, |p| p.win.and_then(get).map_or(NULL, |w| w.w));
+            let pw = parent
+                .and_then(get)
+                .map_or(NULL, |p| p.win.and_then(get).map_or(NULL, |w| w.w));
             let (action, accept): (c_int, &CStr) = match spec.mode {
                 FileMode::Open | FileMode::OpenMany => (FC_OPEN, c"Open"),
                 FileMode::Save => (FC_SAVE, c"Save"),
@@ -821,7 +980,10 @@ impl Backend for Gtk {
             if let (FileMode::Save, Some(n)) = (spec.mode, &spec.initial_name) {
                 gtk_file_chooser_set_current_name(d, cs(n).as_ptr());
             }
-            if matches!(spec.mode, FileMode::Open | FileMode::OpenMany | FileMode::Save) {
+            if matches!(
+                spec.mode,
+                FileMode::Open | FileMode::OpenMany | FileMode::Save
+            ) {
                 for (label, exts) in &spec.filters {
                     let f = gtk_file_filter_new();
                     gtk_file_filter_set_name(f, cs(label).as_ptr());
@@ -831,7 +993,10 @@ impl Backend for Gtk {
                             gtk_file_filter_add_pattern(f, c"*".as_ptr());
                             continue;
                         }
-                        for pat in [format!("*.{}", e.to_lowercase()), format!("*.{}", e.to_uppercase())] {
+                        for pat in [
+                            format!("*.{}", e.to_lowercase()),
+                            format!("*.{}", e.to_uppercase()),
+                        ] {
                             gtk_file_filter_add_pattern(f, cs(&pat).as_ptr());
                         }
                     }
@@ -865,7 +1030,12 @@ impl Backend for Gtk {
                 (Some((x, y)), Some(win)) => {
                     let (mut tx, mut ty) = (0, 0);
                     gtk_widget_translate_coordinates(win.inner, win.w, x, y, &mut tx, &mut ty);
-                    let r = Rectangle { x: tx, y: ty, w: 1, h: 1 };
+                    let r = Rectangle {
+                        x: tx,
+                        y: ty,
+                        w: 1,
+                        h: 1,
+                    };
                     gtk_menu_popup_at_rect(m.w, gtk_widget_get_window(win.w), &r, 1, 1, NULL);
                 }
                 _ => gtk_menu_popup_at_pointer(m.w, NULL),
@@ -874,7 +1044,14 @@ impl Backend for Gtk {
                 return;
             }
             let lp = g_main_loop_new(NULL, 0);
-            let h = g_signal_connect_data(m.w, c"deactivate".as_ptr(), std::mem::transmute::<*const (), Callback>(h_menu_deactivate as *const ()), lp, NULL, 0);
+            let h = g_signal_connect_data(
+                m.w,
+                c"deactivate".as_ptr(),
+                std::mem::transmute::<*const (), Callback>(h_menu_deactivate as *const ()),
+                lp,
+                NULL,
+                0,
+            );
             g_main_loop_run(lp);
             g_signal_handler_disconnect(m.w, h);
             g_main_loop_unref(lp);
@@ -887,14 +1064,13 @@ impl Backend for Gtk {
         }
     }
 
-    fn a11y_attach(_window: WidgetId) {
-        // GTK3 widgets are already exposed through ATK/AT-SPI; names are refreshed in a11y_changed.
-    }
-
+    // GTK3 widgets are already exposed through ATK/AT-SPI; names are refreshed in a11y_changed.
     fn a11y_changed(window: WidgetId) {
-        let Some(tree) = crate::a11y::tree_for_window(window) else { return };
-        for (nid, node) in &tree.nodes {
-            let Some(w) = get(WidgetId(nid.0)) else { continue };
+        let Some(nodes) = crate::a11y::resolve(window) else {
+            return;
+        };
+        for node in &nodes {
+            let Some(w) = get(node.id) else { continue };
             if !kind_atk_name(&w) {
                 continue;
             }
@@ -904,17 +1080,17 @@ impl Backend for Gtk {
                 if atk.is_null() {
                     continue;
                 }
-                if let Some(l) = node.label() {
-                    if from_c(atk_object_get_name(atk)) != l {
+                if let Some(l) = &node.name {
+                    if from_c(atk_object_get_name(atk)) != *l {
                         atk_object_set_name(atk, cs(l).as_ptr());
                     }
                 }
-                if let Some(d) = node.description() {
+                if let Some(d) = &node.description {
                     atk_object_set_description(atk, cs(d).as_ptr());
                 }
                 // GTK's stock roles are close but not always the core's (a sash is a bare event box,
                 // a flat table is reported as a tree table); app-set roles apply to all kinds.
-                if let Some(r) = atk_role_for(w.kind, node.role()) {
+                if let Some(r) = atk_role_for(w.kind, node.role) {
                     if atk_object_get_role(atk) != r {
                         atk_object_set_role(atk, r);
                     }
@@ -924,7 +1100,13 @@ impl Backend for Gtk {
     }
 }
 
-unsafe fn create_inner(id: WidgetId, kind: Kind, parent: Option<WidgetId>, pw: Option<W>, win: Option<WidgetId>) -> Result<()> {
+unsafe fn create_inner(
+    id: WidgetId,
+    kind: Kind,
+    parent: Option<WidgetId>,
+    pw: Option<W>,
+    win: Option<WidgetId>,
+) -> Result<()> {
     unsafe {
         let mut w = blank(kind, NULL, parent, win);
         match kind {
@@ -1096,16 +1278,38 @@ unsafe fn create_inner(id: WidgetId, kind: Kind, parent: Option<WidgetId>, pw: O
                 let sep = gtk_separator_new(ORIENT_V);
                 gtk_container_add(eb, sep);
                 gtk_widget_show(sep);
-                gtk_widget_add_events(eb, EV_BUTTON_PRESS | EV_BUTTON_RELEASE | EV_BUTTON_MOTION | EV_POINTER_MOTION | EV_ENTER_NOTIFY);
+                // keyboard-operable: Tab reaches it, a click focuses it, arrows/Home/End move it
+                gtk_widget_set_can_focus(eb, 1);
+                gtk_widget_add_events(
+                    eb,
+                    EV_BUTTON_PRESS
+                        | EV_BUTTON_RELEASE
+                        | EV_BUTTON_MOTION
+                        | EV_POINTER_MOTION
+                        | EV_ENTER_NOTIFY
+                        | EV_KEY_PRESS,
+                );
+                focus_hooks(eb, id);
+                connect(eb, b"focus-in-event\0", h_sash_focus as *const (), id);
+                connect(eb, b"focus-out-event\0", h_sash_focus as *const (), id);
+                connect(eb, b"key-press-event\0", h_sash_key as *const (), id);
+                connect_after(eb, b"draw\0", h_sash_draw as *const (), id);
                 connect(eb, b"button-press-event\0", h_sash_press as *const (), id);
                 connect(eb, b"motion-notify-event\0", h_sash_motion as *const (), id);
-                connect(eb, b"button-release-event\0", h_sash_release as *const (), id);
+                connect(
+                    eb,
+                    b"button-release-event\0",
+                    h_sash_release as *const (),
+                    id,
+                );
                 connect(eb, b"enter-notify-event\0", h_sash_enter as *const (), id);
                 w.w = eb;
             }
             Kind::MenuBar => {
                 let bar = gtk_menu_bar_new();
-                let p = pw.filter(|p| p.kind == Kind::Window).ok_or(Error::InvalidHandle)?;
+                let p = pw
+                    .filter(|p| p.kind == Kind::Window)
+                    .ok_or(Error::InvalidHandle)?;
                 gtk_box_pack_start(p.outer, bar, 0, 0, 0);
                 gtk_box_reorder_child(p.outer, bar, 0);
                 gtk_widget_show(bar);
@@ -1168,7 +1372,11 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                 match w.kind {
                     Kind::Window => gtk_window_set_title(w.w, c.as_ptr()),
                     Kind::Label => gtk_label_set_text(w.w, c.as_ptr()),
-                    Kind::Button | Kind::CheckBox | Kind::RadioButton => { let m = cs(&crate::text::to_gtk_mnemonic(t)); gtk_button_set_use_underline(w.w, 1); gtk_button_set_label(w.w, m.as_ptr()) }
+                    Kind::Button | Kind::CheckBox | Kind::RadioButton => {
+                        let m = cs(&crate::text::to_gtk_mnemonic(t));
+                        gtk_button_set_use_underline(w.w, 1);
+                        gtk_button_set_label(w.w, m.as_ptr())
+                    }
                     Kind::TextInput | Kind::PasswordInput => {
                         if from_c(gtk_entry_get_text(w.w)) != *t {
                             gtk_entry_set_text(w.w, c.as_ptr());
@@ -1192,13 +1400,28 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                             gtk_notebook_set_tab_label_text(nb.w, w.w, c.as_ptr());
                         }
                     }
-                    Kind::Menu | Kind::MenuItem | Kind::CheckMenuItem => { let m = cs(&crate::text::to_gtk_mnemonic(t)); gtk_menu_item_set_use_underline(w.w, 1); gtk_menu_item_set_label(w.w, m.as_ptr()) }
+                    Kind::Menu | Kind::MenuItem | Kind::CheckMenuItem => {
+                        let m = cs(&crate::text::to_gtk_mnemonic(t));
+                        gtk_menu_item_set_use_underline(w.w, 1);
+                        gtk_menu_item_set_label(w.w, m.as_ptr())
+                    }
                     _ => {}
                 }
             }
             Prop::Tooltip(t) => {
-                let target = if matches!(w.kind, Kind::TextArea | Kind::ListBox) { w.w } else { w.w };
-                gtk_widget_set_tooltip_text(target, if t.is_empty() { std::ptr::null() } else { cs(t).as_ptr() });
+                let target = if matches!(w.kind, Kind::TextArea | Kind::ListBox) {
+                    w.w
+                } else {
+                    w.w
+                };
+                gtk_widget_set_tooltip_text(
+                    target,
+                    if t.is_empty() {
+                        std::ptr::null()
+                    } else {
+                        cs(t).as_ptr()
+                    },
+                );
             }
             Prop::Placeholder(t) => {
                 if matches!(w.kind, Kind::TextInput | Kind::PasswordInput) {
@@ -1207,10 +1430,16 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
             }
             Prop::Enabled(e) => gtk_widget_set_sensitive(w.w, *e as c_int),
             Prop::Visible(v) => {
-                if *v { gtk_widget_show(w.w) } else { gtk_widget_hide(w.w) }
+                if *v {
+                    gtk_widget_show(w.w)
+                } else {
+                    gtk_widget_hide(w.w)
+                }
             }
             Prop::Checked(c) => match w.kind {
-                Kind::CheckBox | Kind::RadioButton => gtk_toggle_button_set_active(w.w, *c as c_int),
+                Kind::CheckBox | Kind::RadioButton => {
+                    gtk_toggle_button_set_active(w.w, *c as c_int)
+                }
                 Kind::CheckMenuItem => gtk_check_menu_item_set_active(w.w, *c as c_int),
                 _ => {}
             },
@@ -1281,10 +1510,12 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                         None => gtk_tree_selection_unselect_all(selw),
                     }
                 }
-                Kind::ListBox => match sel.map(|i| gtk_list_box_get_row_at_index(w.inner, i as c_int)) {
-                    Some(row) if !row.is_null() => gtk_list_box_select_row(w.inner, row),
-                    _ => gtk_list_box_unselect_all(w.inner),
-                },
+                Kind::ListBox => {
+                    match sel.map(|i| gtk_list_box_get_row_at_index(w.inner, i as c_int)) {
+                        Some(row) if !row.is_null() => gtk_list_box_select_row(w.inner, row),
+                        _ => gtk_list_box_unselect_all(w.inner),
+                    }
+                }
                 _ => {}
             },
             Prop::Bounds(r) => match w.kind {
@@ -1300,7 +1531,12 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                     });
                     apply_window_size(&nw);
                 }
-                Kind::Page | Kind::Menu | Kind::MenuBar | Kind::MenuItem | Kind::CheckMenuItem | Kind::MenuSeparator => {}
+                Kind::Page
+                | Kind::Menu
+                | Kind::MenuBar
+                | Kind::MenuItem
+                | Kind::CheckMenuItem
+                | Kind::MenuSeparator => {}
                 _ => {
                     let parent = gtk_widget_get_parent(w.w);
                     if !parent.is_null() {
@@ -1326,7 +1562,11 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                     return;
                 }
                 match img {
-                    Some(d) if d.w > 0 && d.h > 0 && d.rgba.len() == d.w as usize * d.h as usize * 4 => {
+                    Some(d)
+                        if d.w > 0
+                            && d.h > 0
+                            && d.rgba.len() == d.w as usize * d.h as usize * 4 =>
+                    {
                         let pb = gdk_pixbuf_new(0, 1, 8, d.w as c_int, d.h as c_int);
                         if pb.is_null() {
                             return;
@@ -1335,7 +1575,11 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                         let px = gdk_pixbuf_get_pixels(pb);
                         let row = d.w as usize * 4;
                         for y in 0..d.h as usize {
-                            std::ptr::copy_nonoverlapping(d.rgba.as_ptr().add(y * row), px.add(y * stride), row);
+                            std::ptr::copy_nonoverlapping(
+                                d.rgba.as_ptr().add(y * row),
+                                px.add(y * stride),
+                                row,
+                            );
                         }
                         gtk_image_set_from_pixbuf(w.w, pb);
                         g_object_unref(pb);
@@ -1344,22 +1588,40 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                 }
             }
             Prop::Accel(s) => {
-                let Some(win) = w.win.and_then(get) else { return };
+                let Some(win) = w.win.and_then(get) else {
+                    return;
+                };
                 if w.accel_key != (0, 0) {
-                    gtk_widget_remove_accelerator(w.w, win.accel_group, w.accel_key.0, w.accel_key.1);
+                    gtk_widget_remove_accelerator(
+                        w.w,
+                        win.accel_group,
+                        w.accel_key.0,
+                        w.accel_key.1,
+                    );
                     upd(id, |x| x.accel_key = (0, 0));
                 }
                 if let Some(a) = Accel::parse(s) {
                     let key = keyval(&a.key);
                     if key != 0 {
-                        let mods = (if a.ctrl { MOD_CTRL } else { 0 }) | (if a.shift { MOD_SHIFT } else { 0 }) | (if a.alt { MOD_ALT } else { 0 });
-                        gtk_widget_add_accelerator(w.w, c"activate".as_ptr(), win.accel_group, key, mods, ACCEL_VISIBLE);
+                        let mods = (if a.ctrl { MOD_CTRL } else { 0 })
+                            | (if a.shift { MOD_SHIFT } else { 0 })
+                            | (if a.alt { MOD_ALT } else { 0 });
+                        gtk_widget_add_accelerator(
+                            w.w,
+                            c"activate".as_ptr(),
+                            win.accel_group,
+                            key,
+                            mods,
+                            ACCEL_VISIBLE,
+                        );
                         upd(id, |x| x.accel_key = (key, mods));
                     }
                 }
             }
             Prop::ReadOnly(ro) => match w.kind {
-                Kind::TextInput | Kind::PasswordInput => gtk_editable_set_editable(w.w, !*ro as c_int),
+                Kind::TextInput | Kind::PasswordInput => {
+                    gtk_editable_set_editable(w.w, !*ro as c_int)
+                }
                 Kind::TextArea => gtk_text_view_set_editable(w.inner, !*ro as c_int),
                 _ => {}
             },
@@ -1451,7 +1713,12 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                         ColumnAlign::Center => 0.5,
                         ColumnAlign::Right => 1.0,
                     };
-                    g_object_set(r, c"xalign".as_ptr(), xalign as c_double, std::ptr::null::<c_char>());
+                    g_object_set(
+                        r,
+                        c"xalign".as_ptr(),
+                        xalign as c_double,
+                        std::ptr::null::<c_char>(),
+                    );
                     gtk_tree_view_column_pack_start(col, r, 1);
                     gtk_tree_view_column_add_attribute(col, r, c"text".as_ptr(), i as c_int);
                     gtk_tree_view_column_set_alignment(col, xalign);
@@ -1479,7 +1746,13 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                     let mut it = TreeIter::new();
                     gtk_list_store_append(store, &mut it);
                     for (c, cell) in row.iter().take(ncols).enumerate() {
-                        gtk_list_store_set(store, &mut it, c as c_int, cs(cell).as_ptr(), -1 as c_int);
+                        gtk_list_store_set(
+                            store,
+                            &mut it,
+                            c as c_int,
+                            cs(cell).as_ptr(),
+                            -1 as c_int,
+                        );
                     }
                 }
                 gtk_tree_view_set_model(tv, store);
@@ -1515,15 +1788,37 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                     let depth = (r.depth as usize).min(stack.len());
                     stack.truncate(depth);
                     let mut it = TreeIter::new();
-                    let parent = if depth > 0 { stack.get_mut(depth - 1).map_or(std::ptr::null_mut(), |t| t as *mut TreeIter) } else { std::ptr::null_mut() };
+                    let parent = if depth > 0 {
+                        stack
+                            .get_mut(depth - 1)
+                            .map_or(std::ptr::null_mut(), |t| t as *mut TreeIter)
+                    } else {
+                        std::ptr::null_mut()
+                    };
                     gtk_tree_store_append(store, &mut it, parent);
-                    gtk_tree_store_set(store, &mut it, 0 as c_int, cs(&r.text).as_ptr(), 1 as c_int, r.node, -1 as c_int);
+                    gtk_tree_store_set(
+                        store,
+                        &mut it,
+                        0 as c_int,
+                        cs(&r.text).as_ptr(),
+                        1 as c_int,
+                        r.node,
+                        -1 as c_int,
+                    );
                     let has_kids = rows.get(i + 1).is_some_and(|n| n.depth > r.depth);
                     if r.has_children && !has_kids {
                         // placeholder child so lazily loaded nodes show an expander
                         let mut d = TreeIter::new();
                         gtk_tree_store_append(store, &mut d, &mut it);
-                        gtk_tree_store_set(store, &mut d, 0 as c_int, c"".as_ptr(), 1 as c_int, 0u64, -1 as c_int);
+                        gtk_tree_store_set(
+                            store,
+                            &mut d,
+                            0 as c_int,
+                            c"".as_ptr(),
+                            1 as c_int,
+                            0u64,
+                            -1 as c_int,
+                        );
                     }
                     stack.push(it);
                     iters.push(it);

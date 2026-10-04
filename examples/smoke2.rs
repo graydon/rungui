@@ -41,11 +41,22 @@ fn main() {
     w.show();
     let _t = Timer::once(600, move || {
         println!("POS {:?}", w.position());
-        for (n, b) in [("hs", hs.bounds()), ("vs", vs.bounds()), ("table", table.bounds()), ("tree", tree.bounds()), ("area", area.bounds())] {
+        for (n, b) in [
+            ("hs", hs.bounds()),
+            ("vs", vs.bounds()),
+            ("table", table.bounds()),
+            ("tree", tree.bounds()),
+            ("area", area.bounds()),
+        ] {
             println!("BOUNDS {n} {} {} {} {}", b.x, b.y, b.w, b.h);
         }
         println!("HPOS {} VPOS {}", hs.position(), vs.position());
-        println!("MONO {} {} WRAP {}", mono.monospace(), area.monospace(), area.wrap());
+        println!(
+            "MONO {} {} WRAP {}",
+            mono.monospace(),
+            area.monospace(),
+            area.wrap()
+        );
         println!("READY");
     });
     app.run();

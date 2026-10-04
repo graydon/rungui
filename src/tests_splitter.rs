@@ -2,7 +2,6 @@
 
 use crate::backend::mock::{self, widget};
 use crate::*;
-use accesskit::{Action, ActionData, ActionRequest, NodeId, Role, TreeId};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -62,7 +61,10 @@ fn vertical_layout_and_custom_sash_thickness() {
     assert_eq!(rect(a), Rect::new(10, 10, 380, 50));
     assert_eq!(rect(sash(s)), Rect::new(10, 60, 380, 4));
     assert_eq!(rect(b), Rect::new(10, 64, 380, 126));
-    assert_eq!(widget(sash(s)).unwrap().orientation, Some(Orientation::Vertical));
+    assert_eq!(
+        widget(sash(s)).unwrap().orientation,
+        Some(Orientation::Vertical)
+    );
 }
 
 #[test]
@@ -111,7 +113,10 @@ fn user_drag_moves_sash_and_fires_on_move() {
     let (_win, s, a, b) = setup(Orientation::Horizontal);
     let log = moves(s);
     s.set_position(100);
-    assert!(log.borrow().is_empty(), "programmatic moves do not call on_move");
+    assert!(
+        log.borrow().is_empty(),
+        "programmatic moves do not call on_move"
+    );
     mock::user_drag_sash(s.id(), 160); // leading edge at x = 160 -> first pane 150
     assert_eq!(s.position(), 150);
     assert_eq!(rect(a).w, 150);
@@ -323,6 +328,95 @@ fn disabled_splitter_ignores_drags_and_disables_sash() {
 }
 
 #[test]
+fn sash_keys_step_clamp_and_fire_on_move() {
+    let (_win, s, a, _b) = setup(Orientation::Horizontal);
+    s.set_min_pane_sizes(20, 30);
+    s.set_position(100);
+    let log = moves(s);
+    mock::user_sash_key(s.id(), SashKey::Next);
+    assert_eq!(s.position(), 110);
+    mock::user_sash_key(s.id(), SashKey::Prev);
+    mock::user_sash_key(s.id(), SashKey::Prev);
+    assert_eq!(s.position(), 90);
+    mock::user_sash_key(s.id(), SashKey::NextLarge);
+    assert_eq!(s.position(), 140);
+    mock::user_sash_key(s.id(), SashKey::PrevLarge);
+    assert_eq!(s.position(), 90);
+    assert_eq!(rect(a).w, 90, "the layout follows immediately");
+    // Home / End go to the limits (min pane sizes 20 and 30, 380 wide, 6 px sash)
+    mock::user_sash_key(s.id(), SashKey::Min);
+    assert_eq!(s.position(), 20);
+    mock::user_sash_key(s.id(), SashKey::Prev); // already at the limit: no change, no callback
+    assert_eq!(s.position(), 20);
+    mock::user_sash_key(s.id(), SashKey::Max);
+    assert_eq!(s.position(), 344);
+    mock::user_sash_key(s.id(), SashKey::NextLarge);
+    assert_eq!(s.position(), 344);
+    assert_eq!(*log.borrow(), vec![110, 100, 90, 140, 90, 20, 344]);
+    // the app can still set it afterwards and keys continue from there
+    s.set_position(200);
+    mock::user_sash_key(s.id(), SashKey::Next);
+    assert_eq!(s.position(), 210);
+}
+
+#[test]
+fn sash_keys_work_on_a_vertical_splitter() {
+    let (_win, s, a, b) = setup(Orientation::Vertical);
+    s.set_position(50);
+    mock::user_sash_key(s.id(), SashKey::Next); // down: the top pane grows
+    assert_eq!(s.position(), 60);
+    assert_eq!(rect(a).h, 60);
+    assert_eq!(rect(b).y, 10 + 60 + 6);
+    mock::user_sash_key(s.id(), SashKey::PrevLarge);
+    assert_eq!(s.position(), 10);
+}
+
+#[test]
+fn sash_keys_are_screen_directions_under_rtl() {
+    let (_win, s, a, _b) = setup(Orientation::Horizontal);
+    set_rtl_layout(true);
+    s.set_position(100);
+    App::update();
+    assert_eq!(rect(a).x, 290, "first pane on the right");
+    mock::user_sash_key(s.id(), SashKey::Prev); // sash moves left: the right (first) pane grows
+    assert_eq!(s.position(), 110);
+    assert_eq!(rect(sash(s)).x, 274);
+    mock::user_sash_key(s.id(), SashKey::Next);
+    mock::user_sash_key(s.id(), SashKey::Next);
+    assert_eq!(s.position(), 90);
+    // Min / Max are about the first pane's size, not about screen sides
+    mock::user_sash_key(s.id(), SashKey::Min);
+    assert_eq!(s.position(), 0);
+    mock::user_sash_key(s.id(), SashKey::Max);
+    assert_eq!(s.position(), 374);
+    set_rtl_layout(false);
+}
+
+#[test]
+fn sash_keys_are_ignored_when_stale_or_unusable() {
+    let (_win, s, _a, _b) = setup(Orientation::Horizontal);
+    let log = moves(s);
+    s.set_enabled(false);
+    mock::user_sash_key(s.id(), SashKey::Next);
+    assert_eq!(s.position(), 187);
+    s.set_enabled(true);
+    s.set_visible(false);
+    mock::user_sash_key(s.id(), SashKey::Next);
+    assert_eq!(s.position(), 187);
+    s.set_visible(true);
+    // a key event aimed at some other widget is not a sash event
+    let other = Button::new(_win, "b");
+    core::event(other.id(), Event::SashKey(SashKey::Next));
+    assert_eq!(s.position(), 187);
+    assert!(log.borrow().is_empty());
+    mock::user_sash_key(s.id(), SashKey::Next);
+    assert_eq!(*log.borrow(), vec![197]);
+    // destroyed splitter: nothing to do, no panic
+    s.destroy();
+    mock::user_sash_key(s.id(), SashKey::Next);
+}
+
+#[test]
 fn on_move_callback_may_reenter() {
     let (_win, s, a, _b) = setup(Orientation::Horizontal);
     let seen = Rc::new(RefCell::new(vec![]));
@@ -341,35 +435,22 @@ fn on_move_callback_may_reenter() {
     assert_eq!(s.position(), 70);
 }
 
-fn req(a: Action, id: WidgetId, data: Option<ActionData>) -> ActionRequest {
-    ActionRequest { action: a, target_tree: TreeId::ROOT, target_node: NodeId(id.0), data }
-}
-
 #[test]
-fn a11y_sash_is_a_splitter_with_a_value() {
-    let (win, s, _a, _b) = setup(Orientation::Horizontal);
-    s.set_min_pane_sizes(20, 30);
-    s.set_position(100);
+fn a11y_sash_is_a_splitter() {
+    let (win, s, a, b) = setup(Orientation::Horizontal);
     App::update();
+    let nodes = a11y::resolve(win.id()).unwrap();
     let sh = sash(s);
-    let t = a11y::tree_for_window(win.id()).unwrap();
-    let n = t.nodes.iter().find(|(i, _)| *i == NodeId(sh.0)).map(|(_, n)| n.clone()).unwrap();
-    assert_eq!(n.role(), Role::Splitter);
-    assert_eq!(n.numeric_value(), Some(100.0));
-    assert_eq!(n.min_numeric_value(), Some(20.0));
-    assert_eq!(n.max_numeric_value(), Some(344.0));
-    assert_eq!(n.orientation(), Some(accesskit::Orientation::Vertical));
-    let log = moves(s);
-    a11y::do_action(win.id(), &req(Action::Increment, sh, None));
-    assert_eq!(s.position(), 110);
-    a11y::do_action(win.id(), &req(Action::SetValue, sh, Some(ActionData::NumericValue(1e9))));
-    assert_eq!(s.position(), 344);
-    a11y::do_action(win.id(), &req(Action::SetValue, sh, Some(ActionData::NumericValue(f64::NAN))));
-    a11y::do_action(win.id(), &req(Action::Decrement, sh, None));
-    assert_eq!(*log.borrow(), vec![110, 344, 334]);
-    // the splitter itself is virtual: panes are flattened into the window
-    let root = t.nodes.iter().find(|(i, _)| *i == NodeId(win.id().0)).map(|(_, n)| n.clone()).unwrap();
-    assert_eq!(root.children().len(), 3);
+    let n = nodes
+        .iter()
+        .find(|n| n.id == sh)
+        .expect("the sash is reported");
+    assert_eq!(n.role, A11yRole::Splitter);
+    assert!(!n.role_explicit);
+    // the splitter itself is virtual and the panes sit directly under the window in layout order
+    assert!(nodes.iter().all(|n| n.id != s.id()));
+    let ids: Vec<_> = nodes.iter().map(|n| n.id).collect();
+    assert!(ids.contains(&a.id()) && ids.contains(&b.id()));
 }
 
 // ---------------------------------------------------------------- text font / wrap

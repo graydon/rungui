@@ -30,7 +30,9 @@ fn main() {
     let hs = Splitter::new(col, Orientation::Horizontal);
     let ta1 = TextArea::new(hs);
     let ta2 = TextArea::new(hs);
-    ta2.set_text("long line without wrapping: 0123456789 0123456789 0123456789 0123456789 0123456789");
+    ta2.set_text(
+        "long line without wrapping: 0123456789 0123456789 0123456789 0123456789 0123456789",
+    );
     ta2.set_wrap(false);
     hs.set_position(200);
     hs.set_min_pane_sizes(60, 60);
@@ -44,7 +46,10 @@ fn main() {
     Label::new(p2, "page two");
     let vs = Splitter::new(col, Orientation::Vertical);
     let table = Table::new(vs);
-    table.set_columns(&[Column::new("Name").width(80).sortable(true), Column::new("Size").align(ColumnAlign::Right)]);
+    table.set_columns(&[
+        Column::new("Name").width(80).sortable(true),
+        Column::new("Size").align(ColumnAlign::Right),
+    ]);
     table.set_rows(&[vec!["a", "1"], vec!["b", "2"], vec!["c", "3"]]);
     let tree = Tree::new(vs);
     let root = tree.add(None, "root");
@@ -78,7 +83,11 @@ fn main() {
         }
         table.set_rows(&rows);
         table.set_sort_indicator(Some((c, ascending)));
-        println!("TABLE_COL {c} {} {}", if ascending { "asc" } else { "desc" }, rows[0][0]);
+        println!(
+            "TABLE_COL {c} {} {}",
+            if ascending { "asc" } else { "desc" },
+            rows[0][0]
+        );
     });
     tree.on_select(move |n| println!("TREE_SEL {}", n.is_some()));
     tree.on_expand(|_, open| println!("TREE_EXPAND {open}"));
@@ -97,7 +106,10 @@ fn main() {
         true
     });
     a.show();
-    println!("HANDLE {}", a.native_handle().is_some() && btn.native_handle().is_some());
+    println!(
+        "HANDLE {}",
+        a.native_handle().is_some() && btn.native_handle().is_some()
+    );
     let _t = Timer::once(700, move || {
         for (n, w) in [
             ("btn", btn.bounds()),

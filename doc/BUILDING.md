@@ -136,5 +136,4 @@ for windows, group boxes and tab pages so the core's top-left coordinates work u
 `Event::ContextMenu`. Every application gets the standard app menu (Quit, Cmd+Q) and an Edit menu
 (first-responder Cut/Copy/Paste/Select All) unless the app defines its own "Edit" menu.
 Accessibility uses AppKit's built-in NSAccessibility for native controls; `a11y_changed` copies
-the core's computed names/descriptions into `accessibilityLabel`/`accessibilityHelp`
-(no accesskit platform adapter needed on macOS).
+the core's computed names/descriptions into `accessibilityLabel`/`accessibilityHelp`.

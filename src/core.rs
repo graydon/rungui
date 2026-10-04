@@ -9,7 +9,7 @@
 //!   *outside* the borrow; user callbacks are taken out of their slot, called, then put back.
 
 use crate::a11y::A11yProps;
-use crate::backend::{Backend, Event, Kind, Native as B, Prop};
+use crate::backend::{Backend, Event, Kind, Native as B, Prop, SashKey};
 use crate::layout;
 use crate::types::*;
 use std::cell::RefCell;
@@ -70,7 +70,7 @@ impl Ev {
             Event::TreeActivated(_) => Ev::TreeActivated,
             Event::TreeExpanded(..) => Ev::TreeExpanded,
             Event::ContextMenu { .. } => Ev::ContextMenu,
-            Event::SashDragged(_) => Ev::SashMoved,
+            Event::SashDragged(_) | Event::SashKey(_) => Ev::SashMoved,
             Event::Moved { .. } => Ev::Moved,
             #[allow(unreachable_patterns)]
             _ => return None,
@@ -135,7 +135,10 @@ impl SplitData {
     /// Clamp a requested first-pane size to the space available along the main axis.
     pub fn clamp(&self, want: i32, avail: i32) -> i32 {
         let room = (avail - self.thick).max(0);
-        want.min(room.saturating_sub(self.min.1)).max(self.min.0).min(room).max(0)
+        want.min(room.saturating_sub(self.min.1))
+            .max(self.min.0)
+            .min(room)
+            .max(0)
     }
 }
 
@@ -158,7 +161,13 @@ impl TreeData {
         let id = NEXT_TREE_NODE.fetch_add(1, Ordering::Relaxed);
         self.nodes.insert(
             id,
-            TreeNode { text: text.to_string(), parent, children: vec![], expanded: false, has_children: false },
+            TreeNode {
+                text: text.to_string(),
+                parent,
+                children: vec![],
+                expanded: false,
+                has_children: false,
+            },
         );
         let list = match parent {
             Some(p) => self.nodes.get_mut(&p).map(|n| &mut n.children),
@@ -172,7 +181,9 @@ impl TreeData {
     }
     /// Remove a node and its subtree; clears the selection if it was inside.
     pub fn remove(&mut self, id: u64) -> bool {
-        let Some(n) = self.nodes.get(&id) else { return false };
+        let Some(n) = self.nodes.get(&id) else {
+            return false;
+        };
         match n.parent {
             Some(p) => {
                 if let Some(pn) = self.nodes.get_mut(&p) {
@@ -203,7 +214,9 @@ impl TreeData {
         let mut out = Vec::with_capacity(self.nodes.len());
         let mut stack: Vec<(u64, u32)> = self.roots.iter().rev().map(|r| (*r, 0)).collect();
         while let Some((id, depth)) = stack.pop() {
-            let Some(n) = self.nodes.get(&id) else { continue };
+            let Some(n) = self.nodes.get(&id) else {
+                continue;
+            };
             out.push(TreeRow {
                 node: id,
                 depth,
@@ -219,7 +232,9 @@ impl TreeData {
     pub fn reveal(&mut self, id: u64) {
         let mut cur = self.nodes.get(&id).and_then(|n| n.parent);
         while let Some(p) = cur {
-            let Some(n) = self.nodes.get_mut(&p) else { break };
+            let Some(n) = self.nodes.get_mut(&p) else {
+                break;
+            };
             n.expanded = true;
             cur = n.parent;
         }
@@ -228,7 +243,9 @@ impl TreeData {
     pub fn is_visible(&self, id: u64) -> bool {
         let mut cur = self.nodes.get(&id).and_then(|n| n.parent);
         while let Some(p) = cur {
-            let Some(n) = self.nodes.get(&p) else { return false };
+            let Some(n) = self.nodes.get(&p) else {
+                return false;
+            };
             if !n.expanded {
                 return false;
             }
@@ -414,7 +431,9 @@ impl Registry {
         let mut out = vec![];
         let mut stack = vec![(id, acc)];
         while let Some((i, a)) = stack.pop() {
-            let Some(n) = self.nodes.get(&i) else { continue };
+            let Some(n) = self.nodes.get(&i) else {
+                continue;
+            };
             let a = a && flag(n);
             if n.kind.is_native() {
                 out.push((i, a));
@@ -519,9 +538,18 @@ pub fn set_quit_on_last_close(v: bool) {
 /// Queue `f` for the UI thread: the calling thread itself when it owns a toolkit instance,
 /// otherwise the thread that called `init`.
 pub fn post(f: impl FnOnce() + Send + 'static) {
-    let own = REG.try_with(|c| c.try_borrow().map_or(true, |g| g.is_some())).unwrap_or(false);
+    let own = REG
+        .try_with(|c| c.try_borrow().map_or(true, |g| g.is_some()))
+        .unwrap_or(false);
     let me = std::thread::current().id();
-    let target = if own { me } else { UI_THREAD.lock().unwrap_or_else(|e| e.into_inner()).unwrap_or(me) };
+    let target = if own {
+        me
+    } else {
+        UI_THREAD
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or(me)
+    };
     post_to(target, f);
 }
 
@@ -553,12 +581,15 @@ pub fn drain_posted() {
     flush();
 }
 
-/// Apply pending layout and notify a11y adapters. Also available as `App::update()`.
+/// Apply pending layout and notify the backend of accessibility changes. Also available as `App::update()`.
 pub fn flush() {
     for _ in 0..4 {
         let (lay, a11y) = match with(|r| {
             r.scheduled = false;
-            (std::mem::take(&mut r.dirty_layout), std::mem::take(&mut r.dirty_a11y))
+            (
+                std::mem::take(&mut r.dirty_layout),
+                std::mem::take(&mut r.dirty_a11y),
+            )
         }) {
             Some(x) => x,
             None => return,
@@ -571,7 +602,6 @@ pub fn flush() {
         }
         for w in a11y {
             if with(|r| r.nodes.contains_key(&w)).unwrap_or(false) {
-                crate::a11y::refresh_cache(w);
                 B::a11y_changed(w);
             }
         }
@@ -594,7 +624,9 @@ fn accepts(p: Kind, k: Kind) -> bool {
         Kind::Page => p == Kind::Tabs,
         Kind::MenuBar => p == Kind::Window,
         Kind::Menu => matches!(p, Kind::MenuBar | Kind::Menu | Kind::PopupMenu),
-        Kind::MenuItem | Kind::CheckMenuItem | Kind::MenuSeparator => matches!(p, Kind::Menu | Kind::PopupMenu),
+        Kind::MenuItem | Kind::CheckMenuItem | Kind::MenuSeparator => {
+            matches!(p, Kind::Menu | Kind::PopupMenu)
+        }
         Kind::PopupMenu => false,
         Kind::Sash => p == Kind::Splitter,
         _ => k.in_layout() && p.is_layout_container(),
@@ -612,7 +644,11 @@ pub fn create(kind: Kind, parent: Option<WidgetId>, setup: impl FnOnce(&mut Node
                 accepts(n.kind, kind)
                     && n.split.as_ref().is_none_or(|sp| {
                         // a splitter holds one sash (created by the core) and at most two panes
-                        if kind == Kind::Sash { sp.sash.is_none() } else { panes_of(r, n).len() < 2 }
+                        if kind == Kind::Sash {
+                            sp.sash.is_none()
+                        } else {
+                            panes_of(r, n).len() < 2
+                        }
                     })
             });
             if !ok {
@@ -665,9 +701,6 @@ pub fn create(kind: Kind, parent: Option<WidgetId>, setup: impl FnOnce(&mut Node
         }
         sync_initial(id);
     }
-    if kind == Kind::Window {
-        B::a11y_attach(id);
-    }
     if need_wake {
         wake();
     }
@@ -676,7 +709,11 @@ pub fn create(kind: Kind, parent: Option<WidgetId>, setup: impl FnOnce(&mut Node
 
 /// The pane children of a splitter node (every child except the sash; at most two).
 pub fn panes_of(r: &Registry, n: &Node) -> Vec<WidgetId> {
-    n.children.iter().copied().filter(|c| r.nodes.get(c).is_some_and(|c| c.kind != Kind::Sash)).collect()
+    n.children
+        .iter()
+        .copied()
+        .filter(|c| r.nodes.get(c).is_some_and(|c| c.kind != Kind::Sash))
+        .collect()
 }
 
 /// Create the native sash of a new splitter. Optional for backends: on failure the splitter
@@ -686,7 +723,12 @@ pub fn create_sash(splitter: WidgetId, orient: Orientation) {
     let sash = create(Kind::Sash, Some(splitter), |n| n.visible = false);
     if sash == WidgetId::DEAD {
         take_error();
-        with(|r| r.nodes.get_mut(&splitter).and_then(|n| n.split.as_mut()).map(|sp| sp.sash = None));
+        with(|r| {
+            r.nodes
+                .get_mut(&splitter)
+                .and_then(|n| n.split.as_mut())
+                .map(|sp| sp.sash = None)
+        });
         return;
     }
     B::set(sash, &Prop::Orientation(orient));
@@ -700,13 +742,19 @@ pub fn split_set(id: WidgetId, want: i32, user: bool) {
         let win = r.window_of(id);
         let sp = r.nodes.get_mut(&id)?.split.as_mut()?;
         let old = sp.actual;
-        sp.pos = Some(if user && sp.laid_out { sp.clamp(want, main_len(sp)) } else { want.max(0) });
+        sp.pos = Some(if user && sp.laid_out {
+            sp.clamp(want, main_len(sp))
+        } else {
+            want.max(0)
+        });
         let laid = sp.laid_out;
         let wake = r.touch(id, true);
         Some((win, old, laid, wake))
     })
     .flatten();
-    let Some((win, old, laid, need_wake)) = r else { return };
+    let Some((win, old, laid, need_wake)) = r else {
+        return;
+    };
     if let Some(w) = win.filter(|_| laid) {
         layout_window(w);
     }
@@ -717,7 +765,12 @@ pub fn split_set(id: WidgetId, want: i32, user: bool) {
     if !user || new == old || !laid {
         return;
     }
-    let cb = with(|r| r.nodes.get_mut(&id).and_then(|n| n.cbs.remove(&Ev::SashMoved))).flatten();
+    let cb = with(|r| {
+        r.nodes
+            .get_mut(&id)
+            .and_then(|n| n.cbs.remove(&Ev::SashMoved))
+    })
+    .flatten();
     if let Some(mut cb) = cb {
         guarded(|| cb(&Event::SashDragged(new)));
         with(|r| {
@@ -730,32 +783,74 @@ pub fn split_set(id: WidgetId, want: i32, user: bool) {
 }
 
 fn main_len(sp: &SplitData) -> i32 {
-    if sp.orient == Orientation::Horizontal { sp.area.w } else { sp.area.h }
+    if sp.orient == Orientation::Horizontal {
+        sp.area.w
+    } else {
+        sp.area.h
+    }
+}
+
+/// Pixels a splitter moves per arrow key, and with Shift.
+const SASH_STEP: i32 = 10;
+const SASH_STEP_LARGE: i32 = 50;
+
+/// The splitter a user event on sash `id` is for, if the event should be honoured: nothing disabled
+/// or hidden up the chain (a stale event), `id` really is that splitter's sash, and it was laid out.
+fn live_sash(r: &Registry, id: WidgetId) -> Option<(WidgetId, &SplitData)> {
+    let mut cur = Some(id);
+    while let Some(i) = cur {
+        let n = r.nodes.get(&i)?;
+        if !n.enabled || (!n.visible && n.kind != Kind::Window) {
+            return None;
+        }
+        cur = n.parent;
+    }
+    let split = r.nodes.get(&id)?.parent?;
+    let sp = r.nodes.get(&split)?.split.as_ref()?;
+    (sp.sash == Some(id) && sp.laid_out).then_some((split, sp))
 }
 
 /// `Event::SashDragged` on sash `id`: convert the sash's leading edge to a first-pane size.
 fn sash_event(id: WidgetId, pos: i32) {
     let target = with(|r| {
-        // disabled or hidden anywhere up the chain: a stale drag, ignore it
-        let mut cur = Some(id);
-        while let Some(i) = cur {
-            let n = r.nodes.get(&i)?;
-            if !n.enabled || (!n.visible && n.kind != Kind::Window) {
-                return None;
-            }
-            cur = n.parent;
-        }
-        let split = r.nodes.get(&id)?.parent?;
-        let sp = r.nodes.get(&split)?.split.as_ref()?;
-        if sp.sash != Some(id) || !sp.laid_out {
-            return None;
-        }
+        let (split, sp) = live_sash(r, id)?;
         let a = sp.area;
         let want = match sp.orient {
             Orientation::Vertical => pos.saturating_sub(a.y),
             // mirrored: the first pane is on the right, so measure from the right edge
-            Orientation::Horizontal if layout::is_rtl() => (a.x + a.w - sp.thick).saturating_sub(pos),
+            Orientation::Horizontal if layout::is_rtl() => {
+                (a.x + a.w - sp.thick).saturating_sub(pos)
+            }
             Orientation::Horizontal => pos.saturating_sub(a.x),
+        };
+        Some((split, want))
+    })
+    .flatten();
+    if let Some((split, want)) = target {
+        split_set(split, want, true);
+    }
+}
+
+/// `Event::SashKey` on sash `id`: step the first-pane size, or jump to its limits.
+fn sash_key_event(id: WidgetId, key: SashKey) {
+    let target = with(|r| {
+        let (split, sp) = live_sash(r, id)?;
+        // Prev/Next are screen directions. With the first pane on the right (RTL, side by side)
+        // moving the sash toward the left makes the first pane bigger, not smaller.
+        let sign = if sp.orient == Orientation::Horizontal && layout::is_rtl() {
+            -1
+        } else {
+            1
+        };
+        let step = |by: i32| sp.actual.saturating_add(sign * by);
+        let want = match key {
+            SashKey::Prev => step(-SASH_STEP),
+            SashKey::Next => step(SASH_STEP),
+            SashKey::PrevLarge => step(-SASH_STEP_LARGE),
+            SashKey::NextLarge => step(SASH_STEP_LARGE),
+            // logical, not screen, directions: the clamp turns these into the pane limits
+            SashKey::Min => i32::MIN,
+            SashKey::Max => i32::MAX,
         };
         Some((split, want))
     })
@@ -818,7 +913,14 @@ fn sync_initial(id: WidgetId) {
         B::set(id, &Prop::Accel(&s.accel));
     }
     if matches!(s.kind, Kind::Slider | Kind::SpinBox | Kind::ProgressBar) {
-        B::set(id, &Prop::Range { min: s.range.0, max: s.range.1, step: s.range.2 });
+        B::set(
+            id,
+            &Prop::Range {
+                min: s.range.0,
+                max: s.range.1,
+                step: s.range.2,
+            },
+        );
         B::set(id, &Prop::Value(s.value));
     }
     if !s.items.is_empty() {
@@ -893,9 +995,6 @@ fn remove_nodes(id: WidgetId) -> Vec<WidgetId> {
 /// Destroy a widget and everything below it. No-op for stale ids.
 pub fn destroy(id: WidgetId) {
     let was_window = read(id, |n| n.kind == Kind::Window).unwrap_or(false);
-    if was_window {
-        crate::a11y::drop_cache(id);
-    }
     for n in remove_nodes(id) {
         B::destroy(n);
     }
@@ -954,7 +1053,14 @@ pub fn set_flag(id: WidgetId, visible: bool, v: bool) {
         layout_window(id);
     }
     for (nid, eff) in with(|r| r.effective(id, visible)).unwrap_or_default() {
-        B::set(nid, &if visible { Prop::Visible(eff) } else { Prop::Enabled(eff) });
+        B::set(
+            nid,
+            &if visible {
+                Prop::Visible(eff)
+            } else {
+                Prop::Enabled(eff)
+            },
+        );
     }
 }
 
@@ -965,7 +1071,11 @@ pub fn set_callback(id: WidgetId, ev: Ev, cb: Callback) {
 }
 
 pub fn native_handle(id: WidgetId) -> Option<NativeHandle> {
-    if is_alive(id) { B::native_handle(id) } else { None }
+    if is_alive(id) {
+        B::native_handle(id)
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------- events from the backend
@@ -981,6 +1091,10 @@ pub fn event(id: WidgetId, ev: Event) {
         sash_event(id, pos);
         return;
     }
+    if let Event::SashKey(k) = ev {
+        sash_key_event(id, k);
+        return;
+    }
     let mut unchecked = vec![];
     let go = with(|r| {
         let (kind, group) = {
@@ -989,7 +1103,10 @@ pub fn event(id: WidgetId, ev: Event) {
                 Event::Text(s) => n.text = s.clone(),
                 Event::Toggled(b) => n.checked = *b,
                 Event::Selected(s) => {
-                    if n.table.as_ref().is_some_and(|t| s.is_some_and(|i| i >= t.rows.len())) {
+                    if n.table
+                        .as_ref()
+                        .is_some_and(|t| s.is_some_and(|i| i >= t.rows.len()))
+                    {
                         return None;
                     }
                     n.selected = *s;
@@ -1099,7 +1216,12 @@ fn context_menu_event(id: WidgetId, x: i32, y: i32, ev: &Event) {
     .flatten();
     let Some(target) = target else { return };
     // the app may rebuild/enable items (or even attach a different menu) before it is shown
-    let cb = with(|r| r.nodes.get_mut(&target).and_then(|n| n.cbs.remove(&Ev::ContextMenu))).flatten();
+    let cb = with(|r| {
+        r.nodes
+            .get_mut(&target)
+            .and_then(|n| n.cbs.remove(&Ev::ContextMenu))
+    })
+    .flatten();
     if let Some(mut cb) = cb {
         guarded(|| cb(ev));
         with(|r| {
@@ -1165,7 +1287,11 @@ pub fn freeze(id: WidgetId, on: bool) {
             None
         } else {
             n.freeze = n.freeze.saturating_sub(1);
-            if n.freeze == 0 { n.pending.take() } else { None }
+            if n.freeze == 0 {
+                n.pending.take()
+            } else {
+                None
+            }
         }
     })
     .flatten();
@@ -1176,8 +1302,18 @@ pub fn freeze(id: WidgetId, on: bool) {
 
 fn send(id: WidgetId, what: Data) {
     enum Snap {
-        Table { cols: Option<Vec<Column>>, rows: Option<Vec<Vec<String>>>, sel: Option<usize>, sort: Option<(usize, bool)>, send_sel: bool, send_sort: bool },
-        Tree { rows: Option<Vec<TreeRow>>, sel: Option<u64> },
+        Table {
+            cols: Option<Vec<Column>>,
+            rows: Option<Vec<Vec<String>>>,
+            sel: Option<usize>,
+            sort: Option<(usize, bool)>,
+            send_sel: bool,
+            send_sort: bool,
+        },
+        Tree {
+            rows: Option<Vec<TreeRow>>,
+            sel: Option<u64>,
+        },
     }
     let Some(snap) = with(|r| {
         let n = r.nodes.get(&id)?;
@@ -1193,13 +1329,23 @@ fn send(id: WidgetId, what: Data) {
             });
         }
         let t = n.tree.as_ref()?;
-        Some(Snap::Tree { rows: (what == Data::TreeRows).then(|| t.flatten()), sel: t.selected })
+        Some(Snap::Tree {
+            rows: (what == Data::TreeRows).then(|| t.flatten()),
+            sel: t.selected,
+        })
     })
     .flatten() else {
         return;
     };
     match snap {
-        Snap::Table { cols, rows, sel, sort, send_sel, send_sort } => {
+        Snap::Table {
+            cols,
+            rows,
+            sel,
+            sort,
+            send_sel,
+            send_sort,
+        } => {
             if let Some(c) = cols {
                 B::set(id, &Prop::Columns(&c));
             }
@@ -1253,7 +1399,16 @@ pub fn close_requested(id: WidgetId) {
 
 pub fn timer_start(ms: u32, repeat: bool, cb: Box<dyn FnMut()>) -> Result<u64> {
     let token = NEXT_TIMER.fetch_add(1, Ordering::Relaxed);
-    with(|r| r.timers.insert(token, TimerEntry { cb: Some(cb), repeat })).ok_or(Error::NotInitialized)?;
+    with(|r| {
+        r.timers.insert(
+            token,
+            TimerEntry {
+                cb: Some(cb),
+                repeat,
+            },
+        )
+    })
+    .ok_or(Error::NotInitialized)?;
     if let Err(e) = B::timer_start(token, ms.max(1), repeat) {
         with(|r| r.timers.remove(&token));
         return Err(e);
@@ -1271,11 +1426,17 @@ pub fn timer_stop(token: u64) {
 pub fn timer_fired(token: u64) {
     let taken = with(|r| {
         let repeat = r.timers.get(&token)?.repeat;
-        let cb = if repeat { r.timers.get_mut(&token)?.cb.take() } else { r.timers.remove(&token)?.cb };
+        let cb = if repeat {
+            r.timers.get_mut(&token)?.cb.take()
+        } else {
+            r.timers.remove(&token)?.cb
+        };
         Some((cb, repeat))
     })
     .flatten();
-    let Some((Some(mut cb), repeat)) = taken else { return };
+    let Some((Some(mut cb), repeat)) = taken else {
+        return;
+    };
     guarded(|| cb());
     if repeat {
         with(|r| {

@@ -1,6 +1,11 @@
 //! Hand-written Win32 declarations (the subset rungui needs). Everything is `extern "system"`;
 //! handles are pointer-sized integers (`isize`), which has the same ABI as a pointer.
-#![allow(non_snake_case, non_camel_case_types, dead_code, clippy::upper_case_acronyms)]
+#![allow(
+    non_snake_case,
+    non_camel_case_types,
+    dead_code,
+    clippy::upper_case_acronyms
+)]
 
 use std::ffi::c_void;
 
@@ -43,7 +48,14 @@ pub struct MSG {
 }
 impl MSG {
     pub fn zeroed() -> MSG {
-        MSG { hwnd: 0, message: 0, wparam: 0, lparam: 0, time: 0, pt: POINT::default() }
+        MSG {
+            hwnd: 0,
+            message: 0,
+            wparam: 0,
+            lparam: 0,
+            time: 0,
+            pt: POINT::default(),
+        }
     }
 }
 #[repr(C)]
@@ -406,6 +418,16 @@ pub const WM_DPICHANGED: u32 = 0x2E0;
 pub const WM_APP: u32 = 0x8000;
 pub const SIZE_MINIMIZED: usize = 1;
 pub const VK_RETURN: usize = 0x0D;
+pub const VK_SHIFT: i32 = 0x10;
+pub const VK_CONTROL: i32 = 0x11;
+pub const VK_END: usize = 0x23;
+pub const VK_HOME: usize = 0x24;
+pub const VK_LEFT: usize = 0x25;
+pub const VK_UP: usize = 0x26;
+pub const VK_RIGHT: usize = 0x27;
+pub const VK_DOWN: usize = 0x28;
+pub const WM_GETDLGCODE: u32 = 0x87;
+pub const DLGC_WANTARROWS: LRESULT = 0x1;
 
 pub const BM_GETCHECK: u32 = 0xF0;
 pub const BM_SETCHECK: u32 = 0xF1;
@@ -643,9 +665,17 @@ unsafe extern "system" {
     pub fn ClientToScreen(h: HWND, p: *mut POINT) -> BOOL;
     pub fn SetForegroundWindow(h: HWND) -> BOOL;
     pub fn GetForegroundWindow() -> HWND;
-    pub fn TrackPopupMenuEx(m: isize, flags: u32, x: i32, y: i32, h: HWND, tpm: *const c_void) -> i32;
+    pub fn TrackPopupMenuEx(
+        m: isize,
+        flags: u32,
+        x: i32,
+        y: i32,
+        h: HWND,
+        tpm: *const c_void,
+    ) -> i32;
     pub fn GetScrollPos(h: HWND, bar: i32) -> i32;
     pub fn GetKeyState(vk: i32) -> i16;
+    pub fn DrawFocusRect(dc: isize, r: *const RECT) -> BOOL;
     pub fn IsWindowVisible(h: HWND) -> BOOL;
     pub fn GetWindowRect(h: HWND, r: *mut RECT) -> BOOL;
     pub fn SetTimer(h: HWND, id: usize, ms: u32, f: usize) -> usize;
@@ -732,18 +762,36 @@ unsafe extern "system" {
 unsafe extern "system" {
     pub fn OpenThemeData(h: HWND, classes: *const u16) -> isize;
     pub fn CloseThemeData(t: isize) -> i32;
-    pub fn DrawThemeBackground(t: isize, dc: isize, part: i32, state: i32, r: *const RECT, clip: *const RECT) -> i32;
+    pub fn DrawThemeBackground(
+        t: isize,
+        dc: isize,
+        part: i32,
+        state: i32,
+        r: *const RECT,
+        clip: *const RECT,
+    ) -> i32;
     pub fn DrawThemeParentBackground(h: HWND, dc: isize, r: *const RECT) -> i32;
 }
 
 #[link(name = "shell32")]
 unsafe extern "system" {
-    pub fn SHCreateItemFromParsingName(path: *const u16, bc: *mut c_void, iid: *const GUID, out: *mut *mut c_void) -> i32;
+    pub fn SHCreateItemFromParsingName(
+        path: *const u16,
+        bc: *mut c_void,
+        iid: *const GUID,
+        out: *mut *mut c_void,
+    ) -> i32;
 }
 
 #[link(name = "ole32")]
 unsafe extern "system" {
     pub fn CoInitializeEx(reserved: *mut c_void, flags: u32) -> i32;
-    pub fn CoCreateInstance(clsid: *const GUID, outer: *mut c_void, ctx: u32, iid: *const GUID, out: *mut *mut c_void) -> i32;
+    pub fn CoCreateInstance(
+        clsid: *const GUID,
+        outer: *mut c_void,
+        ctx: u32,
+        iid: *const GUID,
+        out: *mut *mut c_void,
+    ) -> i32;
     pub fn CoTaskMemFree(p: *mut c_void);
 }

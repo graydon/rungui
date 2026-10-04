@@ -23,11 +23,22 @@ fn tmp(name: &str) -> PathBuf {
 }
 
 fn names(t: Table) -> Vec<String> {
-    t.rows().iter().map(|r| r[0].trim().trim_start_matches('\u{25B8}').trim().to_string()).collect()
+    t.rows()
+        .iter()
+        .map(|r| {
+            r[0].trim()
+                .trim_start_matches('\u{25B8}')
+                .trim()
+                .to_string()
+        })
+        .collect()
 }
 
 fn row_of(t: Table, name: &str) -> usize {
-    names(t).iter().position(|n| n == name).unwrap_or_else(|| panic!("{name} not in {:?}", names(t)))
+    names(t)
+        .iter()
+        .position(|n| n == name)
+        .unwrap_or_else(|| panic!("{name} not in {:?}", names(t)))
 }
 
 fn setup() -> (std::rc::Rc<app::Fm>, PathBuf, PathBuf) {
@@ -40,7 +51,9 @@ fn setup() -> (std::rc::Rc<app::Fm>, PathBuf, PathBuf) {
     fs::write(a.join(".secret"), "hidden").unwrap();
     fs::create_dir_all(a.join("sub/deeper")).unwrap();
     fs::write(a.join("sub/inner.txt"), "inner").unwrap();
-    let fm = app::build(app::Options { dirs: [a.clone(), b.clone()] });
+    let fm = app::build(app::Options {
+        dirs: [a.clone(), b.clone()],
+    });
     (fm, a, b)
 }
 
@@ -62,7 +75,11 @@ fn navigate_sort_preview() {
     assert!(u.status.text().contains("one.txt"));
     // binary preview is a hex dump
     mock::user_select_row(ta.id(), Some(row_of(ta, "big.bin")));
-    assert!(u.preview.text().contains("00 01 02 03 ff 00 09"), "{}", u.preview.text());
+    assert!(
+        u.preview.text().contains("00 01 02 03 ff 00 09"),
+        "{}",
+        u.preview.text()
+    );
     // directory preview is a summary
     mock::user_select_row(ta.id(), Some(row_of(ta, "sub")));
     assert!(u.preview.text().contains("2 items"), "{}", u.preview.text());
@@ -124,7 +141,10 @@ fn file_operations() {
     // copy to the other pane (F5 / button)
     mock::user_select_row(ta.id(), Some(row_of(ta, "one.txt")));
     mock::user_click(u.copy_btn.id());
-    assert_eq!(fs::read_to_string(b.join("one.txt")).unwrap(), "first file\n");
+    assert_eq!(
+        fs::read_to_string(b.join("one.txt")).unwrap(),
+        "first file\n"
+    );
     assert!(a.join("one.txt").exists());
     assert!(names(tb).contains(&"one.txt".to_string()));
     // copying again asks before overwriting; "No" leaves things alone
@@ -133,7 +153,10 @@ fn file_operations() {
     mock::user_select_row(ta.id(), Some(row_of(ta, "one.txt")));
     mock::user_click(u.copy_btn.id());
     assert_eq!(mock::last_message().unwrap().title, "Overwrite");
-    assert_eq!(fs::read_to_string(b.join("one.txt")).unwrap(), "first file\n");
+    assert_eq!(
+        fs::read_to_string(b.join("one.txt")).unwrap(),
+        "first file\n"
+    );
     mock::queue_answer(Answer::Yes);
     mock::user_click(u.copy_btn.id());
     assert_eq!(fs::read_to_string(b.join("one.txt")).unwrap(), "changed");
@@ -150,7 +173,11 @@ fn file_operations() {
     fm.navigate_for_test(0, b.join("sub"));
     mock::user_select_row(tb.id(), Some(row_of(tb, "sub")));
     mock::user_click(u.copy_btn.id());
-    assert!(u.status.text().contains("itself") || u.status.text().contains("same"), "{}", u.status.text());
+    assert!(
+        u.status.text().contains("itself") || u.status.text().contains("same"),
+        "{}",
+        u.status.text()
+    );
 
     // rename through the dialog
     fm.navigate_for_test(0, a.clone());
@@ -202,12 +229,24 @@ fn context_menu_and_errors() {
     mock::user_select_row(ta.id(), Some(0)); // ".."
     mock::user_context_menu(ta.id(), 5, 5);
     let rec = mock::last_popup().unwrap();
-    let enabled = |label: &str| rec.items.iter().find(|i| i.1.starts_with(label)).map(|i| i.2).unwrap();
+    let enabled = |label: &str| {
+        rec.items
+            .iter()
+            .find(|i| i.1.starts_with(label))
+            .map(|i| i.2)
+            .unwrap()
+    };
     assert!(enabled("Open") && !enabled("Rename") && !enabled("Delete") && !enabled("Copy"));
     assert!(enabled("New Folder"));
     mock::user_select_row(ta.id(), Some(row_of(ta, "one.txt")));
     mock::user_context_menu(ta.id(), 5, 5);
-    assert!(mock::last_popup().unwrap().items.iter().all(|i| i.2 || i.0 == Kind::MenuSeparator));
+    assert!(
+        mock::last_popup()
+            .unwrap()
+            .items
+            .iter()
+            .all(|i| i.2 || i.0 == Kind::MenuSeparator)
+    );
     mock::queue_popup_choice(Some(u.items.ctx_delete.id()));
     // right-clicking the other table makes that pane active
     mock::user_context_menu(u.tables[1].id(), 1, 1);
@@ -225,7 +264,11 @@ fn context_menu_and_errors() {
             mock::user_activate_row(ta.id(), 0); // make sure pane 0 is where we think
             fm.navigate_for_test(0, a.clone());
             mock::user_activate_row(ta.id(), row_of(ta, "locked"));
-            assert!(u.status.text().starts_with("Cannot open"), "{}", u.status.text());
+            assert!(
+                u.status.text().starts_with("Cannot open"),
+                "{}",
+                u.status.text()
+            );
             assert_eq!(fm.path_of(0), a);
         }
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();

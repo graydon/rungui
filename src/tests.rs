@@ -279,7 +279,10 @@ fn hidden_children_take_no_space_and_visibility_propagates() {
     let y_c = rect(*c).y;
     inner.set_visible(false);
     App::update();
-    assert!(!widget(b.id()).unwrap().visible, "native child hidden through virtual box");
+    assert!(
+        !widget(b.id()).unwrap().visible,
+        "native child hidden through virtual box"
+    );
     assert_eq!(rect(*c).y, y_c - 28);
     inner.set_visible(true);
     b.set_visible(false);
@@ -479,11 +482,20 @@ fn dialogs_route_through_backend() {
     init();
     let win = Window::new("w");
     mock::queue_answer(Answer::Yes);
-    let a = message_box(Some(win), MessageKind::Question, Buttons::YesNo, "T", "Sure?");
+    let a = message_box(
+        Some(win),
+        MessageKind::Question,
+        Buttons::YesNo,
+        "T",
+        "Sure?",
+    );
     assert_eq!(a, Answer::Yes);
     assert_eq!(mock::last_message().unwrap().text, "Sure?");
     mock::queue_files(&["/tmp/a.txt"]);
-    let f = FileDialog::new().title("Open").filter("Text", &["txt"]).open(Some(win));
+    let f = FileDialog::new()
+        .title("Open")
+        .filter("Text", &["txt"])
+        .open(Some(win));
     assert_eq!(f, Some(std::path::PathBuf::from("/tmp/a.txt")));
     let spec = mock::last_file_spec().unwrap();
     assert_eq!(spec.filters[0].1, vec!["txt"]);
@@ -501,114 +513,82 @@ fn accel_parsing() {
     assert_eq!(Accel::parse("Ctrl+"), None);
 }
 
+/// The resolved a11y metadata of `id` in `win` (None if AT cannot see it).
+fn a11y_of(win: &Window, id: WidgetId) -> Option<a11y::Resolved> {
+    a11y::resolve(win.id())
+        .unwrap()
+        .into_iter()
+        .find(|n| n.id == id)
+}
+
 #[test]
-fn a11y_tree() {
-    use accesskit::{Role, Toggled};
+fn a11y_names_roles_and_descriptions() {
     init();
     let win = Window::new("Settings");
     let form = Grid::new(win, 2);
     let _l = Label::new(form, "Name");
     let name = TextInput::new(form);
     let cb = CheckBox::new(form, "Enable");
-    cb.set_checked(true);
     let pw = TextInput::password(form);
     pw.set_text("secret");
     pw.set_a11y_name("Password");
     let ok = Button::new(win, "OK");
     ok.set_a11y_description("Confirm");
+    let tip = Button::new(win, "Tip");
+    tip.set_tooltip("Hover text");
     let list = ListBox::new(win);
-    list.set_items(&["x", "y"]);
-    list.set_selected(Some(1));
     win.show();
     App::update();
 
-    let t = a11y::tree_for_window(win.id()).unwrap();
-    let get = |id: WidgetId| t.nodes.iter().find(|(i, _)| i.0 == id.0).map(|(_, n)| n).unwrap();
-    assert_eq!(t.tree.as_ref().unwrap().root.0, win.id().0);
-    assert_eq!(get(win.id()).role(), Role::Window);
-    assert_eq!(get(win.id()).label(), Some("Settings"));
-    assert_eq!(get(ok.id()).label(), Some("OK"));
-    assert_eq!(get(ok.id()).description(), Some("Confirm"));
-    assert_eq!(get(ok.id()).role(), Role::Button);
-    assert_eq!(get(cb.id()).toggled(), Some(Toggled::True));
-    // unnamed input is labelled by the preceding Label; virtual Grid flattened away
-    assert_eq!(get(name.id()).label(), Some("Name"));
-    assert_eq!(get(pw.id()).label(), Some("Password"));
-    assert_eq!(get(pw.id()).role(), Role::PasswordInput);
-    assert_eq!(get(pw.id()).value(), None, "passwords are never exposed");
-    assert!(get(win.id()).children().iter().any(|c| c.0 == name.id().0));
-    assert!(get(name.id()).bounds().is_some());
-    // list options
-    assert_eq!(get(list.id()).children().len(), 2);
-    let opt = t.nodes.iter().filter(|(_, n)| n.role() == Role::ListBoxOption).collect::<Vec<_>>();
-    assert_eq!(opt.len(), 2);
-    assert!(opt[1].1.is_selected() == Some(true));
-    // every referenced child exists exactly once
-    for (_, n) in &t.nodes {
-        for c in n.children() {
-            assert_eq!(t.nodes.iter().filter(|(i, _)| i == c).count(), 1);
-        }
-    }
-    assert_eq!(t.focus, t.tree.as_ref().unwrap().root);
+    let all = a11y::resolve(win.id()).unwrap();
+    assert_eq!(all[0].id, win.id(), "the window comes first");
+    let get = |id: WidgetId| a11y_of(&win, id).unwrap();
+    assert_eq!(
+        (get(win.id()).role, get(win.id()).name.as_deref()),
+        (A11yRole::Window, Some("Settings"))
+    );
+    assert_eq!(
+        (get(ok.id()).role, get(ok.id()).name.as_deref()),
+        (A11yRole::Button, Some("OK"))
+    );
+    assert_eq!(get(ok.id()).description.as_deref(), Some("Confirm"));
+    assert_eq!(
+        get(tip.id()).description.as_deref(),
+        Some("Hover text"),
+        "tooltip is the fallback description"
+    );
+    assert_eq!(get(cb.id()).role, A11yRole::CheckBox);
+    // an unnamed input is labelled by the preceding Label; the virtual Grid is flattened away
+    assert_eq!(get(name.id()).name.as_deref(), Some("Name"));
+    assert_eq!(get(name.id()).name_source, a11y::NameSource::PrecedingLabel);
+    assert!(
+        all.iter().all(|n| n.kind.is_native()),
+        "layout boxes are not reported"
+    );
+    // an explicit name wins, and the role follows the kind
+    assert_eq!(get(pw.id()).name.as_deref(), Some("Password"));
+    assert_eq!(get(pw.id()).name_source, a11y::NameSource::Explicit);
+    assert_eq!(get(pw.id()).role, A11yRole::PasswordInput);
+    assert_eq!(get(list.id()).role, A11yRole::ListBox);
+    // widgets are reported once each, in layout order
+    let ids: Vec<_> = all.iter().map(|n| n.id).collect();
+    let mut dedup = ids.clone();
+    dedup.sort_by_key(|i| i.0);
+    dedup.dedup();
+    assert_eq!(dedup.len(), ids.len());
+    let pos = |id: WidgetId| ids.iter().position(|i| *i == id).unwrap();
+    assert!(pos(name.id()) < pos(cb.id()) && pos(cb.id()) < pos(ok.id()));
     // overrides and hidden subtrees
-    ok.set_a11y_role(Role::Link);
+    ok.set_a11y_role(A11yRole::Link);
+    assert_eq!(a11y_of(&win, ok.id()).unwrap().role, A11yRole::Link);
+    assert!(a11y_of(&win, ok.id()).unwrap().role_explicit);
     ok.set_visible(false);
     App::update();
-    let t = a11y::tree_for_window(win.id()).unwrap();
-    assert!(t.nodes.iter().all(|(i, _)| i.0 != ok.id().0));
-    assert!(a11y::tree_for_window(ok.id()).is_none());
-}
-
-#[test]
-fn a11y_actions_fire_app_callbacks() {
-    use accesskit::{Action, ActionData, ActionRequest, NodeId, TreeId};
-    init();
-    let win = Window::new("w");
-    let cb = CheckBox::new(win, "c");
-    let b = Button::new(win, "b");
-    let t = TextInput::new(win);
-    let s = Slider::new(win, 0.0, 10.0);
-    let toggled = Rc::new(Cell::new(false));
-    let clicked = Rc::new(Cell::new(0));
-    let text = Rc::new(RefCell::new(String::new()));
-    let (t1, c1, x1) = (toggled.clone(), clicked.clone(), text.clone());
-    cb.on_toggle(move |v| t1.set(v));
-    b.on_click(move || c1.set(c1.get() + 1));
-    t.on_change(move |v| *x1.borrow_mut() = v.to_string());
-    let req = |a: Action, id: WidgetId, data: Option<ActionData>| ActionRequest {
-        action: a,
-        target_tree: TreeId::ROOT,
-        target_node: NodeId(id.0),
-        data,
-    };
-    a11y::do_action(win.id(), &req(Action::Click, cb.id(), None));
-    a11y::do_action(win.id(), &req(Action::Click, b.id(), None));
-    a11y::do_action(win.id(), &req(Action::SetValue, t.id(), Some(ActionData::Value("hi".into()))));
-    a11y::do_action(win.id(), &req(Action::Increment, s.id(), None));
-    a11y::do_action(win.id(), &req(Action::Focus, t.id(), None));
-    assert!(toggled.get() && cb.checked());
-    assert!(widget(cb.id()).unwrap().checked, "pushed to the native widget too");
-    assert_eq!(clicked.get(), 1);
-    assert_eq!(*text.borrow(), "hi");
-    assert_eq!(widget(t.id()).unwrap().text, "hi");
-    assert_eq!(s.value(), 1.0);
-    assert!(widget(t.id()).unwrap().focused);
-    // wrong window / stale target: ignored
-    let other = Window::new("o");
-    a11y::do_action(other.id(), &req(Action::Click, b.id(), None));
-    assert_eq!(clicked.get(), 1);
-    b.destroy();
-    a11y::do_action(win.id(), &req(Action::Click, b.id(), None));
-}
-
-#[test]
-fn focus_is_reported_in_tree() {
-    init();
-    let win = Window::new("w");
-    let t = TextInput::new(win);
-    mock::user(t.id(), Event::Focus(true));
-    let tree = a11y::tree_for_window(win.id()).unwrap();
-    assert_eq!(tree.focus.0, t.id().0);
+    assert!(a11y_of(&win, ok.id()).is_none());
+    assert!(
+        a11y::resolve(ok.id()).is_none(),
+        "only windows can be resolved"
+    );
 }
 
 #[test]

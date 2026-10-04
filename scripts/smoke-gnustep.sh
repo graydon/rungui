@@ -71,6 +71,32 @@ xdotool mousedown 1; for d in 20 50 80 110; do xdotool mousemove $sx $((sy+d)); 
 last=$(grep "^VSPLIT" "$out" | tail -1 | cut -d" " -f2)
 [ -n "$last" ] && [ "$last" -ge 160 ] && [ "$last" -le 180 ] && pass "vertical sash drag back down (position $last)" || bad "vertical sash drag down (VSPLIT=${last:-none})"
 
+# keyboard on the sashes: a click focuses one; arrows step 10px (Shift: 50px), Home/End jump to the limits
+lastof() { grep "^$1" "$out" | tail -1 | cut -d" " -f2; }
+hcur=$(lastof HSPLIT)
+xdotool mousemove $((ox+hx+hcur+3)) $((oy+hy+hh/2)) click 1; sleep 0.4
+xdotool key Left Left shift+Left; sleep 0.5; alive hkeys
+hkeys=$(lastof HSPLIT)
+[ "${hkeys:-0}" = $((hcur-70)) ] && pass "sash keys: Left x2 + Shift+Left ($hcur -> $hkeys)" || bad "sash arrow keys ($hcur -> ${hkeys:-none})"
+xdotool key Home; sleep 0.4; hhome=$(lastof HSPLIT)
+[ "${hhome:-}" = 60 ] && pass "sash Home goes to the first pane minimum ($hhome)" || bad "sash Home (${hhome:-none}, wanted 60)"
+xdotool key End; sleep 0.4; hend=$(lastof HSPLIT)
+[ "${hend:-0}" -gt 60 ] && pass "sash End ($hend)" || bad "sash End (${hend:-none})"
+xdotool key Home Up Down; sleep 0.4; hcross=$(lastof HSPLIT)   # Up/Down are not arrows for a side-by-side split
+[ "$hcross" = 60 ] && pass "sash ignores the cross-axis arrows" || bad "cross-axis arrow moved the sash ($hcross)"
+for i in $(seq $(((hcur-60)/50))); do xdotool key shift+Right; sleep 0.1; done
+for i in $(seq $((((hcur-60)%50)/10))); do xdotool key Right; sleep 0.1; done
+sleep 0.3; hback=$(lastof HSPLIT)
+[ "${hback:-0}" -ge $((hcur-9)) ] && [ "$hback" -le "$hcur" ] && pass "sash keys restore the position ($hback)" || bad "sash keys restore (${hback:-none}, wanted about $hcur)"
+vcur=$(lastof VSPLIT)
+xdotool mousemove $((ox+vx+vw/2)) $((oy+vy+vcur+3)) click 1; sleep 0.4
+xdotool key Up; sleep 0.4; vup=$(lastof VSPLIT)
+xdotool key Left Right; sleep 0.3; vside=$(lastof VSPLIT)   # Left/Right are not arrows for a stacked split
+xdotool key Down; sleep 0.4; vdown=$(lastof VSPLIT)
+[ "$vup" = $((vcur-10)) ] && [ "$vside" = "$vup" ] && [ "$vdown" = "$vcur" ] && pass "vertical sash keys: Up, Down ($vcur -> $vup -> $vdown), Left/Right ignored" || bad "vertical sash keys ($vcur, $vup, $vside, $vdown)"
+alive sashkeys
+shot sashkeys
+
 click slider; check "slider click" "^VALUE"
 click combo; sleep 0.4; xdotool key Down Return; sleep 0.4; check "combo selection" "^COMBO Some"
 shot combo

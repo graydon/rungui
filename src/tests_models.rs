@@ -90,13 +90,21 @@ fn table_op(rng: &mut Rng, t: Table, m: &mut TModel) -> String {
             "clear".into()
         }
         6 => {
-            let s = if rng.chance(20) { None } else { Some(rng.below(m.rows.len() + 3)) };
+            let s = if rng.chance(20) {
+                None
+            } else {
+                Some(rng.below(m.rows.len() + 3))
+            };
             t.set_selected(s);
             m.sel = s.filter(|i| *i < m.rows.len());
             format!("set_selected {s:?}")
         }
         7 => {
-            let s = if rng.chance(30) { None } else { Some(rng.below(m.ncols + 2)) };
+            let s = if rng.chance(30) {
+                None
+            } else {
+                Some(rng.below(m.ncols + 2))
+            };
             let v = s.map(|c| (c, rng.chance(50)));
             t.set_sort_indicator(v);
             m.sort = v.filter(|(c, _)| *c < m.ncols);
@@ -183,7 +191,12 @@ fn table_matches_reference_model() {
             assert_eq!(t.selected(), m.sel, "{}", ctx());
             assert_eq!(t.sort_indicator(), m.sort, "{}", ctx());
             assert_eq!(t.columns().len(), m.ncols, "{}", ctx());
-            assert_eq!(t.selected_row(), m.sel.map(|i| m.rows[i].clone()), "{}", ctx());
+            assert_eq!(
+                t.selected_row(),
+                m.sel.map(|i| m.rows[i].clone()),
+                "{}",
+                ctx()
+            );
             let w = widget(t.id()).unwrap();
             assert_eq!(w.rows, m.rows, "backend rows: {}", ctx());
             assert_eq!(w.selected, m.sel, "backend selection: {}", ctx());
@@ -239,7 +252,13 @@ fn ids(l: &[MNode], out: &mut Vec<u64>) {
 
 fn flat(l: &[MNode], depth: u32, out: &mut Vec<(u64, u32, String, bool, bool)>) {
     for n in l {
-        out.push((n.id, depth, n.text.clone(), n.expanded, n.lazy || !n.kids.is_empty()));
+        out.push((
+            n.id,
+            depth,
+            n.text.clone(),
+            n.expanded,
+            n.lazy || !n.kids.is_empty(),
+        ));
         flat(&n.kids, depth + 1, out);
     }
 }
@@ -285,8 +304,16 @@ fn pick(rng: &mut Rng, m: &TrModel, dead: &[u64]) -> u64 {
 fn tree_op(rng: &mut Rng, t: Tree, m: &mut TrModel, dead: &mut Vec<u64>) -> String {
     match rng.below(14) {
         0..=3 => {
-            let parent = if rng.chance(25) { None } else { Some(pick(rng, m, dead)) };
-            let idx = if rng.chance(30) { usize::MAX } else { rng.below(5) };
+            let parent = if rng.chance(25) {
+                None
+            } else {
+                Some(pick(rng, m, dead))
+            };
+            let idx = if rng.chance(30) {
+                usize::MAX
+            } else {
+                rng.below(5)
+            };
             let w = word(rng);
             let id = t.insert(parent.map(TreeNodeId), idx, &w).0;
             let list = match parent {
@@ -297,7 +324,16 @@ fn tree_op(rng: &mut Rng, t: Tree, m: &mut TrModel, dead: &mut Vec<u64>) -> Stri
                 Some(l) => {
                     assert_ne!(id, 0);
                     let at = idx.min(l.len());
-                    l.insert(at, MNode { id, text: w, expanded: false, lazy: false, kids: vec![] });
+                    l.insert(
+                        at,
+                        MNode {
+                            id,
+                            text: w,
+                            expanded: false,
+                            lazy: false,
+                            kids: vec![],
+                        },
+                    );
                 }
                 None => assert_eq!(id, 0, "unknown parent must return 0"),
             }
@@ -356,7 +392,11 @@ fn tree_op(rng: &mut Rng, t: Tree, m: &mut TrModel, dead: &mut Vec<u64>) -> Stri
             format!("lazy {id} {v}")
         }
         10 => {
-            let id = if rng.chance(15) { None } else { Some(pick(rng, m, dead)) };
+            let id = if rng.chance(15) {
+                None
+            } else {
+                Some(pick(rng, m, dead))
+            };
             t.set_selected(id.map(TreeNodeId));
             match id {
                 Some(i) if contains(&m.roots, i) => {
@@ -405,8 +445,18 @@ fn tree_op(rng: &mut Rng, t: Tree, m: &mut TrModel, dead: &mut Vec<u64>) -> Stri
                 kid = Some(());
             }
             if kid.is_some() {
-                let last = t.children(Some(TreeNodeId(id))).last().expect("batched child").0;
-                find(&mut m.roots, id).unwrap().kids.push(MNode { id: last, text: "batched".into(), expanded: false, lazy: false, kids: vec![] });
+                let last = t
+                    .children(Some(TreeNodeId(id)))
+                    .last()
+                    .expect("batched child")
+                    .0;
+                find(&mut m.roots, id).unwrap().kids.push(MNode {
+                    id: last,
+                    text: "batched".into(),
+                    expanded: false,
+                    lazy: false,
+                    kids: vec![],
+                });
             }
             format!("batch {id}")
         }
@@ -428,14 +478,29 @@ fn tree_matches_reference_model() {
             let ctx = || format!("seed {seed}, ops {log:?}");
             let mut want = vec![];
             flat(&m.roots, 0, &mut want);
-            let got: Vec<_> = widget(t.id()).unwrap().tree_rows.iter().map(|r| (r.node, r.depth, r.text.clone(), r.expanded, r.has_children)).collect();
+            let got: Vec<_> = widget(t.id())
+                .unwrap()
+                .tree_rows
+                .iter()
+                .map(|r| (r.node, r.depth, r.text.clone(), r.expanded, r.has_children))
+                .collect();
             assert_eq!(got, want, "backend rows: {}", ctx());
-            assert_eq!(widget(t.id()).unwrap().tree_selected, m.sel, "backend selection: {}", ctx());
+            assert_eq!(
+                widget(t.id()).unwrap().tree_selected,
+                m.sel,
+                "backend selection: {}",
+                ctx()
+            );
             assert_eq!(t.selected().map(|n| n.0), m.sel, "{}", ctx());
             assert_eq!(t.len(), want.len(), "{}", ctx());
             assert_eq!(t.is_empty(), want.is_empty());
             let roots: Vec<u64> = m.roots.iter().map(|n| n.id).collect();
-            assert_eq!(t.children(None).iter().map(|n| n.0).collect::<Vec<_>>(), roots, "{}", ctx());
+            assert_eq!(
+                t.children(None).iter().map(|n| n.0).collect::<Vec<_>>(),
+                roots,
+                "{}",
+                ctx()
+            );
             for (id, depth, text, expanded, _) in &want {
                 let n = TreeNodeId(*id);
                 assert!(t.contains(n));
@@ -451,7 +516,11 @@ fn tree_matches_reference_model() {
                 assert_eq!(d, *depth, "{}", ctx());
             }
             for d in &dead {
-                assert!(!t.contains(TreeNodeId(*d)), "dead node resurrected: {}", ctx());
+                assert!(
+                    !t.contains(TreeNodeId(*d)),
+                    "dead node resurrected: {}",
+                    ctx()
+                );
             }
             if let Some(s) = m.sel {
                 // a selected node set programmatically has all ancestors expanded; user selection

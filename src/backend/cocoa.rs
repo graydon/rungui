@@ -11,6 +11,8 @@
 //!   Tabs/Page (NSTabView + flipped page views). Layout comes from the core (absolute frames).
 //! * Splitter sash: `RunguiSash`, an NSView subclass (mouseDown/Dragged/Up, cursor rects, a
 //!   one point separator line). Dragging emits `SashDragged(bounds-at-press + pointer delta)`.
+//!   It accepts first responder (a click or the key view loop focuses it, the handle is then
+//!   filled with the focus colour) and turns arrows / Shift+arrows / Home / End into `SashKey`.
 //!   Also native here: `Prop::Monospace` (NSFont), `Wrap` (text container tracking), window
 //!   `Position` (`setFrameTopLeftPoint:`, flipped against the primary screen), `MinSize`
 //!   (`setContentMinSize:`) and `Event::Moved` (`windowDidMove:`).
@@ -18,9 +20,8 @@
 //!   after the next X event there), popups go through `popUpContextMenu:withEvent:forView:`.
 //! * Accessibility: AppKit controls are natively accessible; `a11y_changed` pushes the core's
 //!   computed names/descriptions into `accessibilityLabel`/`accessibilityHelp` of the native views.
-//!   `accesskit_macos` is deliberately not used: it is built on the objc2 binding crates, which the
-//!   project's hand-declared-FFI rule excludes, and AppKit's own accessibility already covers
-//!   every native control (the sash gets its role/value only through the label and help text).
+//!   AppKit's own accessibility already covers every native control (the sash gets its role/value
+//!   only through the label and help text).
 //!
 //! Unverifiable without macOS (checked by reading + `cargo check` for both apple-darwin targets):
 //! `objc_msgSend_stret` for NSRect returns on x86_64 only (aarch64 returns the HFA in registers);
@@ -144,7 +145,8 @@ fn msg_rect(recv: Id, sel: Sel) -> NSRect {
     let mut out = NSRect::default();
     if !recv.is_null() {
         unsafe {
-            let f: unsafe extern "C" fn(*mut NSRect, Id, Sel) = std::mem::transmute(objc_msgSend_stret as *const c_void);
+            let f: unsafe extern "C" fn(*mut NSRect, Id, Sel) =
+                std::mem::transmute(objc_msgSend_stret as *const c_void);
             f(&mut out, recv, sel);
         }
     }
@@ -188,7 +190,11 @@ fn from_ns(s: Id) -> String {
         return String::new();
     }
     let p = send!(*const c_char, s, "UTF8String");
-    if p.is_null() { String::new() } else { unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned() }
+    if p.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
+    }
 }
 fn rect(x: f64, y: f64, w: f64, h: f64) -> NSRect {
     NSRect { x, y, w, h }
@@ -283,7 +289,13 @@ struct State {
 }
 impl Default for Entry {
     fn default() -> Self {
-        Entry { kind: Kind::Spacer, obj: NIL, cont: NIL, aux: NIL, aux2: NIL }
+        Entry {
+            kind: Kind::Spacer,
+            obj: NIL,
+            cont: NIL,
+            aux: NIL,
+            aux2: NIL,
+        }
     }
 }
 
@@ -367,7 +379,9 @@ fn set_spin(e: &Entry, v: f64) {
 
 extern "C" fn on_action(_t: Id, _c: Sel, sender: Id) {
     guarded(|| {
-        let Some((id, e)) = lookup(sender) else { return };
+        let Some((id, e)) = lookup(sender) else {
+            return;
+        };
         match e.kind {
             Kind::Button | Kind::MenuItem => core::event(id, Event::Click),
             Kind::CheckBox | Kind::RadioButton => {
@@ -384,7 +398,8 @@ extern "C" fn on_action(_t: Id, _c: Sel, sender: Id) {
             }
             Kind::Slider => {
                 let mut v = send!(f64, sender, "doubleValue");
-                let (lo, _hi, step) = st(|s| s.range.get(&id).copied()).unwrap_or((0.0, 100.0, 0.0));
+                let (lo, _hi, step) =
+                    st(|s| s.range.get(&id).copied()).unwrap_or((0.0, 100.0, 0.0));
                 if step > 0.0 {
                     let snapped = lo + ((v - lo) / step).round() * step;
                     if snapped != v {
@@ -423,7 +438,9 @@ extern "C" fn on_action(_t: Id, _c: Sel, sender: Id) {
 /// Table double click.
 extern "C" fn on_double(_t: Id, _c: Sel, sender: Id) {
     guarded(|| {
-        let Some((id, e)) = lookup(sender) else { return };
+        let Some((id, e)) = lookup(sender) else {
+            return;
+        };
         let row = send!(isize, sender, "clickedRow");
         if row < 0 {
             return;
@@ -450,7 +467,9 @@ extern "C" fn on_text_changed(_t: Id, _c: Sel, note: Id) {
         let o = note_object(note);
         let Some((id, e)) = lookup(o) else { return };
         match e.kind {
-            Kind::TextInput | Kind::PasswordInput => core::event(id, Event::Text(from_ns(idm!(o, "stringValue")))),
+            Kind::TextInput | Kind::PasswordInput => {
+                core::event(id, Event::Text(from_ns(idm!(o, "stringValue"))))
+            }
             Kind::TextArea => core::event(id, Event::Text(from_ns(idm!(o, "string")))),
             _ => {}
         }
@@ -497,9 +516,17 @@ fn client_size(e: &Entry) -> NSSize {
 
 extern "C" fn on_resized(_t: Id, _c: Sel, note: Id) {
     guarded(|| {
-        let Some((id, e)) = lookup(note_object(note)) else { return };
+        let Some((id, e)) = lookup(note_object(note)) else {
+            return;
+        };
         let s = client_size(&e);
-        core::event(id, Event::Resized { w: s.w.round() as i32, h: s.h.round() as i32 });
+        core::event(
+            id,
+            Event::Resized {
+                w: s.w.round() as i32,
+                h: s.h.round() as i32,
+            },
+        );
     });
 }
 
@@ -520,7 +547,13 @@ extern "C" fn on_moved(_t: Id, _c: Sel, note: Id) {
         let f = rect_of!(win, "frame");
         // Cocoa screen coordinates are bottom-left based; the API reports the outer top-left.
         let y = primary_screen_height() - (f.y + f.h);
-        core::event(id, Event::Moved { x: f.x.round() as i32, y: y.round() as i32 });
+        core::event(
+            id,
+            Event::Moved {
+                x: f.x.round() as i32,
+                y: y.round() as i32,
+            },
+        );
     });
 }
 
@@ -567,10 +600,17 @@ fn column_index(col: Id) -> usize {
 }
 
 extern "C" fn tv_value(_t: Id, _c: Sel, tv: Id, col: Id, row: isize) -> Id {
-    let Some((id, e)) = lookup(tv) else { return ns("") };
+    let Some((id, e)) = lookup(tv) else {
+        return ns("");
+    };
     let row = row.max(0) as usize;
     let text = st(|s| match e.kind {
-        Kind::Table => s.rows.get(&id).and_then(|r| r.get(row)).and_then(|r| r.get(column_index(col))).cloned(),
+        Kind::Table => s
+            .rows
+            .get(&id)
+            .and_then(|r| r.get(row))
+            .and_then(|r| r.get(column_index(col)))
+            .cloned(),
         _ => s.items.get(&id).and_then(|v| v.get(row)).cloned(),
     });
     ns(&text.unwrap_or_default())
@@ -597,13 +637,19 @@ extern "C" fn ov_count(_t: Id, _c: Sel, ov: Id, item: Id) -> isize {
         let Some(m) = s.trees.get(&id) else { return 0 };
         match key {
             None => m.roots.len(),
-            Some(k) => m.by_id.get(&k).and_then(|i| m.nodes.get(*i)).map_or(0, |n| n.children.len()),
+            Some(k) => m
+                .by_id
+                .get(&k)
+                .and_then(|i| m.nodes.get(*i))
+                .map_or(0, |n| n.children.len()),
         }
     }) as isize
 }
 
 extern "C" fn ov_child(_t: Id, _c: Sel, ov: Id, index: isize, item: Id) -> Id {
-    let Some((id, _)) = lookup(ov) else { return NIL };
+    let Some((id, _)) = lookup(ov) else {
+        return NIL;
+    };
     let key = (!item.is_null()).then(|| tree_node_of(item));
     st(|s| {
         let m = s.trees.get(&id)?;
@@ -619,19 +665,40 @@ extern "C" fn ov_child(_t: Id, _c: Sel, ov: Id, index: isize, item: Id) -> Id {
 extern "C" fn ov_expandable(_t: Id, _c: Sel, ov: Id, item: Id) -> u8 {
     let Some((id, _)) = lookup(ov) else { return 0 };
     let k = tree_node_of(item);
-    st(|s| s.trees.get(&id).and_then(|m| m.by_id.get(&k).and_then(|i| m.nodes.get(*i)).map(|n| n.has_children)).unwrap_or(false)) as u8
+    st(|s| {
+        s.trees
+            .get(&id)
+            .and_then(|m| {
+                m.by_id
+                    .get(&k)
+                    .and_then(|i| m.nodes.get(*i))
+                    .map(|n| n.has_children)
+            })
+            .unwrap_or(false)
+    }) as u8
 }
 
 extern "C" fn ov_value(_t: Id, _c: Sel, ov: Id, _col: Id, item: Id) -> Id {
-    let Some((id, _)) = lookup(ov) else { return ns("") };
+    let Some((id, _)) = lookup(ov) else {
+        return ns("");
+    };
     let k = tree_node_of(item);
-    let t = st(|s| s.trees.get(&id).and_then(|m| m.by_id.get(&k).and_then(|i| m.nodes.get(*i)).map(|n| n.text.clone())));
+    let t = st(|s| {
+        s.trees.get(&id).and_then(|m| {
+            m.by_id
+                .get(&k)
+                .and_then(|i| m.nodes.get(*i))
+                .map(|n| n.text.clone())
+        })
+    });
     ns(&t.unwrap_or_default())
 }
 
 fn ov_expansion(note: Id, open: bool) {
     guarded(|| {
-        let Some((id, _)) = lookup(note_object(note)) else { return };
+        let Some((id, _)) = lookup(note_object(note)) else {
+            return;
+        };
         let info = idm!(note, "userInfo");
         let item = idm!(info, "objectForKey:", Id: ns("NSObject"));
         if item.is_null() {
@@ -706,7 +773,13 @@ extern "C" fn app_send_event(this: Id, cmd: Sel, ev: Id) {
             }
             v = idm!(v, "superview");
         }
-        core::event(target, Event::ContextMenu { x: loc.x.round() as i32, y: (h - loc.y).round() as i32 });
+        core::event(
+            target,
+            Event::ContextMenu {
+                x: loc.x.round() as i32,
+                y: (h - loc.y).round() as i32,
+            },
+        );
     }));
 }
 
@@ -760,13 +833,86 @@ extern "C" fn sash_mouse_down(this: Id, _c: Sel, ev: Id) {
         };
         let ptr = sash_pointer(ev, o);
         st(|s| s.drag = Some((id, ptr, start.round() as i32)));
+        // a click focuses the sash so the arrow keys work right after
+        let w = idm!(this, "window");
+        if !w.is_null() {
+            vm!(w, "makeFirstResponder:", Id: this);
+        }
     });
+}
+
+fn sash_has_focus(this: Id) -> bool {
+    let w = idm!(this, "window");
+    !w.is_null() && idm!(w, "firstResponder") == this
+}
+
+extern "C" fn sash_focus_changed(this: Id, _c: Sel) -> u8 {
+    // the focus indicator comes or goes; the redraw happens after the window has updated its first responder
+    let _ = catch_unwind(AssertUnwindSafe(|| vm!(this, "setNeedsDisplay:", u8: 1)));
+    1
+}
+
+/// Arrow keys along the sash's axis (Shift = large step), Home and End; any other key goes on up the
+/// responder chain (Tab moves the key view, shortcuts reach the menus).
+extern "C" fn sash_key_down(this: Id, _c: Sel, ev: Id) {
+    let key = catch_unwind(AssertUnwindSafe(|| {
+        let (id, _) = lookup(this)?;
+        if ev.is_null() || st(|s| s.disabled.contains(&id)) {
+            return None;
+        }
+        let flags = send!(usize, ev, "modifierFlags");
+        // Control, Option, Command: not ours
+        if flags & ((1 << 18) | (1 << 19) | (1 << 20)) != 0 {
+            return None;
+        }
+        let big = flags & (1 << 17) != 0;
+        let chars = from_ns(idm!(ev, "charactersIgnoringModifiers"));
+        // NSUp/Down/Left/RightArrowFunctionKey, NSHomeFunctionKey, NSEndFunctionKey
+        let (prev, next) = match sash_axis(id) {
+            Orientation::Horizontal => ('\u{F702}', '\u{F703}'),
+            Orientation::Vertical => ('\u{F700}', '\u{F701}'),
+        };
+        let c = chars.chars().next()?;
+        let key = match c {
+            c if c == prev => {
+                if big {
+                    SashKey::PrevLarge
+                } else {
+                    SashKey::Prev
+                }
+            }
+            c if c == next => {
+                if big {
+                    SashKey::NextLarge
+                } else {
+                    SashKey::Next
+                }
+            }
+            '\u{F729}' => SashKey::Min,
+            '\u{F72B}' => SashKey::Max,
+            _ => return None,
+        };
+        Some((id, key))
+    }))
+    .ok()
+    .flatten();
+    match key {
+        Some((id, key)) => guarded(|| core::event(id, Event::SashKey(key))),
+        None => {
+            let next = idm!(this, "nextResponder");
+            if !next.is_null() {
+                vm!(next, "keyDown:", Id: ev);
+            }
+        }
+    }
 }
 
 extern "C" fn sash_mouse_dragged(this: Id, _c: Sel, ev: Id) {
     guarded(|| {
         let Some((id, _)) = lookup(this) else { return };
-        let Some((did, p0, pos0)) = st(|s| s.drag) else { return };
+        let Some((did, p0, pos0)) = st(|s| s.drag) else {
+            return;
+        };
         if did != id {
             return;
         }
@@ -794,9 +940,17 @@ extern "C" fn sash_reset_cursor_rects(this: Id, _c: Sel) {
 
 extern "C" fn sash_draw(this: Id, _c: Sel, _dirty: NSRect) {
     let _ = catch_unwind(AssertUnwindSafe(|| {
-        // A one point separator line centred in the handle.
         let b = rect_of!(this, "bounds");
         let Some((id, _)) = lookup(this) else { return };
+        // keyboard focus: the whole handle in the system's focus colour
+        if sash_has_focus(this) {
+            let focus = idm!(cls("NSColor"), "keyboardFocusIndicatorColor");
+            if !focus.is_null() {
+                vm!(focus, "set");
+                unsafe { NSRectFill(b) };
+            }
+        }
+        // A one point separator line centred in the handle.
         let line = match sash_axis(id) {
             Orientation::Horizontal => rect(b.x + (b.w / 2.0).floor(), b.y, 1.0, b.h),
             Orientation::Vertical => rect(b.x, b.y + (b.h / 2.0).floor(), b.w, 1.0),
@@ -815,13 +969,18 @@ extern "C" fn yes(_t: Id, _c: Sel, _a: Id) -> u8 {
 extern "C" fn no_flag(_t: Id, _c: Sel) -> u8 {
     0
 }
+extern "C" fn yes_flag(_t: Id, _c: Sel) -> u8 {
+    1
+}
 
 fn define_classes() -> Result<(Id, Id)> {
     unsafe {
         let nsobject = cls("NSObject");
         let nsview = cls("NSView");
         if nsobject.is_null() || nsview.is_null() {
-            return Err(Error::Backend("Objective-C classes NSObject/NSView not found".into()));
+            return Err(Error::Backend(
+                "Objective-C classes NSObject/NSView not found".into(),
+            ));
         }
         // A second init() in the same process reuses the classes registered by the first.
         let known = cls("RunguiTarget");
@@ -840,13 +999,57 @@ fn define_classes() -> Result<(Id, Id)> {
         objc_registerClassPair(flip);
         let sash = objc_allocateClassPair(nsview, c"RunguiSash".as_ptr(), 0);
         if !sash.is_null() {
-            add(sash, "mouseDown:", sash_mouse_down as *const c_void, c"v@:@");
-            add(sash, "mouseDragged:", sash_mouse_dragged as *const c_void, c"v@:@");
+            add(
+                sash,
+                "mouseDown:",
+                sash_mouse_down as *const c_void,
+                c"v@:@",
+            );
+            add(
+                sash,
+                "mouseDragged:",
+                sash_mouse_dragged as *const c_void,
+                c"v@:@",
+            );
             add(sash, "mouseUp:", sash_mouse_up as *const c_void, c"v@:@");
-            add(sash, "resetCursorRects", sash_reset_cursor_rects as *const c_void, c"v@:");
-            add(sash, "drawRect:", sash_draw as *const c_void, c"v@:{CGRect={CGPoint=dd}{CGSize=dd}}");
+            add(
+                sash,
+                "resetCursorRects",
+                sash_reset_cursor_rects as *const c_void,
+                c"v@:",
+            );
+            add(
+                sash,
+                "drawRect:",
+                sash_draw as *const c_void,
+                c"v@:{CGRect={CGPoint=dd}{CGSize=dd}}",
+            );
             add(sash, "acceptsFirstMouse:", yes as *const c_void, c"c@:@");
-            add(sash, "mouseDownCanMoveWindow", no_flag as *const c_void, c"c@:");
+            add(
+                sash,
+                "mouseDownCanMoveWindow",
+                no_flag as *const c_void,
+                c"c@:",
+            );
+            add(
+                sash,
+                "acceptsFirstResponder",
+                yes_flag as *const c_void,
+                c"c@:",
+            );
+            add(
+                sash,
+                "becomeFirstResponder",
+                sash_focus_changed as *const c_void,
+                c"c@:",
+            );
+            add(
+                sash,
+                "resignFirstResponder",
+                sash_focus_changed as *const c_void,
+                c"c@:",
+            );
+            add(sash, "keyDown:", sash_key_down as *const c_void, c"v@:@");
             objc_registerClassPair(sash);
         }
         add(t, "runguiWake:", on_wake as *const c_void, c"v@:@");
@@ -854,34 +1057,144 @@ fn define_classes() -> Result<(Id, Id)> {
         add(t, "runguiTimer:", on_timer as *const c_void, c"v@:@");
         add(t, "runguiAction:", on_action as *const c_void, c"v@:@");
         add(t, "runguiDouble:", on_double as *const c_void, c"v@:@");
-        add(t, "controlTextDidChange:", on_text_changed as *const c_void, c"v@:@");
-        add(t, "textDidChange:", on_text_changed as *const c_void, c"v@:@");
-        add(t, "controlTextDidBeginEditing:", on_begin_edit as *const c_void, c"v@:@");
-        add(t, "textDidBeginEditing:", on_begin_edit as *const c_void, c"v@:@");
-        add(t, "controlTextDidEndEditing:", on_end_edit as *const c_void, c"v@:@");
-        add(t, "textDidEndEditing:", on_end_edit as *const c_void, c"v@:@");
-        add(t, "windowShouldClose:", on_should_close as *const c_void, c"c@:@");
+        add(
+            t,
+            "controlTextDidChange:",
+            on_text_changed as *const c_void,
+            c"v@:@",
+        );
+        add(
+            t,
+            "textDidChange:",
+            on_text_changed as *const c_void,
+            c"v@:@",
+        );
+        add(
+            t,
+            "controlTextDidBeginEditing:",
+            on_begin_edit as *const c_void,
+            c"v@:@",
+        );
+        add(
+            t,
+            "textDidBeginEditing:",
+            on_begin_edit as *const c_void,
+            c"v@:@",
+        );
+        add(
+            t,
+            "controlTextDidEndEditing:",
+            on_end_edit as *const c_void,
+            c"v@:@",
+        );
+        add(
+            t,
+            "textDidEndEditing:",
+            on_end_edit as *const c_void,
+            c"v@:@",
+        );
+        add(
+            t,
+            "windowShouldClose:",
+            on_should_close as *const c_void,
+            c"c@:@",
+        );
         add(t, "windowDidResize:", on_resized as *const c_void, c"v@:@");
         add(t, "windowDidMove:", on_moved as *const c_void, c"v@:@");
-        add(t, "windowDidBecomeKey:", on_became_key as *const c_void, c"v@:@");
-        add(t, "tabView:didSelectTabViewItem:", on_tab_selected as *const c_void, c"v@:@@");
-        add(t, "numberOfRowsInTableView:", tv_rows as *const c_void, c"q@:@");
-        add(t, "tableView:objectValueForTableColumn:row:", tv_value as *const c_void, c"@@:@@q");
-        add(t, "tableViewSelectionDidChange:", tv_selection as *const c_void, c"v@:@");
-        add(t, "tableView:didClickTableColumn:", tv_column_clicked as *const c_void, c"v@:@@");
-        add(t, "outlineView:numberOfChildrenOfItem:", ov_count as *const c_void, c"q@:@@");
-        add(t, "outlineView:child:ofItem:", ov_child as *const c_void, c"@@:@q@");
-        add(t, "outlineView:isItemExpandable:", ov_expandable as *const c_void, c"c@:@@");
-        add(t, "outlineView:objectValueForTableColumn:byItem:", ov_value as *const c_void, c"@@:@@@");
+        add(
+            t,
+            "windowDidBecomeKey:",
+            on_became_key as *const c_void,
+            c"v@:@",
+        );
+        add(
+            t,
+            "tabView:didSelectTabViewItem:",
+            on_tab_selected as *const c_void,
+            c"v@:@@",
+        );
+        add(
+            t,
+            "numberOfRowsInTableView:",
+            tv_rows as *const c_void,
+            c"q@:@",
+        );
+        add(
+            t,
+            "tableView:objectValueForTableColumn:row:",
+            tv_value as *const c_void,
+            c"@@:@@q",
+        );
+        add(
+            t,
+            "tableViewSelectionDidChange:",
+            tv_selection as *const c_void,
+            c"v@:@",
+        );
+        add(
+            t,
+            "tableView:didClickTableColumn:",
+            tv_column_clicked as *const c_void,
+            c"v@:@@",
+        );
+        add(
+            t,
+            "outlineView:numberOfChildrenOfItem:",
+            ov_count as *const c_void,
+            c"q@:@@",
+        );
+        add(
+            t,
+            "outlineView:child:ofItem:",
+            ov_child as *const c_void,
+            c"@@:@q@",
+        );
+        add(
+            t,
+            "outlineView:isItemExpandable:",
+            ov_expandable as *const c_void,
+            c"c@:@@",
+        );
+        add(
+            t,
+            "outlineView:objectValueForTableColumn:byItem:",
+            ov_value as *const c_void,
+            c"@@:@@@",
+        );
         #[cfg(rungui_gnustep)]
-        add(t, "application:openFile:", app_open_file as *const c_void, c"c@:@@");
-        add(t, "outlineViewItemDidExpand:", ov_did_expand as *const c_void, c"v@:@");
-        add(t, "outlineViewItemDidCollapse:", ov_did_collapse as *const c_void, c"v@:@");
-        add(t, "outlineViewSelectionDidChange:", ov_selection as *const c_void, c"v@:@");
+        add(
+            t,
+            "application:openFile:",
+            app_open_file as *const c_void,
+            c"c@:@@",
+        );
+        add(
+            t,
+            "outlineViewItemDidExpand:",
+            ov_did_expand as *const c_void,
+            c"v@:@",
+        );
+        add(
+            t,
+            "outlineViewItemDidCollapse:",
+            ov_did_collapse as *const c_void,
+            c"v@:@",
+        );
+        add(
+            t,
+            "outlineViewSelectionDidChange:",
+            ov_selection as *const c_void,
+            c"v@:@",
+        );
         objc_registerClassPair(t);
         let app_cls = objc_allocateClassPair(cls("NSApplication"), c"RunguiApp".as_ptr(), 0);
         if !app_cls.is_null() {
-            add(app_cls, "sendEvent:", app_send_event as *const c_void, c"v@:@");
+            add(
+                app_cls,
+                "sendEvent:",
+                app_send_event as *const c_void,
+                c"v@:@",
+            );
             objc_registerClassPair(app_cls);
         }
         Ok((t, alloc_init_class(t)))
@@ -924,7 +1237,10 @@ fn key_equivalent(a: &Accel) -> Option<(String, usize)> {
         "END" => fk(0xF72B)?,
         "PAGEUP" => fk(0xF72C)?,
         "PAGEDOWN" => fk(0xF72D)?,
-        k if k.len() > 1 && k.starts_with('F') && k[1..].parse::<u32>().is_ok_and(|n| (1..=12).contains(&n)) => {
+        k if k.len() > 1
+            && k.starts_with('F')
+            && k[1..].parse::<u32>().is_ok_and(|n| (1..=12).contains(&n)) =>
+        {
             fk(0xF704 + k[1..].parse::<u32>().ok()? - 1)?
         }
         // GNUstep matches the shifted character (`G`); AppKit takes `g` plus the Shift mask.
@@ -1026,7 +1342,14 @@ fn set_target_action(ctl: Id, target: Id, action: Sel) {
 }
 
 fn label_field(editable: bool, secure: bool) -> Id {
-    let f = view_new(if secure { "NSSecureTextField" } else { "NSTextField" }, rect(0.0, 0.0, 100.0, 22.0));
+    let f = view_new(
+        if secure {
+            "NSSecureTextField"
+        } else {
+            "NSTextField"
+        },
+        rect(0.0, 0.0, 100.0, 22.0),
+    );
     if !editable {
         vm!(f, "setEditable:", u8: 0);
         vm!(f, "setSelectable:", u8: 0);
@@ -1055,7 +1378,14 @@ impl Backend for Cocoa {
         let _pool = alloc_init("NSAutoreleasePool");
         let (tclass, target) = define_classes()?;
         let app_cls = cls("RunguiApp");
-        let app = idm!(if app_cls.is_null() { cls("NSApplication") } else { app_cls }, "sharedApplication");
+        let app = idm!(
+            if app_cls.is_null() {
+                cls("NSApplication")
+            } else {
+                app_cls
+            },
+            "sharedApplication"
+        );
         if app.is_null() {
             return Err(Error::Backend("NSApplication unavailable".into()));
         }
@@ -1142,7 +1472,11 @@ impl Backend for Cocoa {
         // May run on any thread: give it its own autorelease pool.
         let pool = alloc_init("NSAutoreleasePool");
         let modes = {
-            let a = [ns(MODE_DEFAULT), ns("NSModalPanelRunLoopMode"), ns("NSEventTrackingRunLoopMode")];
+            let a = [
+                ns(MODE_DEFAULT),
+                ns("NSModalPanelRunLoopMode"),
+                ns("NSEventTrackingRunLoopMode"),
+            ];
             idm!(cls("NSArray"), "arrayWithObjects:count:", *const Id: a.as_ptr(), usize: a.len())
         };
         vm!(t, "performSelectorOnMainThread:withObject:waitUntilDone:modes:", Sel: sel!("runguiWake:"), Id: NIL, u8: 0, Id: modes);
@@ -1204,12 +1538,17 @@ impl Backend for Cocoa {
             Some(p) => Some(ent(p).ok_or(Error::InvalidHandle)?),
             None => None,
         };
-        let pview = pe.map(|e| if e.cont.is_null() { e.obj } else { e.cont }).unwrap_or(NIL);
+        let pview = pe
+            .map(|e| if e.cont.is_null() { e.obj } else { e.cont })
+            .unwrap_or(NIL);
         if kind != Kind::Window && kind != Kind::PopupMenu && pe.is_none() {
             return Err(Error::InvalidHandle);
         }
         let act = sel!("runguiAction:");
-        let mut e = Entry { kind, ..Default::default() };
+        let mut e = Entry {
+            kind,
+            ..Default::default()
+        };
         match kind {
             Kind::Window => {
                 let w = idm!(
@@ -1261,7 +1600,12 @@ impl Backend for Cocoa {
                     let name = format!("runguiRadio{}:", id.0);
                     a = sel_named(&name);
                     unsafe {
-                        class_addMethod(st(|s| s.tclass), a, on_action as *const c_void, c"v@:@".as_ptr());
+                        class_addMethod(
+                            st(|s| s.tclass),
+                            a,
+                            on_action as *const c_void,
+                            c"v@:@".as_ptr(),
+                        );
                     }
                 }
                 set_target_action(v, target, a);
@@ -1300,7 +1644,8 @@ impl Backend for Cocoa {
                 vm!(sv, "setHasVerticalScroller:", u8: 1);
                 vm!(sv, "setBorderType:", usize: 2);
                 let tv = view_new("NSTableView", rect(0.0, 0.0, 160.0, 100.0));
-                let col = idm!(idm!(cls("NSTableColumn"), "alloc"), "initWithIdentifier:", Id: ns("c"));
+                let col =
+                    idm!(idm!(cls("NSTableColumn"), "alloc"), "initWithIdentifier:", Id: ns("c"));
                 vm!(col, "setWidth:", f64: 150.0);
                 let cell = idm!(col, "dataCell");
                 if !cell.is_null() {
@@ -1326,7 +1671,10 @@ impl Backend for Cocoa {
                 vm!(sv, "setHasVerticalScroller:", u8: 1);
                 vm!(sv, "setHasHorizontalScroller:", u8: 1);
                 vm!(sv, "setBorderType:", usize: 2);
-                let tv = view_new(if tree { "NSOutlineView" } else { "NSTableView" }, rect(0.0, 0.0, 300.0, 150.0));
+                let tv = view_new(
+                    if tree { "NSOutlineView" } else { "NSTableView" },
+                    rect(0.0, 0.0, 300.0, 150.0),
+                );
                 vm!(tv, "setAllowsMultipleSelection:", u8: 0);
                 vm!(tv, "setAllowsEmptySelection:", u8: 1);
                 vm!(tv, "setDataSource:", Id: target);
@@ -1393,7 +1741,8 @@ impl Backend for Cocoa {
                 e.obj = v;
             }
             Kind::Page => {
-                let item = idm!(idm!(cls("NSTabViewItem"), "alloc"), "initWithIdentifier:", Id: NIL);
+                let item =
+                    idm!(idm!(cls("NSTabViewItem"), "alloc"), "initWithIdentifier:", Id: NIL);
                 let pv = flip_view();
                 vm!(item, "setView:", Id: pv);
                 release(pv);
@@ -1586,7 +1935,10 @@ impl Backend for Cocoa {
             Prop::Enabled(en) => set_enabled(id, &e, *en),
             Prop::Visible(v) => set_visible(id, &e, *v),
             Prop::Checked(c) => {
-                if matches!(e.kind, Kind::CheckBox | Kind::RadioButton | Kind::CheckMenuItem) {
+                if matches!(
+                    e.kind,
+                    Kind::CheckBox | Kind::RadioButton | Kind::CheckMenuItem
+                ) {
                     vm!(e.obj, "setState:", isize: *c as isize);
                 }
             }
@@ -1612,7 +1964,9 @@ impl Backend for Cocoa {
             }
             Prop::Items(items) => set_items(id, &e, items),
             Prop::Selected(sel) => match e.kind {
-                Kind::ComboBox => vm!(e.obj, "selectItemAtIndex:", isize: sel.map_or(-1, |i| i as isize)),
+                Kind::ComboBox => {
+                    vm!(e.obj, "selectItemAtIndex:", isize: sel.map_or(-1, |i| i as isize))
+                }
                 Kind::Tabs => {
                     if let Some(i) = sel {
                         vm!(e.obj, "selectTabViewItemAtIndex:", isize: *i as isize);
@@ -1632,7 +1986,9 @@ impl Backend for Cocoa {
             Prop::Image(img) => set_image(id, &e, *img),
             Prop::Accel(a) => {
                 if matches!(e.kind, Kind::MenuItem | Kind::CheckMenuItem) {
-                    let (key, mask) = Accel::parse(a).and_then(|a| key_equivalent(&a)).unwrap_or_default();
+                    let (key, mask) = Accel::parse(a)
+                        .and_then(|a| key_equivalent(&a))
+                        .unwrap_or_default();
                     vm!(e.obj, "setKeyEquivalent:", Id: ns(&key));
                     vm!(e.obj, "setKeyEquivalentModifierMask:", usize: mask);
                 }
@@ -1646,7 +2002,9 @@ impl Backend for Cocoa {
                     }
                 });
                 match e.kind {
-                    Kind::TextInput | Kind::PasswordInput => vm!(e.obj, "setEditable:", u8: b(!*ro)),
+                    Kind::TextInput | Kind::PasswordInput => {
+                        vm!(e.obj, "setEditable:", u8: b(!*ro))
+                    }
                     Kind::TextArea => vm!(e.aux, "setEditable:", u8: b(!*ro)),
                     _ => {}
                 }
@@ -1675,7 +2033,11 @@ impl Backend for Cocoa {
             Prop::TreeRows(rows) => set_tree_rows(id, &e, rows),
             Prop::TreeSelected(n) => {
                 let row = n.and_then(|n| {
-                    let item = st(|s| s.trees.get(&id).and_then(|m| m.by_id.get(&n).and_then(|i| m.nodes.get(*i)).map(|n| n.obj)))?;
+                    let item = st(|s| {
+                        s.trees.get(&id).and_then(|m| {
+                            m.by_id.get(&n).and_then(|i| m.nodes.get(*i)).map(|n| n.obj)
+                        })
+                    })?;
                     let r = send!(isize, e.aux, "rowForItem:", Id: item);
                     (r >= 0).then_some(r)
                 });
@@ -1707,7 +2069,10 @@ impl Backend for Cocoa {
             Prop::Position { x, y } => {
                 if e.kind == Kind::Window {
                     st(|s| s.placed.insert(id));
-                    let p = NSPoint { x: *x as f64, y: primary_screen_height() - *y as f64 };
+                    let p = NSPoint {
+                        x: *x as f64,
+                        y: primary_screen_height() - *y as f64,
+                    };
                     vm!(e.obj, "setFrameTopLeftPoint:", NSPoint: p);
                 }
             }
@@ -1725,7 +2090,9 @@ impl Backend for Cocoa {
             }
             Prop::Focus => {
                 let target = match e.kind {
-                    Kind::TextArea | Kind::ListBox | Kind::SpinBox | Kind::Table | Kind::Tree => e.aux,
+                    Kind::TextArea | Kind::ListBox | Kind::SpinBox | Kind::Table | Kind::Tree => {
+                        e.aux
+                    }
                     Kind::Window => return,
                     k if is_view_kind(k) => e.obj,
                     _ => return,
@@ -1740,7 +2107,9 @@ impl Backend for Cocoa {
     }
 
     fn preferred_size(id: WidgetId) -> Size {
-        let Some(e) = ent(id) else { return Size::default() };
+        let Some(e) = ent(id) else {
+            return Size::default();
+        };
         match e.kind {
             Kind::Label | Kind::CheckBox | Kind::RadioButton | Kind::ComboBox => {
                 let s = cell_size(e.obj);
@@ -1772,16 +2141,25 @@ impl Backend for Cocoa {
 
     fn chrome(id: WidgetId) -> Size {
         let _q = Quiet::new();
-        let Some(e) = ent(id) else { return Size::default() };
+        let Some(e) = ent(id) else {
+            return Size::default();
+        };
         // Measure: give the container a known frame and see how big its client area becomes.
         let (probe_w, probe_h) = (300.0, 300.0);
         match e.kind {
             Kind::GroupBox | Kind::Tabs => {
                 let old = rect_of!(e.obj, "frame");
                 vm!(e.obj, "setFrame:", NSRect: rect(old.x, old.y, probe_w, probe_h));
-                let c = if e.kind == Kind::Tabs { rect_of!(e.obj, "contentRect") } else { rect_of!(e.cont, "frame") };
+                let c = if e.kind == Kind::Tabs {
+                    rect_of!(e.obj, "contentRect")
+                } else {
+                    rect_of!(e.cont, "frame")
+                };
                 vm!(e.obj, "setFrame:", NSRect: old);
-                Size::new((probe_w - c.w).round().max(0.0) as i32, (probe_h - c.h).round().max(0.0) as i32)
+                Size::new(
+                    (probe_w - c.w).round().max(0.0) as i32,
+                    (probe_h - c.h).round().max(0.0) as i32,
+                )
             }
             _ => Size::default(),
         }
@@ -1808,7 +2186,11 @@ impl Backend for Cocoa {
             Buttons::Ok => &[("OK", Answer::Ok)],
             Buttons::OkCancel => &[("OK", Answer::Ok), ("Cancel", Answer::Cancel)],
             Buttons::YesNo => &[("Yes", Answer::Yes), ("No", Answer::No)],
-            Buttons::YesNoCancel => &[("Yes", Answer::Yes), ("No", Answer::No), ("Cancel", Answer::Cancel)],
+            Buttons::YesNoCancel => &[
+                ("Yes", Answer::Yes),
+                ("No", Answer::No),
+                ("Cancel", Answer::Cancel),
+            ],
         };
         for (title, _) in answers {
             idm!(alert, "addButtonWithTitle:", Id: ns(title));
@@ -1830,7 +2212,11 @@ impl Backend for Cocoa {
 
     fn file_dialog(_parent: Option<WidgetId>, spec: &FileSpec) -> Vec<String> {
         let save = spec.mode == FileMode::Save;
-        let panel = if save { idm!(cls("NSSavePanel"), "savePanel") } else { idm!(cls("NSOpenPanel"), "openPanel") };
+        let panel = if save {
+            idm!(cls("NSSavePanel"), "savePanel")
+        } else {
+            idm!(cls("NSOpenPanel"), "openPanel")
+        };
         if panel.is_null() {
             return vec![];
         }
@@ -1843,9 +2229,17 @@ impl Backend for Cocoa {
             vm!(panel, "setCanChooseDirectories:", u8: b(folder));
             vm!(panel, "setAllowsMultipleSelection:", u8: b(spec.mode == FileMode::OpenMany));
         }
-        let exts: Vec<Id> = spec.filters.iter().flat_map(|(_, e)| e.iter()).map(|e| ns(e.trim_start_matches("*.").trim_start_matches('.'))).collect();
+        let exts: Vec<Id> = spec
+            .filters
+            .iter()
+            .flat_map(|(_, e)| e.iter())
+            .map(|e| ns(e.trim_start_matches("*.").trim_start_matches('.')))
+            .collect();
         // `allowedFileTypes` is deprecated since macOS 12 (UTType replacement) but still honoured.
-        if !exts.is_empty() && spec.mode != FileMode::PickFolder && responds(panel, "setAllowedFileTypes:") {
+        if !exts.is_empty()
+            && spec.mode != FileMode::PickFolder
+            && responds(panel, "setAllowedFileTypes:")
+        {
             let arr = idm!(cls("NSArray"), "arrayWithObjects:count:", *const Id: exts.as_ptr(), usize: exts.len());
             vm!(panel, "setAllowedFileTypes:", Id: arr);
         }
@@ -1866,15 +2260,24 @@ impl Backend for Cocoa {
         }
         let urls = idm!(panel, "URLs");
         let n = send!(usize, urls, "count");
-        (0..n).map(|i| path_of(idm!(urls, "objectAtIndex:", usize: i))).collect()
+        (0..n)
+            .map(|i| path_of(idm!(urls, "objectAtIndex:", usize: i)))
+            .collect()
     }
 
     fn popup_menu(menu: WidgetId, parent_window: Option<WidgetId>, at: Option<(i32, i32)>) {
-        let Some(m) = ent(menu).map(|e| e.obj) else { return };
-        let Some(we) = parent_window.and_then(ent) else { return };
+        let Some(m) = ent(menu).map(|e| e.obj) else {
+            return;
+        };
+        let Some(we) = parent_window.and_then(ent) else {
+            return;
+        };
         let h = client_size(&we).h;
         let loc = match at {
-            Some((x, y)) => NSPoint { x: x as f64, y: y as f64 },
+            Some((x, y)) => NSPoint {
+                x: x as f64,
+                y: y as f64,
+            },
             None => {
                 let p = send!(NSPoint, we.obj, "mouseLocationOutsideOfEventStream");
                 NSPoint { x: p.x, y: h - p.y }
@@ -1911,13 +2314,11 @@ impl Backend for Cocoa {
 
     fn a11y_changed(window: WidgetId) {
         let _q = Quiet::new();
-        let Some(update) = crate::a11y::tree_for_window(window) else { return };
-        for (nid, node) in &update.nodes {
-            // Synthetic ids (list options) have no native view of their own.
-            if nid.0 >= 1 << 62 {
-                continue;
-            }
-            let Some(e) = ent(WidgetId(nid.0)) else { continue };
+        let Some(nodes) = crate::a11y::resolve(window) else {
+            return;
+        };
+        for node in &nodes {
+            let Some(e) = ent(node.id) else { continue };
             if matches!(e.kind, Kind::Window | Kind::Page) {
                 continue;
             }
@@ -1928,12 +2329,12 @@ impl Backend for Cocoa {
             if !is_view_kind(e.kind) && !matches!(e.kind, Kind::MenuItem | Kind::CheckMenuItem) {
                 continue;
             }
-            if let Some(l) = node.label() {
+            if let Some(l) = &node.name {
                 if responds(target, "setAccessibilityLabel:") {
                     vm!(target, "setAccessibilityLabel:", Id: ns(l));
                 }
             }
-            if let Some(d) = node.description() {
+            if let Some(d) = &node.description {
                 if responds(target, "setAccessibilityHelp:") {
                     vm!(target, "setAccessibilityHelp:", Id: ns(d));
                 }
@@ -1981,8 +2382,16 @@ fn set_text(id: WidgetId, e: &Entry, t: &str) {
             if t.trim().eq_ignore_ascii_case("edit") {
                 let bar = idm!(e.aux, "menu");
                 let edit = st(|s| {
-                    let w = s.menubars.iter().find(|(_, m)| **m == bar).map(|(w, _)| *w)?;
-                    let mb = s.ents.iter().find(|(_, x)| x.kind == Kind::MenuBar && x.obj == bar).map(|(i, _)| *i)?;
+                    let w = s
+                        .menubars
+                        .iter()
+                        .find(|(_, m)| **m == bar)
+                        .map(|(w, _)| *w)?;
+                    let mb = s
+                        .ents
+                        .iter()
+                        .find(|(_, x)| x.kind == Kind::MenuBar && x.obj == bar)
+                        .map(|(i, _)| *i)?;
                     let _ = w;
                     s.std_edit.remove(&mb)
                 });
@@ -1991,7 +2400,9 @@ fn set_text(id: WidgetId, e: &Entry, t: &str) {
                 }
             }
         }
-        Kind::MenuItem | Kind::CheckMenuItem => vm!(e.obj, "setTitle:", Id: ns(&crate::text::strip_mnemonic(t))),
+        Kind::MenuItem | Kind::CheckMenuItem => {
+            vm!(e.obj, "setTitle:", Id: ns(&crate::text::strip_mnemonic(t)))
+        }
         _ => {}
     }
     let _ = id;
@@ -2016,7 +2427,8 @@ fn set_enabled(id: WidgetId, e: &Entry, en: bool) {
             vm!(e.aux, "setEnabled:", u8: b(en));
             vm!(e.aux2, "setEnabled:", u8: b(en));
         }
-        k if k == Kind::Window || !(is_view_kind(k) || matches!(k, Kind::MenuItem | Kind::CheckMenuItem)) => {}
+        k if k == Kind::Window
+            || !(is_view_kind(k) || matches!(k, Kind::MenuItem | Kind::CheckMenuItem)) => {}
         _ => {
             if responds(e.obj, "setEnabled:") {
                 vm!(e.obj, "setEnabled:", u8: b(en));
@@ -2153,7 +2565,9 @@ fn set_image(id: WidgetId, e: &Entry, img: Option<&ImageData>) {
     if e.kind != Kind::Image {
         return;
     }
-    let Some(img) = img.filter(|i| i.w > 0 && i.h > 0 && i.rgba.len() == (i.w as usize) * (i.h as usize) * 4) else {
+    let Some(img) =
+        img.filter(|i| i.w > 0 && i.h > 0 && i.rgba.len() == (i.w as usize) * (i.h as usize) * 4)
+    else {
         vm!(e.obj, "setImage:", Id: NIL);
         st(|s| s.imgsz.remove(&id));
         return;
@@ -2197,7 +2611,9 @@ fn set_columns(e: &Entry, cols: &[Column]) {
     let tv = e.aux;
     let existing = idm!(tv, "tableColumns");
     let n = send!(usize, existing, "count");
-    let old: Vec<Id> = (0..n).map(|i| idm!(existing, "objectAtIndex:", usize: i)).collect();
+    let old: Vec<Id> = (0..n)
+        .map(|i| idm!(existing, "objectAtIndex:", usize: i))
+        .collect();
     for c in old {
         vm!(tv, "removeTableColumn:", Id: c);
     }
@@ -2265,7 +2681,12 @@ fn set_tree_rows(id: WidgetId, e: &Entry, rows: &[TreeRow]) {
         }
         stack.push(idx);
     }
-    let expanded: Vec<Id> = m.nodes.iter().filter(|n| n.expanded).map(|n| n.obj).collect();
+    let expanded: Vec<Id> = m
+        .nodes
+        .iter()
+        .filter(|n| n.expanded)
+        .map(|n| n.obj)
+        .collect();
     let old = st(|s| s.trees.insert(id, m));
     vm!(e.aux, "reloadData");
     for item in expanded {

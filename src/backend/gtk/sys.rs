@@ -40,7 +40,12 @@ pub struct TreeIter {
 }
 impl TreeIter {
     pub fn new() -> TreeIter {
-        TreeIter { stamp: 0, a: NULL, b: NULL, c: NULL }
+        TreeIter {
+            stamp: 0,
+            a: NULL,
+            b: NULL,
+            c: NULL,
+        }
     }
 }
 
@@ -67,6 +72,17 @@ pub struct EventButton {
     pub device: P,
     pub x_root: c_double,
     pub y_root: c_double,
+}
+
+/// GdkEventKey (only the leading fields we read).
+#[repr(C)]
+pub struct EventKey {
+    pub ty: c_int,
+    pub window: P,
+    pub send_event: i8,
+    pub time: u32,
+    pub state: c_uint,
+    pub keyval: c_uint,
 }
 
 /// GdkEventMotion (only the leading fields we read; same prefix layout as GdkEventButton).
@@ -140,8 +156,24 @@ pub const EV_POINTER_MOTION: c_int = 1 << 2;
 pub const EV_BUTTON_MOTION: c_int = 1 << 4;
 pub const EV_BUTTON_PRESS: c_int = 1 << 8;
 pub const EV_BUTTON_RELEASE: c_int = 1 << 9;
+pub const EV_KEY_PRESS: c_int = 1 << 10;
 pub const EV_ENTER_NOTIFY: c_int = 1 << 12;
 pub const EV_BUTTON1_MASK: c_uint = 1 << 8;
+// GDK_KEY_* keyvals (plain and keypad arrows, Home, End)
+pub const KEY_HOME: c_uint = 0xff50;
+pub const KEY_LEFT: c_uint = 0xff51;
+pub const KEY_UP: c_uint = 0xff52;
+pub const KEY_RIGHT: c_uint = 0xff53;
+pub const KEY_DOWN: c_uint = 0xff54;
+pub const KEY_END: c_uint = 0xff57;
+pub const KEY_KP_HOME: c_uint = 0xff95;
+pub const KEY_KP_LEFT: c_uint = 0xff96;
+pub const KEY_KP_UP: c_uint = 0xff97;
+pub const KEY_KP_RIGHT: c_uint = 0xff98;
+pub const KEY_KP_DOWN: c_uint = 0xff99;
+pub const KEY_KP_END: c_uint = 0xff9c;
+// GConnectFlags
+pub const CONNECT_AFTER: c_int = 1;
 // AtkRole values used
 pub const ATK_ROLE_TEXT: c_int = 60;
 pub const ATK_ROLE_TABLE: c_int = 54;
@@ -170,7 +202,14 @@ pub const FC_FOLDER: c_int = 2;
 
 unsafe extern "C" {
     // ---- GLib / GObject
-    pub fn g_signal_connect_data(inst: P, sig: *const c_char, cb: Callback, data: P, destroy: P, flags: c_int) -> c_ulong;
+    pub fn g_signal_connect_data(
+        inst: P,
+        sig: *const c_char,
+        cb: Callback,
+        data: P,
+        destroy: P,
+        flags: c_int,
+    ) -> c_ulong;
     pub fn g_idle_add(f: SourceFn, data: P) -> c_uint;
     pub fn g_timeout_add(ms: c_uint, f: SourceFn, data: P) -> c_uint;
     pub fn g_source_remove(id: c_uint) -> c_int;
@@ -219,9 +258,20 @@ unsafe extern "C" {
     pub fn gtk_widget_get_allocated_height(w: P) -> c_int;
     pub fn gtk_widget_get_parent(w: P) -> P;
     pub fn gtk_widget_grab_focus(w: P);
+    pub fn gtk_widget_set_can_focus(w: P, v: c_int);
+    pub fn gtk_widget_has_focus(w: P) -> c_int;
+    pub fn gtk_widget_queue_draw(w: P);
+    pub fn gtk_render_focus(ctx: P, cr: P, x: c_double, y: c_double, w: c_double, h: c_double);
     pub fn gtk_widget_set_halign(w: P, a: c_int);
     pub fn gtk_widget_get_accessible(w: P) -> P;
-    pub fn gtk_widget_add_accelerator(w: P, sig: *const c_char, g: P, key: c_uint, mods: c_uint, flags: c_int);
+    pub fn gtk_widget_add_accelerator(
+        w: P,
+        sig: *const c_char,
+        g: P,
+        key: c_uint,
+        mods: c_uint,
+        flags: c_int,
+    );
     pub fn gtk_widget_remove_accelerator(w: P, g: P, key: c_uint, mods: c_uint) -> c_int;
     pub fn gdk_unicode_to_keyval(c: c_uint) -> c_uint;
 
@@ -259,7 +309,12 @@ unsafe extern "C" {
     pub fn gtk_text_buffer_set_text(b: P, t: *const c_char, len: c_int);
     pub fn gtk_text_buffer_get_start_iter(b: P, it: *mut TextIter);
     pub fn gtk_text_buffer_get_end_iter(b: P, it: *mut TextIter);
-    pub fn gtk_text_buffer_get_text(b: P, a: *const TextIter, z: *const TextIter, hidden: c_int) -> *mut c_char;
+    pub fn gtk_text_buffer_get_text(
+        b: P,
+        a: *const TextIter,
+        z: *const TextIter,
+        hidden: c_int,
+    ) -> *mut c_char;
     pub fn gtk_combo_box_text_new() -> P;
     pub fn gtk_combo_box_text_append_text(c: P, t: *const c_char);
     pub fn gtk_combo_box_text_remove_all(c: P);
@@ -272,7 +327,12 @@ unsafe extern "C" {
     pub fn gtk_list_box_get_row_at_index(l: P, i: c_int) -> P;
     pub fn gtk_list_box_row_get_index(r: P) -> c_int;
     pub fn gtk_list_box_set_activate_on_single_click(l: P, v: c_int);
-    pub fn gtk_scale_new_with_range(orient: c_int, min: c_double, max: c_double, step: c_double) -> P;
+    pub fn gtk_scale_new_with_range(
+        orient: c_int,
+        min: c_double,
+        max: c_double,
+        step: c_double,
+    ) -> P;
     pub fn gtk_scale_set_draw_value(s: P, v: c_int);
     pub fn gtk_range_set_range(r: P, min: c_double, max: c_double);
     pub fn gtk_range_set_increments(r: P, step: c_double, page: c_double);
@@ -352,10 +412,24 @@ unsafe extern "C" {
 
     // ---- popup menus / misc
     pub fn gtk_menu_popup_at_pointer(menu: P, ev: P);
-    pub fn gtk_menu_popup_at_rect(menu: P, win: P, rect: *const Rectangle, ra: c_int, ma: c_int, ev: P);
+    pub fn gtk_menu_popup_at_rect(
+        menu: P,
+        win: P,
+        rect: *const Rectangle,
+        ra: c_int,
+        ma: c_int,
+        ev: P,
+    );
     pub fn gtk_widget_get_window(w: P) -> P;
     pub fn gtk_widget_get_visible(w: P) -> c_int;
-    pub fn gtk_widget_translate_coordinates(src: P, dst: P, x: c_int, y: c_int, ox: *mut c_int, oy: *mut c_int) -> c_int;
+    pub fn gtk_widget_translate_coordinates(
+        src: P,
+        dst: P,
+        x: c_int,
+        y: c_int,
+        ox: *mut c_int,
+        oy: *mut c_int,
+    ) -> c_int;
     pub fn gdk_window_get_origin(w: P, x: *mut c_int, y: *mut c_int) -> c_int;
     pub fn g_main_loop_new(ctx: P, running: c_int) -> P;
     pub fn g_main_loop_run(l: P);
@@ -378,11 +452,27 @@ unsafe extern "C" {
     pub fn gtk_menu_shell_append(s: P, w: P);
 
     // ---- dialogs
-    pub fn gtk_message_dialog_new(parent: P, flags: c_int, ty: c_int, buttons: c_int, fmt: *const c_char, ...) -> P;
+    pub fn gtk_message_dialog_new(
+        parent: P,
+        flags: c_int,
+        ty: c_int,
+        buttons: c_int,
+        fmt: *const c_char,
+        ...
+    ) -> P;
     pub fn gtk_dialog_add_button(d: P, text: *const c_char, id: c_int) -> P;
     pub fn gtk_dialog_set_default_response(d: P, id: c_int);
     pub fn gtk_dialog_run(d: P) -> c_int;
-    pub fn gtk_file_chooser_dialog_new(title: *const c_char, parent: P, action: c_int, b1: *const c_char, r1: c_int, b2: *const c_char, r2: c_int, end: P) -> P;
+    pub fn gtk_file_chooser_dialog_new(
+        title: *const c_char,
+        parent: P,
+        action: c_int,
+        b1: *const c_char,
+        r1: c_int,
+        b2: *const c_char,
+        r2: c_int,
+        end: P,
+    ) -> P;
     pub fn gtk_file_chooser_set_select_multiple(c: P, v: c_int);
     pub fn gtk_file_chooser_set_do_overwrite_confirmation(c: P, v: c_int);
     pub fn gtk_file_chooser_set_current_folder(c: P, f: *const c_char) -> c_int;

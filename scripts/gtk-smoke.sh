@@ -75,6 +75,21 @@ xdotool mouseup 1; sleep 0.3
 # table and tree clicks in their splitter panes
 read -r x y tw th < <(bounds table); xdotool mousemove $((px+x+150)) $((py+y+35)) click 1; sleep 0.3
 read -r x y tw th < <(bounds tree); xdotool mousemove $((px+x+40)) $((py+y+12)) click 1; sleep 0.3; xdotool key plus; sleep 0.4
+# keyboard on the sashes: a click focuses one; arrows step 10px (Shift: 50px), Home/End jump to the limits
+last() { sed -n "s/^$1 //p" "$out" | tail -1; }
+hnow=$(last HSPLIT)
+xdotool mousemove $((px+hx+hnow+3)) $((py+hy+hh/2)) click 1; sleep 0.3
+xdotool key Left Left shift+Left; sleep 0.4
+hkeys=$(last HSPLIT)
+xdotool key Home; sleep 0.3; hhome=$(last HSPLIT)
+xdotool key End; sleep 0.3; hend=$(last HSPLIT)
+xdotool key Up; sleep 0.2; hup=$(last HSPLIT)          # Up is not an arrow for a side-by-side split (GTK moves the focus)
+vnow=$(last VSPLIT)
+xdotool mousemove $((px+vx+vw/2)) $((py+vy+vnow+3)) click 1; sleep 0.3
+xdotool key Down shift+Down; sleep 0.4
+vkeys=$(last VSPLIT)
+xdotool key Home; sleep 0.3; vhome=$(last VSPLIT)
+xdotool key Left; sleep 0.2; vleft=$(last VSPLIT)       # Left is not an arrow for a stacked split
 # window position (user move) and shrinking below the natural size
 xdotool windowmove $w 300 200; sleep 0.5
 xdotool windowsize $w 100 100; sleep 0.7
@@ -86,6 +101,11 @@ fail=0
 hmax=$(sed -n "s/^HSPLIT //p" "$out" | sort -n | tail -1); vmin=$(sed -n "s/^VSPLIT //p" "$out" | sort -n | head -1)
 [ "${hmax:-0}" -ge $((hpos+50)) ] && echo "ok   splitter drag right ($hpos -> $hmax)" || { echo "FAIL horizontal sash drag"; fail=1; }
 [ -n "$vmin" ] && [ "$vmin" -le $((vpos-20)) ] && echo "ok   splitter drag up ($vpos -> $vmin)" || { echo "FAIL vertical sash drag"; fail=1; }
+[ "${hkeys:-0}" = $((hnow-70)) ] && echo "ok   sash keys: Left x2 + Shift+Left ($hnow -> $hkeys)" || { echo "FAIL sash arrow keys ($hnow -> ${hkeys:-none})"; fail=1; }
+[ "${hup:-}" = "${hend:-x}" ] && echo "ok   sash ignores the cross-axis arrow" || { echo "FAIL cross-axis arrow moved the sash ($hend -> ${hup:-none})"; fail=1; }
+[ "${hhome:-}" = 60 ] && [ "${hend:-0}" -gt 60 ] && echo "ok   sash Home/End ($hhome, $hend)" || { echo "FAIL sash Home/End (${hhome:-none}, ${hend:-none})"; fail=1; }
+[ "${vkeys:-0}" = $((vnow+60)) ] && echo "ok   vertical sash keys: Down + Shift+Down ($vnow -> $vkeys)" || { echo "FAIL vertical sash keys ($vnow -> ${vkeys:-none})"; fail=1; }
+[ -n "${vhome:-}" ] && [ "$vhome" -lt "${vkeys:-0}" ] && [ "${vleft:-}" = "$vhome" ] && echo "ok   vertical sash Home ($vhome), Left ignored" || { echo "FAIL vertical sash Home/Left (${vhome:-none}, ${vleft:-none})"; fail=1; }
 for pat in "^MONO true true WRAP false" "^MOVED 300 200" "^TABLE_SEL Some" "^TREE_SEL true" "^TREE_EXPAND true" "^RESIZED 100 100" "^SHRUNK ([0-9]|[1-9][0-9]|1[01][0-9]) "; do
   grep -Eq "$pat" "$out" && echo "ok   $pat" || { echo "FAIL $pat"; fail=1; }
 done

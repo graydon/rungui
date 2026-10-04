@@ -29,8 +29,14 @@ pub fn is_rtl() -> bool {
 
 /// The visible panes of a splitter (at most two).
 fn split_panes(r: &Registry, id: WidgetId) -> Vec<WidgetId> {
-    let Some(n) = r.nodes.get(&id) else { return vec![] };
-    panes_of(r, n).into_iter().filter(|c| r.nodes.get(c).is_some_and(|c| c.visible)).take(2).collect()
+    let Some(n) = r.nodes.get(&id) else {
+        return vec![];
+    };
+    panes_of(r, n)
+        .into_iter()
+        .filter(|c| r.nodes.get(c).is_some_and(|c| c.visible))
+        .take(2)
+        .collect()
 }
 
 fn visible_children(r: &Registry, id: WidgetId) -> Vec<WidgetId> {
@@ -38,13 +44,20 @@ fn visible_children(r: &Registry, id: WidgetId) -> Vec<WidgetId> {
         n.children
             .iter()
             .copied()
-            .filter(|c| r.nodes.get(c).is_some_and(|c| c.visible && c.kind.in_layout()))
+            .filter(|c| {
+                r.nodes
+                    .get(c)
+                    .is_some_and(|c| c.visible && c.kind.in_layout())
+            })
             .collect()
     })
 }
 
 /// Resolved grid cells `(child, col, row, colspan, rowspan)` plus (ncols, nrows).
-fn grid_cells(r: &Registry, id: WidgetId) -> (Vec<(WidgetId, usize, usize, usize, usize)>, usize, usize) {
+fn grid_cells(
+    r: &Registry,
+    id: WidgetId,
+) -> (Vec<(WidgetId, usize, usize, usize, usize)>, usize, usize) {
     let cols = r.nodes[&id].lay.cols.max(1);
     let mut next = 0usize;
     let mut cells = vec![];
@@ -59,13 +72,25 @@ fn grid_cells(r: &Registry, id: WidgetId) -> (Vec<(WidgetId, usize, usize, usize
         };
         cells.push((c, col, row, cs, rs));
     }
-    let nc = cells.iter().map(|c| c.1 + c.3).max().unwrap_or(0).max(cols.min(cells.len()));
+    let nc = cells
+        .iter()
+        .map(|c| c.1 + c.3)
+        .max()
+        .unwrap_or(0)
+        .max(cols.min(cells.len()));
     let nr = cells.iter().map(|c| c.2 + c.4).max().unwrap_or(0);
     (cells, nc, nr)
 }
 
 /// Column widths / row heights and expand weights of a grid.
-fn grid_tracks(r: &Registry, id: WidgetId) -> (Vec<(WidgetId, usize, usize, usize, usize)>, [Vec<i32>; 2], [Vec<f32>; 2]) {
+fn grid_tracks(
+    r: &Registry,
+    id: WidgetId,
+) -> (
+    Vec<(WidgetId, usize, usize, usize, usize)>,
+    [Vec<i32>; 2],
+    [Vec<f32>; 2],
+) {
     let (cells, nc, nr) = grid_cells(r, id);
     let mut size = [vec![0; nc], vec![0; nr]];
     let mut exp = [vec![0.0f32; nc], vec![0.0f32; nr]];
@@ -77,9 +102,12 @@ fn grid_tracks(r: &Registry, id: WidgetId) -> (Vec<(WidgetId, usize, usize, usiz
             }
             let m = measure(r, c);
             let e = r.nodes[&c].lay.expand;
-            for (axis, (start, span, need)) in [(col, cs, m.w), (row, rs, m.h)].into_iter().enumerate() {
+            for (axis, (start, span, need)) in
+                [(col, cs, m.w), (row, rs, m.h)].into_iter().enumerate()
+            {
                 let end = start + span - 1;
-                let have: i32 = size[axis][start..=end].iter().sum::<i32>() + sp * (span as i32 - 1);
+                let have: i32 =
+                    size[axis][start..=end].iter().sum::<i32>() + sp * (span as i32 - 1);
                 if need > have {
                     size[axis][end] += need - have; // spanning cells grow their last track
                 }
@@ -107,19 +135,32 @@ fn measure_children(r: &Registry, id: WidgetId, n: &Node) -> Size {
         let across = |m: &Size| if horiz { m.h } else { m.w };
         let mut main = 0;
         for (i, m) in ms.iter().enumerate() {
-            let a = if i == 0 && ms.len() == 2 { split.pos.unwrap_or(along(m)) } else { along(m) };
+            let a = if i == 0 && ms.len() == 2 {
+                split.pos.unwrap_or(along(m))
+            } else {
+                along(m)
+            };
             main += a.max(if i == 0 { split.min.0 } else { split.min.1 });
         }
         if ms.len() == 2 && split.pos.is_none() {
             // no requested position: layout splits evenly, so both panes need the larger share
-            let big = ms.iter().map(along).chain([split.min.0, split.min.1]).max().unwrap_or(0);
+            let big = ms
+                .iter()
+                .map(along)
+                .chain([split.min.0, split.min.1])
+                .max()
+                .unwrap_or(0);
             main = 2 * big;
         }
         if ms.len() == 2 {
             main += sp;
         }
         let cross = ms.iter().map(across).max().unwrap_or(0);
-        return if horiz { Size::new(main, cross) } else { Size::new(cross, main) };
+        return if horiz {
+            Size::new(main, cross)
+        } else {
+            Size::new(cross, main)
+        };
     }
     if n.kind == Kind::Grid {
         let (_, size, _) = grid_tracks(r, id);
@@ -130,22 +171,42 @@ fn measure_children(r: &Registry, id: WidgetId, n: &Node) -> Size {
     let (mut main, mut cross) = (0, 0);
     for c in &kids {
         let m = measure(r, *c);
-        let (a, b) = if is_horizontal(n.kind) { (m.w, m.h) } else { (m.h, m.w) };
+        let (a, b) = if is_horizontal(n.kind) {
+            (m.w, m.h)
+        } else {
+            (m.h, m.w)
+        };
         main += a;
         cross = cross.max(b);
     }
     main += sp * (kids.len() as i32 - 1).max(0);
-    if is_horizontal(n.kind) { Size::new(main, cross) } else { Size::new(cross, main) }
+    if is_horizontal(n.kind) {
+        Size::new(main, cross)
+    } else {
+        Size::new(cross, main)
+    }
 }
 
 /// Natural size of a widget (honouring min/fixed size).
 pub fn measure(r: &Registry, id: WidgetId) -> Size {
-    let Some(n) = r.nodes.get(&id) else { return Size::default() };
+    let Some(n) = r.nodes.get(&id) else {
+        return Size::default();
+    };
     let pad = 2 * n.lay.padding;
     let mut s = match n.kind {
-        Kind::HBox | Kind::VBox | Kind::Grid | Kind::Splitter | Kind::Window | Kind::Page | Kind::GroupBox => {
+        Kind::HBox
+        | Kind::VBox
+        | Kind::Grid
+        | Kind::Splitter
+        | Kind::Window
+        | Kind::Page
+        | Kind::GroupBox => {
             let c = measure_children(r, id, n);
-            let ch = if n.kind == Kind::GroupBox { B::chrome(id) } else { Size::default() };
+            let ch = if n.kind == Kind::GroupBox {
+                B::chrome(id)
+            } else {
+                Size::default()
+            };
             Size::new(c.w + pad + ch.w, c.h + pad + ch.h)
         }
         Kind::Tabs => {
@@ -168,7 +229,9 @@ pub fn measure(r: &Registry, id: WidgetId) -> Size {
 }
 
 fn place(r: &mut Registry, id: WidgetId, rect: Rect, out: &mut Out) {
-    let Some(n) = r.nodes.get_mut(&id) else { return };
+    let Some(n) = r.nodes.get_mut(&id) else {
+        return;
+    };
     let kind = n.kind;
     if kind.is_native() && n.bounds != rect {
         n.bounds = rect;
@@ -186,7 +249,11 @@ fn place(r: &mut Registry, id: WidgetId, rect: Rect, out: &mut Out) {
             }
         }
         Kind::Window | Kind::Page | Kind::GroupBox => {
-            let ch = if kind == Kind::GroupBox { B::chrome(id) } else { Size::default() };
+            let ch = if kind == Kind::GroupBox {
+                B::chrome(id)
+            } else {
+                Size::default()
+            };
             let inner = Rect::new(0, 0, (rect.w - ch.w).max(0), (rect.h - ch.h).max(0));
             arrange_children(r, id, inner, out);
         }
@@ -197,7 +264,11 @@ fn place(r: &mut Registry, id: WidgetId, rect: Rect, out: &mut Out) {
 
 /// Offset/size a child of natural size `m` inside `avail` along one axis.
 fn aligned(align: Align, fixed: bool, avail: i32, m: i32) -> (i32, i32) {
-    let align = if fixed && align == Align::Fill { Align::Start } else { align };
+    let align = if fixed && align == Align::Fill {
+        Align::Start
+    } else {
+        align
+    };
     match align {
         Align::Fill => (0, avail.max(0)),
         Align::Start => (0, m),
@@ -209,7 +280,12 @@ fn aligned(align: Align, fixed: bool, avail: i32, m: i32) -> (i32, i32) {
 fn arrange_children(r: &mut Registry, id: WidgetId, area: Rect, out: &mut Out) {
     let n = &r.nodes[&id];
     let (kind, p, sp) = (n.kind, n.lay.padding, n.lay.spacing);
-    let inner = Rect::new(area.x + p, area.y + p, (area.w - 2 * p).max(0), (area.h - 2 * p).max(0));
+    let inner = Rect::new(
+        area.x + p,
+        area.y + p,
+        (area.w - 2 * p).max(0),
+        (area.h - 2 * p).max(0),
+    );
     let mut jobs: Vec<(WidgetId, Rect)> = vec![];
     if kind == Kind::Splitter {
         arrange_split(r, id, inner, &mut jobs, out);
@@ -218,12 +294,12 @@ fn arrange_children(r: &mut Registry, id: WidgetId, area: Rect, out: &mut Out) {
         let mut size = size;
         for axis in 0..2 {
             let avail = if axis == 0 { inner.w } else { inner.h };
-            let used: i32 = size[axis].iter().sum::<i32>() + sp * (size[axis].len() as i32 - 1).max(0);
+            let used: i32 =
+                size[axis].iter().sum::<i32>() + sp * (size[axis].len() as i32 - 1).max(0);
             distribute(&mut size[axis], &exp[axis], avail - used);
         }
-        let origin = |axis: usize, i: usize| -> i32 {
-            size[axis][..i].iter().sum::<i32>() + sp * i as i32
-        };
+        let origin =
+            |axis: usize, i: usize| -> i32 { size[axis][..i].iter().sum::<i32>() + sp * i as i32 };
         for (c, col, row, cs, rs) in cells {
             let span = |axis: usize, s: usize, i: usize| -> i32 {
                 size[axis][i..i + s].iter().sum::<i32>() + sp * (s as i32 - 1)
@@ -233,7 +309,15 @@ fn arrange_children(r: &mut Registry, id: WidgetId, area: Rect, out: &mut Out) {
             let l = &r.nodes[&c].lay;
             let (ox, w) = aligned(l.align, l.fixed.is_some(), cw, m.w);
             let (oy, h) = aligned(l.align, l.fixed.is_some(), ch, m.h);
-            jobs.push((c, Rect::new(inner.x + origin(0, col) + ox, inner.y + origin(1, row) + oy, w, h)));
+            jobs.push((
+                c,
+                Rect::new(
+                    inner.x + origin(0, col) + ox,
+                    inner.y + origin(1, row) + oy,
+                    w,
+                    h,
+                ),
+            ));
         }
     } else {
         let horiz = is_horizontal(kind);
@@ -242,7 +326,11 @@ fn arrange_children(r: &mut Registry, id: WidgetId, area: Rect, out: &mut Out) {
         let mut main: Vec<i32> = ms.iter().map(|m| if horiz { m.w } else { m.h }).collect();
         let weights: Vec<f32> = kids.iter().map(|c| r.nodes[c].lay.expand).collect();
         let total: i32 = main.iter().sum::<i32>() + sp * (kids.len() as i32 - 1).max(0);
-        distribute(&mut main, &weights, (if horiz { inner.w } else { inner.h }) - total);
+        distribute(
+            &mut main,
+            &weights,
+            (if horiz { inner.w } else { inner.h }) - total,
+        );
         let cross_avail = if horiz { inner.h } else { inner.w };
         let mut pos = if horiz { inner.x } else { inner.y };
         for (i, c) in kids.iter().enumerate() {
@@ -271,10 +359,18 @@ fn arrange_children(r: &mut Registry, id: WidgetId, area: Rect, out: &mut Out) {
 /// Splitter: both panes fill the cross axis; the first gets the (clamped) position, the sash
 /// `spacing` pixels, the second the rest. With fewer than two visible panes the sash is hidden
 /// and a lone pane takes everything. `jobs` are in unmirrored coordinates (the caller mirrors).
-fn arrange_split(r: &mut Registry, id: WidgetId, inner: Rect, jobs: &mut Vec<(WidgetId, Rect)>, out: &mut Out) {
+fn arrange_split(
+    r: &mut Registry,
+    id: WidgetId,
+    inner: Rect,
+    jobs: &mut Vec<(WidgetId, Rect)>,
+    out: &mut Out,
+) {
     let panes = split_panes(r, id);
     let thick = r.nodes[&id].lay.spacing;
-    let Some(sp) = r.nodes.get_mut(&id).and_then(|n| n.split.as_mut()) else { return };
+    let Some(sp) = r.nodes.get_mut(&id).and_then(|n| n.split.as_mut()) else {
+        return;
+    };
     let horiz = sp.orient == Orientation::Horizontal;
     let sash = sp.sash;
     let two = panes.len() == 2;
@@ -308,7 +404,10 @@ fn arrange_split(r: &mut Registry, id: WidgetId, inner: Rect, jobs: &mut Vec<(Wi
     } else if let Some(only) = panes.first() {
         jobs.push((*only, inner));
     }
-    if let Some((s_id, n)) = sash.and_then(|s| Some(s).zip(r.nodes.get_mut(&s))).filter(|(_, n)| n.visible != two) {
+    if let Some((s_id, n)) = sash
+        .and_then(|s| Some(s).zip(r.nodes.get_mut(&s)))
+        .filter(|(_, n)| n.visible != two)
+    {
         n.visible = two;
         out.push((s_id, Prop::Visible(two)));
     }
@@ -326,7 +425,11 @@ fn distribute(sizes: &mut [i32], weights: &[f32], extra: i32) {
         if *w <= 0.0 {
             continue;
         }
-        let share = if i == last { extra - given } else { (extra as f32 * w / total) as i32 };
+        let share = if i == last {
+            extra - given
+        } else {
+            (extra as f32 * w / total) as i32
+        };
         *s += share;
         given += share;
     }
@@ -340,7 +443,9 @@ pub fn compute(r: &mut Registry, w: WidgetId) -> Out {
         return out;
     }
     let m = measure(r, w);
-    let Some(n) = r.nodes.get_mut(&w) else { return out };
+    let Some(n) = r.nodes.get_mut(&w) else {
+        return out;
+    };
     if !n.explicit_size {
         n.client = m;
     }

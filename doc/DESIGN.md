@@ -10,7 +10,7 @@ user code ──► widgets.rs   Copy handles (Button, Label, ...) deref to Widg
               core.rs      registry: HashMap<WidgetId, Node>, mirrored state, event dispatch,
                            post queue, timers, dirty tracking
               layout.rs    stack/grid layout in Rust from backend preferred sizes
-              a11y.rs      accesskit TreeUpdate from the registry; AT actions -> app callbacks
+              a11y.rs      accessible name/description/role of every widget, derived from the registry
               backend/     `trait Backend` (associated fns), one impl compiled in as `Native`
                 mod.rs       the contract (read its module docs: it is the spec for backend authors)
                 mock.rs      in-memory backend for tests/examples (feature `mock` or cargo test)
@@ -61,15 +61,24 @@ Windows without an explicit `set_size` follow their content's natural size.
 
 ## Accessibility
 
-`a11y::tree_for_window(window) -> TreeUpdate` builds the whole tree from the registry (virtual boxes
-flattened, hidden subtrees and unselected tabs omitted, list items as option nodes, unnamed inputs
-labelled by the preceding Label, passwords never exposed). `a11y::do_action(window, request)` turns
-AT actions (click, set value, increment, focus) into the same native update + app callback a real
-user action would cause. Overrides: `set_a11y_name/description/role`. Backends push the
-core's names/descriptions/roles onto the native controls in `a11y_changed` (GTK: ATK, Cocoa:
-`accessibilityLabel`, Win32: `IAccPropServices` MSAA annotations on the few HWNDs where oleacc's
-stock proxy is inadequate: the sash, Page/GroupBox containers and explicit app overrides). No
-backend uses an accesskit platform adapter.
+Every backend wraps native controls, and every platform already exposes those to assistive
+technology (ATK, NSAccessibility, oleacc/MSAA), so rungui does not build an accessibility tree of its
+own. What the native control cannot know is what the app wants it called. `a11y::resolve(window)`
+walks the window once, in layout order, and returns the name, description and role of each native
+widget that AT can currently see (virtual boxes flattened, hidden subtrees and unselected tabs
+omitted). Names: a button/checkbox/radio/group/page/window/menu item uses its own text (mnemonic
+markers stripped); an unnamed input, list, slider, table or tree is labelled by the nearest preceding
+Label; `set_a11y_name` overrides either. Description: `set_a11y_description`, else the tooltip.
+Role: `set_a11y_role(A11yRole)`, else the kind's default. `A11yRole` is a small rungui enum of roles
+every backend can express.
+
+Backends copy the parts that matter onto the native controls in `a11y_changed` (debounced, once per
+dirty window): GTK sets the ATK name, description and role; Cocoa sets `accessibilityLabel` and
+`accessibilityHelp` (no roles); Win32 uses `IAccPropServices` MSAA annotations, and only on the HWNDs
+where oleacc's stock proxy is inadequate (explicit app overrides, tooltips, the sash,
+Page/GroupBox containers). Win32 deliberately does not push names that are just the widget's own
+text or the preceding Label: oleacc derives those itself. There is no AT-action path: assistive
+technology operates the native controls, which report ordinary user events to the app.
 
 ## Unicode
 
@@ -90,7 +99,7 @@ and `scripts/check-all.sh`.
    and `sync_initial`.
 3. `widgets.rs`: add the name to the `handle!` list, a `new(parent, ..)` using `make(..)`, setters via
    `core::set(id, relayout, |n| mirror, Prop::X)`, and an `on_*` using `on(id, Ev::X, ..)`.
-4. `a11y.rs`: add the role mapping and properties.
+4. `a11y.rs`: add the default `A11yRole` (and a naming rule if it takes its name from its text or the preceding Label).
 5. `mock.rs`: give it a `preferred_size`; add a test. Then implement it in each real backend.
 
 ## Extending the backend contract
@@ -154,8 +163,11 @@ takes the rest; RTL mirrors it like an HBox). Between them the core creates a na
 `Kind::Sash` child and pushes its bounds; the backend's sash only reports
 `Event::SashDragged(leading_edge)` and the core converts that to a position, relayouts
 synchronously and calls `on_move`. If the backend refuses to create a sash the split still lays
-out, it is just not draggable. A11y: the sash is a `Splitter` role with a numeric value
-(the position) and SetValue/Increment/Decrement actions.
+out, it is just not draggable. A11y: the sash has the `Splitter` role (Win32 also exposes the
+position as its value). It is keyboard-operable on every backend: a click or Tab focuses it
+(with a visible focus indicator), the arrow keys along its axis move it by 10 px (Shift: 50 px) and
+Home/End jump to the pane limits. Backends only translate keys into `Event::SashKey`; the core
+applies the step, the clamping, the RTL mirroring and `on_move`, exactly as for a drag.
 
 ## Known limits
 
