@@ -1481,498 +1481,620 @@ unsafe fn create_inner(
 unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
     unsafe {
         match prop {
-            Prop::Text(t) => {
-                let c = cs(t);
-                match w.kind {
-                    Kind::Window => gtk_window_set_title(w.w, c.as_ptr()),
-                    Kind::Label => gtk_label_set_text(w.w, c.as_ptr()),
-                    Kind::Button | Kind::CheckBox | Kind::RadioButton => {
-                        let m = cs(&crate::mnemonic::to_gtk_mnemonic(t));
-                        gtk_button_set_use_underline(w.w, 1);
-                        gtk_button_set_label(w.w, m.as_ptr())
-                    }
-                    Kind::TextInput | Kind::PasswordInput => {
-                        if from_c(gtk_entry_get_text(w.w)) != *t {
-                            gtk_entry_set_text(w.w, c.as_ptr());
-                        }
-                    }
-                    Kind::TextArea => {
-                        let buf = gtk_text_view_get_buffer(w.inner);
-                        let (mut a, mut z) = (TextIter::new(), TextIter::new());
-                        gtk_text_buffer_get_start_iter(buf, &mut a);
-                        gtk_text_buffer_get_end_iter(buf, &mut z);
-                        let p = gtk_text_buffer_get_text(buf, &a, &z, 1);
-                        let cur = from_c(p);
-                        g_free(p as P);
-                        if cur != *t {
-                            gtk_text_buffer_set_text(buf, c.as_ptr(), -1);
-                        }
-                    }
-                    Kind::GroupBox => gtk_frame_set_label(w.w, c.as_ptr()),
-                    Kind::Page => {
-                        if let Some(nb) = w.parent.and_then(get) {
-                            gtk_notebook_set_tab_label_text(nb.w, w.w, c.as_ptr());
-                        }
-                    }
-                    Kind::Menu | Kind::MenuItem | Kind::CheckMenuItem => {
-                        let m = cs(&crate::mnemonic::to_gtk_mnemonic(t));
-                        gtk_menu_item_set_use_underline(w.w, 1);
-                        gtk_menu_item_set_label(w.w, m.as_ptr())
-                    }
-                    _ => {}
-                }
-            }
-            Prop::Tooltip(t) => {
-                // the CString must outlive the call: a temporary in an `else` block tail would not
-                let c = cs(t);
-                gtk_widget_set_tooltip_text(
-                    w.w,
-                    if t.is_empty() {
-                        std::ptr::null()
-                    } else {
-                        c.as_ptr()
-                    },
-                );
-            }
-            Prop::Placeholder(t) => {
-                if matches!(w.kind, Kind::TextInput | Kind::PasswordInput) {
-                    gtk_entry_set_placeholder_text(w.w, cs(t).as_ptr());
-                }
-            }
+            Prop::Text(t) => set_text(w, t),
+            Prop::Tooltip(t) => set_tooltip(w, t),
+            Prop::Placeholder(t) => set_placeholder(w, t),
             Prop::Enabled(e) => gtk_widget_set_sensitive(w.w, *e as c_int),
-            Prop::Visible(v) => {
-                if w.kind == Kind::Page {
-                    upd(id, |x| x.page_shown = *v);
-                }
-                if *v {
-                    gtk_widget_show(w.w);
-                    if w.kind == Kind::Tabs {
-                        show_pages(w.w);
-                    }
-                } else {
-                    gtk_widget_hide(w.w)
+            Prop::Visible(v) => set_visible(id, w, *v),
+            Prop::Checked(c) => set_checked(w, *c),
+            Prop::Value(v) => set_value(w, *v),
+            Prop::Range { min, max, step } => set_range(w, *min, *max, *step),
+            Prop::Items(items) => set_items(w, items),
+            Prop::Selected(sel) => set_selected(w, *sel),
+            Prop::Bounds(r) => set_bounds(id, w, r),
+            Prop::Orientation(o) if w.kind == Kind::Sash => set_orientation(id, w, *o),
+            Prop::Image(img) => set_image(w, img),
+            Prop::Accel(s) => set_accel(id, w, s),
+            Prop::ReadOnly(ro) => set_read_only(w, *ro),
+            Prop::Indeterminate(on) => set_indeterminate(id, w, *on),
+            Prop::Monospace(on) => set_monospace(w, *on),
+            Prop::Wrap(on) if w.kind == Kind::TextArea => set_wrap(w, *on),
+            Prop::Position { x, y } if w.kind == Kind::Window => set_position(id, w, *x, *y),
+            Prop::MinSize(m) if w.kind == Kind::Window => set_min_size(w, m),
+            Prop::Resizable(r) => set_resizable(id, w, *r),
+            Prop::Columns(cols) if w.kind == Kind::Table => set_columns(id, w, cols),
+            Prop::Rows(rows) if w.kind == Kind::Table => set_rows(w, rows),
+            Prop::SortIndicator(si) if w.kind == Kind::Table => set_sort_indicator(w, si),
+            Prop::TreeRows(rows) if w.kind == Kind::Tree => set_tree_rows(w, rows),
+            Prop::TreeSelected(node) if w.kind == Kind::Tree => set_tree_selected(w, node),
+            Prop::Focus => gtk_widget_grab_focus(if has_inner(w.kind) { w.inner } else { w.w }),
+            _ => {}
+        }
+    }
+}
+
+/// `Prop::Text`.
+unsafe fn set_text(w: &W, t: &&str) {
+    unsafe {
+        let c = cs(t);
+        match w.kind {
+            Kind::Window => gtk_window_set_title(w.w, c.as_ptr()),
+            Kind::Label => gtk_label_set_text(w.w, c.as_ptr()),
+            Kind::Button | Kind::CheckBox | Kind::RadioButton => {
+                let m = cs(&crate::mnemonic::to_gtk_mnemonic(t));
+                gtk_button_set_use_underline(w.w, 1);
+                gtk_button_set_label(w.w, m.as_ptr())
+            }
+            Kind::TextInput | Kind::PasswordInput => {
+                if from_c(gtk_entry_get_text(w.w)) != *t {
+                    gtk_entry_set_text(w.w, c.as_ptr());
                 }
             }
-            Prop::Checked(c) => match w.kind {
-                Kind::CheckBox | Kind::RadioButton => {
-                    gtk_toggle_button_set_active(w.w, *c as c_int)
+            Kind::TextArea => {
+                let buf = gtk_text_view_get_buffer(w.inner);
+                let (mut a, mut z) = (TextIter::new(), TextIter::new());
+                gtk_text_buffer_get_start_iter(buf, &mut a);
+                gtk_text_buffer_get_end_iter(buf, &mut z);
+                let p = gtk_text_buffer_get_text(buf, &a, &z, 1);
+                let cur = from_c(p);
+                g_free(p as P);
+                if cur != *t {
+                    gtk_text_buffer_set_text(buf, c.as_ptr(), -1);
                 }
-                Kind::CheckMenuItem => gtk_check_menu_item_set_active(w.w, *c as c_int),
-                _ => {}
+            }
+            Kind::GroupBox => gtk_frame_set_label(w.w, c.as_ptr()),
+            Kind::Page => {
+                if let Some(nb) = w.parent.and_then(get) {
+                    gtk_notebook_set_tab_label_text(nb.w, w.w, c.as_ptr());
+                }
+            }
+            Kind::Menu | Kind::MenuItem | Kind::CheckMenuItem => {
+                let m = cs(&crate::mnemonic::to_gtk_mnemonic(t));
+                gtk_menu_item_set_use_underline(w.w, 1);
+                gtk_menu_item_set_label(w.w, m.as_ptr())
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `Prop::Tooltip`.
+unsafe fn set_tooltip(w: &W, t: &&str) {
+    unsafe {
+        // the CString must outlive the call: a temporary in an `else` block tail would not
+        let c = cs(t);
+        gtk_widget_set_tooltip_text(
+            w.w,
+            if t.is_empty() {
+                std::ptr::null()
+            } else {
+                c.as_ptr()
             },
-            Prop::Value(v) => match w.kind {
-                Kind::Slider => gtk_range_set_value(w.w, *v),
-                Kind::SpinBox => gtk_spin_button_set_value(w.w, *v),
-                Kind::ProgressBar => gtk_progress_bar_set_fraction(w.w, v.clamp(0.0, 1.0)),
-                _ => {}
-            },
-            Prop::Range { min, max, step } => {
-                if *max < *min || min.is_nan() || max.is_nan() {
-                    return;
-                }
-                let step = if *step > 0.0 { *step } else { 1.0 };
-                match w.kind {
-                    Kind::Slider => {
-                        gtk_range_set_range(w.w, *min, *max);
-                        gtk_range_set_increments(w.w, step, step * 10.0);
-                    }
-                    Kind::SpinBox => {
-                        gtk_spin_button_set_range(w.w, *min, *max);
-                        gtk_spin_button_set_increments(w.w, step, step * 10.0);
-                        gtk_spin_button_set_digits(w.w, digits_for(step));
-                    }
-                    _ => {}
+        );
+    }
+}
+
+/// `Prop::Placeholder`.
+unsafe fn set_placeholder(w: &W, t: &&str) {
+    unsafe {
+        if matches!(w.kind, Kind::TextInput | Kind::PasswordInput) {
+            gtk_entry_set_placeholder_text(w.w, cs(t).as_ptr());
+        }
+    }
+}
+
+/// `Prop::Visible`.
+unsafe fn set_visible(id: WidgetId, w: &W, v: bool) {
+    unsafe {
+        if w.kind == Kind::Page {
+            upd(id, |x| x.page_shown = v);
+        }
+        if v {
+            gtk_widget_show(w.w);
+            if w.kind == Kind::Tabs {
+                show_pages(w.w);
+            }
+        } else {
+            gtk_widget_hide(w.w)
+        }
+    }
+}
+
+/// `Prop::Checked`.
+unsafe fn set_checked(w: &W, c: bool) {
+    unsafe {
+        match w.kind {
+            Kind::CheckBox | Kind::RadioButton => gtk_toggle_button_set_active(w.w, c as c_int),
+            Kind::CheckMenuItem => gtk_check_menu_item_set_active(w.w, c as c_int),
+            _ => {}
+        }
+    }
+}
+
+/// `Prop::Value`.
+unsafe fn set_value(w: &W, v: f64) {
+    unsafe {
+        match w.kind {
+            Kind::Slider => gtk_range_set_value(w.w, v),
+            Kind::SpinBox => gtk_spin_button_set_value(w.w, v),
+            Kind::ProgressBar => gtk_progress_bar_set_fraction(w.w, v.clamp(0.0, 1.0)),
+            _ => {}
+        }
+    }
+}
+
+/// `Prop::Range`.
+unsafe fn set_range(w: &W, min: f64, max: f64, step: f64) {
+    unsafe {
+        if max < min || min.is_nan() || max.is_nan() {
+            return;
+        }
+        let step = if step > 0.0 { step } else { 1.0 };
+        match w.kind {
+            Kind::Slider => {
+                gtk_range_set_range(w.w, min, max);
+                gtk_range_set_increments(w.w, step, step * 10.0);
+            }
+            Kind::SpinBox => {
+                gtk_spin_button_set_range(w.w, min, max);
+                gtk_spin_button_set_increments(w.w, step, step * 10.0);
+                gtk_spin_button_set_digits(w.w, digits_for(step));
+            }
+            _ => {}
+        }
+    }
+}
+
+/// `Prop::Items`.
+unsafe fn set_items(w: &W, items: &&[String]) {
+    unsafe {
+        match w.kind {
+            Kind::ComboBox => {
+                gtk_combo_box_text_remove_all(w.w);
+                for it in items.iter() {
+                    gtk_combo_box_text_append_text(w.w, cs(it).as_ptr());
                 }
             }
-            Prop::Items(items) => match w.kind {
-                Kind::ComboBox => {
-                    gtk_combo_box_text_remove_all(w.w);
-                    for it in items.iter() {
-                        gtk_combo_box_text_append_text(w.w, cs(it).as_ptr());
-                    }
-                }
-                Kind::ListBox => {
-                    let list = gtk_container_get_children(w.inner);
-                    let mut l = list;
-                    while !l.is_null() {
-                        gtk_widget_destroy((*l).data);
-                        l = (*l).next;
-                    }
-                    g_list_free(list);
-                    for it in items.iter() {
-                        let lab = gtk_label_new(cs(it).as_ptr());
-                        gtk_label_set_xalign(lab, 0.0);
-                        gtk_list_box_insert(w.inner, lab, -1);
-                    }
-                    gtk_widget_show_all(w.inner);
-                }
-                _ => {}
-            },
-            Prop::Selected(sel) => match w.kind {
-                Kind::ComboBox => gtk_combo_box_set_active(w.w, sel.map_or(-1, |i| i as c_int)),
-                Kind::Tabs => {
-                    if let Some(i) = sel {
-                        gtk_notebook_set_current_page(w.w, *i as c_int);
-                    }
-                }
-                Kind::Table => {
-                    let selw = gtk_tree_view_get_selection(w.inner);
-                    match sel {
-                        Some(i) => {
-                            let path = gtk_tree_path_new_from_indices(*i as c_int, -1 as c_int);
-                            gtk_tree_selection_select_path(selw, path);
-                            gtk_tree_view_scroll_to_cell(w.inner, path, NULL, 0, 0.0, 0.0);
-                            gtk_tree_path_free(path);
-                        }
-                        None => gtk_tree_selection_unselect_all(selw),
-                    }
-                }
-                Kind::ListBox => {
-                    match sel.map(|i| gtk_list_box_get_row_at_index(w.inner, i as c_int)) {
-                        Some(row) if !row.is_null() => gtk_list_box_select_row(w.inner, row),
-                        _ => gtk_list_box_unselect_all(w.inner),
-                    }
-                }
-                _ => {}
-            },
-            Prop::Bounds(r) => match w.kind {
-                Kind::Window => {
-                    let mut nw = *w;
-                    nw.client = (r.w, r.h);
-                    if r.w > 0 && r.h > 0 {
-                        nw.emitted = (r.w, r.h);
-                    }
-                    upd(id, |x| {
-                        x.client = nw.client;
-                        x.emitted = nw.emitted
-                    });
-                    apply_window_size(&nw);
-                }
-                Kind::Page
-                | Kind::Menu
-                | Kind::MenuBar
-                | Kind::MenuItem
-                | Kind::CheckMenuItem
-                | Kind::MenuSeparator => {}
-                _ => {
-                    let parent = gtk_widget_get_parent(w.w);
-                    if !parent.is_null() {
-                        gtk_fixed_move(parent, w.w, r.x, r.y);
-                    }
-                    let (mut want_w, mut want_h) = (r.w.max(0), r.h.max(0));
-                    if want_w < TINY_ALLOC || want_h < TINY_ALLOC {
-                        // GTK warns (and draws garbage) when a widget is allocated less than its
-                        // own border and padding; never go below the widget's real minimum
-                        let (min_w, min_h) = min_request(w.w);
-                        want_w = want_w.max(min_w);
-                        want_h = want_h.max(min_h);
-                    }
-                    gtk_widget_set_size_request(w.w, want_w, want_h);
-                    if w.kind == Kind::Sash {
-                        upd(id, |x| x.sash_pos = if x.sash_v { r.y } else { r.x });
-                    }
-                }
-            },
-            Prop::Orientation(o) if w.kind == Kind::Sash => {
-                let v = *o == Orientation::Vertical;
-                upd(id, |x| x.sash_v = v);
-                // a horizontal splitter has a vertical sash, so its line is a vertical separator
-                let sep = gtk_bin_get_child(w.w);
-                if !sep.is_null() {
-                    gtk_orientable_set_orientation(sep, if v { ORIENT_H } else { ORIENT_V });
-                }
-            }
-            Prop::Image(img) => {
-                if w.kind != Kind::Image {
-                    return;
-                }
-                match img {
-                    Some(d) if d.is_valid() => {
-                        let pb = gdk_pixbuf_new(0, 1, 8, d.w as c_int, d.h as c_int);
-                        if pb.is_null() {
-                            return;
-                        }
-                        let stride = gdk_pixbuf_get_rowstride(pb) as usize;
-                        let px = gdk_pixbuf_get_pixels(pb);
-                        let row = d.w as usize * 4;
-                        for y in 0..d.h as usize {
-                            std::ptr::copy_nonoverlapping(
-                                d.rgba.as_ptr().add(y * row),
-                                px.add(y * stride),
-                                row,
-                            );
-                        }
-                        gtk_image_set_from_pixbuf(w.w, pb);
-                        g_object_unref(pb);
-                    }
-                    _ => gtk_image_clear(w.w),
-                }
-            }
-            Prop::Accel(s) => {
-                let Some(win) = w.win.and_then(get) else {
-                    return;
-                };
-                if w.accel_key != (0, 0) {
-                    gtk_widget_remove_accelerator(
-                        w.w,
-                        win.accel_group,
-                        w.accel_key.0,
-                        w.accel_key.1,
-                    );
-                    upd(id, |x| x.accel_key = (0, 0));
-                }
-                if let Some(a) = Accel::parse(s) {
-                    let key = keyval(&a.key);
-                    if key != 0 {
-                        let mods = (if a.ctrl { MOD_CTRL } else { 0 })
-                            | (if a.shift { MOD_SHIFT } else { 0 })
-                            | (if a.alt { MOD_ALT } else { 0 });
-                        gtk_widget_add_accelerator(
-                            w.w,
-                            c"activate".as_ptr(),
-                            win.accel_group,
-                            key,
-                            mods,
-                            ACCEL_VISIBLE,
-                        );
-                        upd(id, |x| x.accel_key = (key, mods));
-                    }
-                }
-            }
-            Prop::ReadOnly(ro) => match w.kind {
-                Kind::TextInput | Kind::PasswordInput => {
-                    gtk_editable_set_editable(w.w, !*ro as c_int)
-                }
-                Kind::TextArea => gtk_text_view_set_editable(w.inner, !*ro as c_int),
-                _ => {}
-            },
-            Prop::Indeterminate(on) => {
-                if w.kind != Kind::ProgressBar {
-                    return;
-                }
-                let have = PULSES.with(|p| p.borrow().contains_key(&id));
-                if *on && !have {
-                    let src = g_timeout_add(100, pulse_cb, data(id));
-                    PULSES.with(|p| p.borrow_mut().insert(id, src));
-                } else if !*on && have {
-                    if let Some(src) = PULSES.with(|p| p.borrow_mut().remove(&id)) {
-                        g_source_remove(src);
-                    }
-                    gtk_progress_bar_set_fraction(w.w, 0.0);
-                }
-            }
-            Prop::Monospace(on) => {
-                // the theme's "monospace" style class is what gtk_text_view_set_monospace uses too
-                let target = match w.kind {
-                    Kind::TextArea => w.inner,
-                    Kind::TextInput | Kind::PasswordInput => w.w,
-                    _ => return,
-                };
-                let sc = gtk_widget_get_style_context(target);
-                if *on {
-                    gtk_style_context_add_class(sc, c"monospace".as_ptr());
-                } else {
-                    gtk_style_context_remove_class(sc, c"monospace".as_ptr());
-                }
-            }
-            Prop::Wrap(on) if w.kind == Kind::TextArea => {
-                gtk_text_view_set_wrap_mode(w.inner, if *on { WRAP_WORD_CHAR } else { WRAP_NONE });
-            }
-            Prop::Position { x, y } if w.kind == Kind::Window => {
-                // remember it so the configure event that follows is not reported as a user move
-                upd(id, |win| win.wpos = Some((*x, *y)));
-                gtk_window_move(w.w, *x, *y)
-            }
-            Prop::MinSize(m) if w.kind == Kind::Window => {
-                // hints apply to the whole content (menu bar + client area); -1 = unset
-                let mut mb = 0;
-                if !w.menubar.is_null() {
-                    let (mut min, mut nat) = (Req::default(), Req::default());
-                    gtk_widget_get_preferred_size(w.menubar, &mut min, &mut nat);
-                    mb = nat.h;
-                }
-                let g = Geometry {
-                    min_width: if m.w > 0 { m.w } else { -1 },
-                    min_height: if m.h > 0 { m.h + mb } else { -1 },
-                    ..Default::default()
-                };
-                gtk_window_set_geometry_hints(w.w, NULL, &g, HINT_MIN_SIZE);
-            }
-            Prop::Resizable(r) => {
-                if w.kind == Kind::Window {
-                    gtk_window_set_resizable(w.w, *r as c_int);
-                    upd(id, |x| x.resizable = *r);
-                    if let Some(nw) = get(id) {
-                        if *r {
-                            gtk_widget_set_size_request(nw.view, -1, -1);
-                        } else {
-                            apply_window_size(&nw);
-                        }
-                    }
-                }
-            }
-            Prop::Columns(cols) if w.kind == Kind::Table => {
-                let tv = w.inner;
-                let n = cols.len().max(1);
-                let mut types = vec![G_TYPE_STRING; n];
-                let store = gtk_list_store_newv(n as c_int, types.as_mut_ptr());
-                gtk_tree_view_set_model(tv, store);
-                g_object_unref(store);
-                let list = gtk_tree_view_get_columns(tv);
+            Kind::ListBox => {
+                let list = gtk_container_get_children(w.inner);
                 let mut l = list;
                 while !l.is_null() {
-                    gtk_tree_view_remove_column(tv, (*l).data);
+                    gtk_widget_destroy((*l).data);
                     l = (*l).next;
                 }
                 g_list_free(list);
-                for (i, c) in cols.iter().enumerate() {
-                    let col = gtk_tree_view_column_new();
-                    gtk_tree_view_column_set_title(col, cs(&c.title).as_ptr());
-                    let r = gtk_cell_renderer_text_new();
-                    let xalign: f32 = match c.align {
-                        ColumnAlign::Left => 0.0,
-                        ColumnAlign::Center => 0.5,
-                        ColumnAlign::Right => 1.0,
-                    };
-                    g_object_set(
-                        r,
-                        c"xalign".as_ptr(),
-                        xalign as c_double,
-                        std::ptr::null::<c_char>(),
-                    );
-                    gtk_tree_view_column_pack_start(col, r, 1);
-                    gtk_tree_view_column_add_attribute(col, r, c"text".as_ptr(), i as c_int);
-                    gtk_tree_view_column_set_alignment(col, xalign);
-                    gtk_tree_view_column_set_resizable(col, 1);
-                    gtk_tree_view_column_set_sizing(col, 2);
-                    gtk_tree_view_column_set_fixed_width(col, c.width.max(MIN_COLUMN_WIDTH));
-                    gtk_tree_view_column_set_clickable(col, 1);
-                    let tok = ((id.0 << 16) | (i as u64 & 0xffff)) as usize as P;
-                    connect_raw(col, b"clicked\0", h_col_clicked as *const (), tok);
-                    gtk_tree_view_append_column(tv, col);
+                for it in items.iter() {
+                    let lab = gtk_label_new(cs(it).as_ptr());
+                    gtk_label_set_xalign(lab, 0.0);
+                    gtk_list_box_insert(w.inner, lab, -1);
                 }
-                gtk_tree_view_set_headers_visible(tv, (!cols.is_empty()) as c_int);
+                gtk_widget_show_all(w.inner);
             }
-            Prop::Rows(rows) if w.kind == Kind::Table => {
-                let tv = w.inner;
-                let store = gtk_tree_view_get_model(tv);
-                if store.is_null() {
-                    return;
-                }
-                let ncols = gtk_tree_model_get_n_columns(store) as usize;
-                g_object_ref(store);
-                gtk_tree_view_set_model(tv, NULL);
-                gtk_list_store_clear(store);
-                for row in rows.iter() {
-                    let mut it = TreeIter::new();
-                    gtk_list_store_append(store, &mut it);
-                    for (c, cell) in row.iter().take(ncols).enumerate() {
-                        gtk_list_store_set(
-                            store,
-                            &mut it,
-                            c as c_int,
-                            cs(cell).as_ptr(),
-                            -1 as c_int,
-                        );
-                    }
-                }
-                gtk_tree_view_set_model(tv, store);
-                g_object_unref(store);
-            }
-            Prop::SortIndicator(si) if w.kind == Kind::Table => {
-                let mut i = 0;
-                loop {
-                    let col = gtk_tree_view_get_column(w.inner, i);
-                    if col.is_null() {
-                        break;
-                    }
-                    match si {
-                        Some((c, asc)) if *c == i as usize => {
-                            gtk_tree_view_column_set_sort_indicator(col, 1);
-                            gtk_tree_view_column_set_sort_order(col, if *asc { 0 } else { 1 });
-                        }
-                        _ => gtk_tree_view_column_set_sort_indicator(col, 0),
-                    }
-                    i += 1;
+            _ => {}
+        }
+    }
+}
+
+/// `Prop::Selected`.
+unsafe fn set_selected(w: &W, sel: Option<usize>) {
+    unsafe {
+        match w.kind {
+            Kind::ComboBox => gtk_combo_box_set_active(w.w, sel.map_or(-1, |i| i as c_int)),
+            Kind::Tabs => {
+                if let Some(i) = sel {
+                    gtk_notebook_set_current_page(w.w, i as c_int);
                 }
             }
-            Prop::TreeRows(rows) if w.kind == Kind::Tree => {
-                let tv = w.inner;
-                let store = gtk_tree_view_get_model(tv);
-                if store.is_null() {
-                    return;
-                }
-                gtk_tree_store_clear(store);
-                let mut stack: Vec<TreeIter> = vec![];
-                let mut iters: Vec<TreeIter> = Vec::with_capacity(rows.len());
-                for (i, r) in rows.iter().enumerate() {
-                    let depth = (r.depth as usize).min(stack.len());
-                    stack.truncate(depth);
-                    let mut it = TreeIter::new();
-                    let parent = if depth > 0 {
-                        stack
-                            .get_mut(depth - 1)
-                            .map_or(std::ptr::null_mut(), |t| t as *mut TreeIter)
-                    } else {
-                        std::ptr::null_mut()
-                    };
-                    gtk_tree_store_append(store, &mut it, parent);
-                    gtk_tree_store_set(
-                        store,
-                        &mut it,
-                        0 as c_int,
-                        cs(&r.text).as_ptr(),
-                        1 as c_int,
-                        r.node,
-                        -1 as c_int,
-                    );
-                    let has_kids = rows.get(i + 1).is_some_and(|n| n.depth > r.depth);
-                    if r.has_children && !has_kids {
-                        // placeholder child so lazily loaded nodes show an expander
-                        let mut d = TreeIter::new();
-                        gtk_tree_store_append(store, &mut d, &mut it);
-                        gtk_tree_store_set(
-                            store,
-                            &mut d,
-                            0 as c_int,
-                            c"".as_ptr(),
-                            1 as c_int,
-                            0u64,
-                            -1 as c_int,
-                        );
-                    }
-                    stack.push(it);
-                    iters.push(it);
-                }
-                for (r, it) in rows.iter().zip(iters.iter_mut()) {
-                    if r.expanded {
-                        let path = gtk_tree_model_get_path(store, it);
-                        gtk_tree_view_expand_row(tv, path, 0);
+            Kind::Table => {
+                let selw = gtk_tree_view_get_selection(w.inner);
+                match sel {
+                    Some(i) => {
+                        let path = gtk_tree_path_new_from_indices(i as c_int, -1 as c_int);
+                        gtk_tree_selection_select_path(selw, path);
+                        gtk_tree_view_scroll_to_cell(w.inner, path, NULL, 0, 0.0, 0.0);
                         gtk_tree_path_free(path);
                     }
+                    None => gtk_tree_selection_unselect_all(selw),
                 }
             }
-            Prop::TreeSelected(node) if w.kind == Kind::Tree => {
-                let selw = gtk_tree_view_get_selection(w.inner);
-                let store = gtk_tree_view_get_model(w.inner);
-                match node {
-                    Some(n) if !store.is_null() => {
-                        let mut st: (u64, P) = (*n, NULL);
-                        gtk_tree_model_foreach(store, tree_find, &mut st as *mut _ as P);
-                        if st.1.is_null() {
-                            gtk_tree_selection_unselect_all(selw);
-                        } else {
-                            gtk_tree_view_expand_to_path(w.inner, st.1);
-                            gtk_tree_selection_select_path(selw, st.1);
-                            gtk_tree_view_scroll_to_cell(w.inner, st.1, NULL, 0, 0.0, 0.0);
-                            gtk_tree_path_free(st.1);
-                        }
-                    }
-                    _ => gtk_tree_selection_unselect_all(selw),
+            Kind::ListBox => {
+                match sel.map(|i| gtk_list_box_get_row_at_index(w.inner, i as c_int)) {
+                    Some(row) if !row.is_null() => gtk_list_box_select_row(w.inner, row),
+                    _ => gtk_list_box_unselect_all(w.inner),
                 }
             }
-            Prop::Focus => gtk_widget_grab_focus(if has_inner(w.kind) { w.inner } else { w.w }),
             _ => {}
+        }
+    }
+}
+
+/// `Prop::Bounds`.
+unsafe fn set_bounds(id: WidgetId, w: &W, r: &Rect) {
+    unsafe {
+        match w.kind {
+            Kind::Window => {
+                let mut nw = *w;
+                nw.client = (r.w, r.h);
+                if r.w > 0 && r.h > 0 {
+                    nw.emitted = (r.w, r.h);
+                }
+                upd(id, |x| {
+                    x.client = nw.client;
+                    x.emitted = nw.emitted
+                });
+                apply_window_size(&nw);
+            }
+            Kind::Page
+            | Kind::Menu
+            | Kind::MenuBar
+            | Kind::MenuItem
+            | Kind::CheckMenuItem
+            | Kind::MenuSeparator => {}
+            _ => {
+                let parent = gtk_widget_get_parent(w.w);
+                if !parent.is_null() {
+                    gtk_fixed_move(parent, w.w, r.x, r.y);
+                }
+                let (mut want_w, mut want_h) = (r.w.max(0), r.h.max(0));
+                if want_w < TINY_ALLOC || want_h < TINY_ALLOC {
+                    // GTK warns (and draws garbage) when a widget is allocated less than its
+                    // own border and padding; never go below the widget's real minimum
+                    let (min_w, min_h) = min_request(w.w);
+                    want_w = want_w.max(min_w);
+                    want_h = want_h.max(min_h);
+                }
+                gtk_widget_set_size_request(w.w, want_w, want_h);
+                if w.kind == Kind::Sash {
+                    upd(id, |x| x.sash_pos = if x.sash_v { r.y } else { r.x });
+                }
+            }
+        }
+    }
+}
+
+/// `Prop::Orientation`.
+unsafe fn set_orientation(id: WidgetId, w: &W, o: Orientation) {
+    unsafe {
+        let v = o == Orientation::Vertical;
+        upd(id, |x| x.sash_v = v);
+        // a horizontal splitter has a vertical sash, so its line is a vertical separator
+        let sep = gtk_bin_get_child(w.w);
+        if !sep.is_null() {
+            gtk_orientable_set_orientation(sep, if v { ORIENT_H } else { ORIENT_V });
+        }
+    }
+}
+
+/// `Prop::Image`.
+unsafe fn set_image(w: &W, img: &Option<&ImageData>) {
+    unsafe {
+        if w.kind != Kind::Image {
+            return;
+        }
+        match img {
+            Some(d) if d.is_valid() => {
+                let pb = gdk_pixbuf_new(0, 1, 8, d.w as c_int, d.h as c_int);
+                if pb.is_null() {
+                    return;
+                }
+                let stride = gdk_pixbuf_get_rowstride(pb) as usize;
+                let px = gdk_pixbuf_get_pixels(pb);
+                let row = d.w as usize * 4;
+                for y in 0..d.h as usize {
+                    std::ptr::copy_nonoverlapping(
+                        d.rgba.as_ptr().add(y * row),
+                        px.add(y * stride),
+                        row,
+                    );
+                }
+                gtk_image_set_from_pixbuf(w.w, pb);
+                g_object_unref(pb);
+            }
+            _ => gtk_image_clear(w.w),
+        }
+    }
+}
+
+/// `Prop::Accel`.
+unsafe fn set_accel(id: WidgetId, w: &W, s: &&str) {
+    unsafe {
+        let Some(win) = w.win.and_then(get) else {
+            return;
+        };
+        if w.accel_key != (0, 0) {
+            gtk_widget_remove_accelerator(w.w, win.accel_group, w.accel_key.0, w.accel_key.1);
+            upd(id, |x| x.accel_key = (0, 0));
+        }
+        if let Some(a) = Accel::parse(s) {
+            let key = keyval(&a.key);
+            if key != 0 {
+                let mods = (if a.ctrl { MOD_CTRL } else { 0 })
+                    | (if a.shift { MOD_SHIFT } else { 0 })
+                    | (if a.alt { MOD_ALT } else { 0 });
+                gtk_widget_add_accelerator(
+                    w.w,
+                    c"activate".as_ptr(),
+                    win.accel_group,
+                    key,
+                    mods,
+                    ACCEL_VISIBLE,
+                );
+                upd(id, |x| x.accel_key = (key, mods));
+            }
+        }
+    }
+}
+
+/// `Prop::ReadOnly`.
+unsafe fn set_read_only(w: &W, ro: bool) {
+    unsafe {
+        match w.kind {
+            Kind::TextInput | Kind::PasswordInput => gtk_editable_set_editable(w.w, !ro as c_int),
+            Kind::TextArea => gtk_text_view_set_editable(w.inner, !ro as c_int),
+            _ => {}
+        }
+    }
+}
+
+/// `Prop::Indeterminate`.
+unsafe fn set_indeterminate(id: WidgetId, w: &W, on: bool) {
+    unsafe {
+        if w.kind != Kind::ProgressBar {
+            return;
+        }
+        let have = PULSES.with(|p| p.borrow().contains_key(&id));
+        if on && !have {
+            let src = g_timeout_add(100, pulse_cb, data(id));
+            PULSES.with(|p| p.borrow_mut().insert(id, src));
+        } else if !on && have {
+            if let Some(src) = PULSES.with(|p| p.borrow_mut().remove(&id)) {
+                g_source_remove(src);
+            }
+            gtk_progress_bar_set_fraction(w.w, 0.0);
+        }
+    }
+}
+
+/// `Prop::Monospace`.
+unsafe fn set_monospace(w: &W, on: bool) {
+    unsafe {
+        // the theme's "monospace" style class is what gtk_text_view_set_monospace uses too
+        let target = match w.kind {
+            Kind::TextArea => w.inner,
+            Kind::TextInput | Kind::PasswordInput => w.w,
+            _ => return,
+        };
+        let sc = gtk_widget_get_style_context(target);
+        if on {
+            gtk_style_context_add_class(sc, c"monospace".as_ptr());
+        } else {
+            gtk_style_context_remove_class(sc, c"monospace".as_ptr());
+        }
+    }
+}
+
+/// `Prop::Wrap`.
+unsafe fn set_wrap(w: &W, on: bool) {
+    unsafe {
+        gtk_text_view_set_wrap_mode(w.inner, if on { WRAP_WORD_CHAR } else { WRAP_NONE });
+    }
+}
+
+/// `Prop::Position`.
+unsafe fn set_position(id: WidgetId, w: &W, x: i32, y: i32) {
+    unsafe {
+        // remember it so the configure event that follows is not reported as a user move
+        upd(id, |win| win.wpos = Some((x, y)));
+        gtk_window_move(w.w, x, y)
+    }
+}
+
+/// `Prop::MinSize`.
+unsafe fn set_min_size(w: &W, m: &Size) {
+    unsafe {
+        // hints apply to the whole content (menu bar + client area); -1 = unset
+        let mut mb = 0;
+        if !w.menubar.is_null() {
+            let (mut min, mut nat) = (Req::default(), Req::default());
+            gtk_widget_get_preferred_size(w.menubar, &mut min, &mut nat);
+            mb = nat.h;
+        }
+        let g = Geometry {
+            min_width: if m.w > 0 { m.w } else { -1 },
+            min_height: if m.h > 0 { m.h + mb } else { -1 },
+            ..Default::default()
+        };
+        gtk_window_set_geometry_hints(w.w, NULL, &g, HINT_MIN_SIZE);
+    }
+}
+
+/// `Prop::Resizable`.
+unsafe fn set_resizable(id: WidgetId, w: &W, r: bool) {
+    unsafe {
+        if w.kind == Kind::Window {
+            gtk_window_set_resizable(w.w, r as c_int);
+            upd(id, |x| x.resizable = r);
+            if let Some(nw) = get(id) {
+                if r {
+                    gtk_widget_set_size_request(nw.view, -1, -1);
+                } else {
+                    apply_window_size(&nw);
+                }
+            }
+        }
+    }
+}
+
+/// `Prop::Columns`.
+unsafe fn set_columns(id: WidgetId, w: &W, cols: &&[Column]) {
+    unsafe {
+        let tv = w.inner;
+        let n = cols.len().max(1);
+        let mut types = vec![G_TYPE_STRING; n];
+        let store = gtk_list_store_newv(n as c_int, types.as_mut_ptr());
+        gtk_tree_view_set_model(tv, store);
+        g_object_unref(store);
+        let list = gtk_tree_view_get_columns(tv);
+        let mut l = list;
+        while !l.is_null() {
+            gtk_tree_view_remove_column(tv, (*l).data);
+            l = (*l).next;
+        }
+        g_list_free(list);
+        for (i, c) in cols.iter().enumerate() {
+            let col = gtk_tree_view_column_new();
+            gtk_tree_view_column_set_title(col, cs(&c.title).as_ptr());
+            let r = gtk_cell_renderer_text_new();
+            let xalign: f32 = match c.align {
+                ColumnAlign::Left => 0.0,
+                ColumnAlign::Center => 0.5,
+                ColumnAlign::Right => 1.0,
+            };
+            g_object_set(
+                r,
+                c"xalign".as_ptr(),
+                xalign as c_double,
+                std::ptr::null::<c_char>(),
+            );
+            gtk_tree_view_column_pack_start(col, r, 1);
+            gtk_tree_view_column_add_attribute(col, r, c"text".as_ptr(), i as c_int);
+            gtk_tree_view_column_set_alignment(col, xalign);
+            gtk_tree_view_column_set_resizable(col, 1);
+            gtk_tree_view_column_set_sizing(col, 2);
+            gtk_tree_view_column_set_fixed_width(col, c.width.max(MIN_COLUMN_WIDTH));
+            gtk_tree_view_column_set_clickable(col, 1);
+            let tok = ((id.0 << 16) | (i as u64 & 0xffff)) as usize as P;
+            connect_raw(col, b"clicked\0", h_col_clicked as *const (), tok);
+            gtk_tree_view_append_column(tv, col);
+        }
+        gtk_tree_view_set_headers_visible(tv, (!cols.is_empty()) as c_int);
+    }
+}
+
+/// `Prop::Rows`.
+unsafe fn set_rows(w: &W, rows: &&[Vec<String>]) {
+    unsafe {
+        let tv = w.inner;
+        let store = gtk_tree_view_get_model(tv);
+        if store.is_null() {
+            return;
+        }
+        let ncols = gtk_tree_model_get_n_columns(store) as usize;
+        g_object_ref(store);
+        gtk_tree_view_set_model(tv, NULL);
+        gtk_list_store_clear(store);
+        for row in rows.iter() {
+            let mut it = TreeIter::new();
+            gtk_list_store_append(store, &mut it);
+            for (c, cell) in row.iter().take(ncols).enumerate() {
+                gtk_list_store_set(store, &mut it, c as c_int, cs(cell).as_ptr(), -1 as c_int);
+            }
+        }
+        gtk_tree_view_set_model(tv, store);
+        g_object_unref(store);
+    }
+}
+
+/// `Prop::SortIndicator`.
+unsafe fn set_sort_indicator(w: &W, si: &Option<(usize, bool)>) {
+    unsafe {
+        let mut i = 0;
+        loop {
+            let col = gtk_tree_view_get_column(w.inner, i);
+            if col.is_null() {
+                break;
+            }
+            match si {
+                Some((c, asc)) if *c == i as usize => {
+                    gtk_tree_view_column_set_sort_indicator(col, 1);
+                    gtk_tree_view_column_set_sort_order(col, if *asc { 0 } else { 1 });
+                }
+                _ => gtk_tree_view_column_set_sort_indicator(col, 0),
+            }
+            i += 1;
+        }
+    }
+}
+
+/// `Prop::TreeRows`.
+unsafe fn set_tree_rows(w: &W, rows: &&[TreeRow]) {
+    unsafe {
+        let tv = w.inner;
+        let store = gtk_tree_view_get_model(tv);
+        if store.is_null() {
+            return;
+        }
+        gtk_tree_store_clear(store);
+        let mut stack: Vec<TreeIter> = vec![];
+        let mut iters: Vec<TreeIter> = Vec::with_capacity(rows.len());
+        for (i, r) in rows.iter().enumerate() {
+            let depth = (r.depth as usize).min(stack.len());
+            stack.truncate(depth);
+            let mut it = TreeIter::new();
+            let parent = if depth > 0 {
+                stack
+                    .get_mut(depth - 1)
+                    .map_or(std::ptr::null_mut(), |t| t as *mut TreeIter)
+            } else {
+                std::ptr::null_mut()
+            };
+            gtk_tree_store_append(store, &mut it, parent);
+            gtk_tree_store_set(
+                store,
+                &mut it,
+                0 as c_int,
+                cs(&r.text).as_ptr(),
+                1 as c_int,
+                r.node,
+                -1 as c_int,
+            );
+            let has_kids = rows.get(i + 1).is_some_and(|n| n.depth > r.depth);
+            if r.has_children && !has_kids {
+                // placeholder child so lazily loaded nodes show an expander
+                let mut d = TreeIter::new();
+                gtk_tree_store_append(store, &mut d, &mut it);
+                gtk_tree_store_set(
+                    store,
+                    &mut d,
+                    0 as c_int,
+                    c"".as_ptr(),
+                    1 as c_int,
+                    0u64,
+                    -1 as c_int,
+                );
+            }
+            stack.push(it);
+            iters.push(it);
+        }
+        for (r, it) in rows.iter().zip(iters.iter_mut()) {
+            if r.expanded {
+                let path = gtk_tree_model_get_path(store, it);
+                gtk_tree_view_expand_row(tv, path, 0);
+                gtk_tree_path_free(path);
+            }
+        }
+    }
+}
+
+/// `Prop::TreeSelected`.
+unsafe fn set_tree_selected(w: &W, node: &Option<u64>) {
+    unsafe {
+        let selw = gtk_tree_view_get_selection(w.inner);
+        let store = gtk_tree_view_get_model(w.inner);
+        match node {
+            Some(n) if !store.is_null() => {
+                let mut st: (u64, P) = (*n, NULL);
+                gtk_tree_model_foreach(store, tree_find, &mut st as *mut _ as P);
+                if st.1.is_null() {
+                    gtk_tree_selection_unselect_all(selw);
+                } else {
+                    gtk_tree_view_expand_to_path(w.inner, st.1);
+                    gtk_tree_selection_select_path(selw, st.1);
+                    gtk_tree_view_scroll_to_cell(w.inner, st.1, NULL, 0, 0.0, 0.0);
+                    gtk_tree_path_free(st.1);
+                }
+            }
+            _ => gtk_tree_selection_unselect_all(selw),
         }
     }
 }
