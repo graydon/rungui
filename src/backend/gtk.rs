@@ -1439,7 +1439,7 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                     Kind::Window => gtk_window_set_title(w.w, c.as_ptr()),
                     Kind::Label => gtk_label_set_text(w.w, c.as_ptr()),
                     Kind::Button | Kind::CheckBox | Kind::RadioButton => {
-                        let m = cs(&crate::text::to_gtk_mnemonic(t));
+                        let m = cs(&crate::mnemonic::to_gtk_mnemonic(t));
                         gtk_button_set_use_underline(w.w, 1);
                         gtk_button_set_label(w.w, m.as_ptr())
                     }
@@ -1467,7 +1467,7 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                         }
                     }
                     Kind::Menu | Kind::MenuItem | Kind::CheckMenuItem => {
-                        let m = cs(&crate::text::to_gtk_mnemonic(t));
+                        let m = cs(&crate::mnemonic::to_gtk_mnemonic(t));
                         gtk_menu_item_set_use_underline(w.w, 1);
                         gtk_menu_item_set_label(w.w, m.as_ptr())
                     }

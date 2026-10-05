@@ -226,7 +226,7 @@ fn wide(s: &str) -> Vec<u16> {
 }
 /// Core text with `&` mnemonic markers -> Win32 prefix syntax (surplus markers dropped).
 fn esc_amp(s: &str) -> String {
-    crate::text::to_win32_mnemonic(s)
+    crate::mnemonic::to_win32_mnemonic(s)
 }
 fn nl_in(s: &str) -> String {
     s.replace("\r\n", "\n").replace('\n', "\r\n")
@@ -1637,7 +1637,7 @@ fn preferred_impl(id: WidgetId) -> Option<Size> {
     Some(Size::new(lp(w, dpi), lp(h, dpi)))
 }
 fn esc_text(s: &str) -> String {
-    crate::text::strip_mnemonic(s)
+    crate::mnemonic::strip_mnemonic(s)
 }
 
 fn chrome_impl(id: WidgetId) -> Option<Size> {

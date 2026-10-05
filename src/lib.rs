@@ -65,16 +65,27 @@
 mod link_keepalive;
 
 mod a11y;
+// The backend contract (and the headless backend) is public only with the `mock` feature, which is
+// how an application's tests drive its UI without a display.
+#[cfg(feature = "mock")]
 pub mod backend;
-pub mod core;
+#[cfg(not(feature = "mock"))]
+mod backend;
+mod core;
 mod layout;
-pub mod text;
+mod mnemonic;
 mod types;
 mod widgets;
 
 pub use a11y::{A11yProps, A11yRole};
+#[cfg(any(feature = "mock", test))]
 pub use backend::{Event, Kind, Prop, SashKey};
-pub use types::*;
+#[cfg(any(feature = "mock", test))]
+pub use types::{Accel, FileMode, FileSpec, MessageSpec, TreeRow};
+pub use types::{
+    Align, Answer, Buttons, Column, ColumnAlign, Error, ImageData, MAX_IMAGE_EDGE, MessageKind,
+    NativeHandle, Orientation, Rect, Result, Size, TreeNodeId, WidgetId,
+};
 pub use widgets::*;
 
 /// Application object. Create exactly one per process, on the main thread, before any widget.
@@ -116,8 +127,6 @@ impl App {
 pub fn last_error() -> Option<Error> {
     core::take_error()
 }
-
-pub use types::Accel;
 
 /// Deepest allowed nesting of widgets (a window's children are at depth 1). Layout, accessibility
 /// and the toolkits recurse over the widget tree, so creating a widget below this depth fails with

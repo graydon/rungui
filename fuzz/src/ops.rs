@@ -109,7 +109,7 @@ pub struct Fuzz {
     /// Debugging aids from the environment: `RUNGUI_FUZZ_TRACE=1` logs every operation to stderr,
     /// `RUNGUI_FUZZ_LIMIT=n` stops after `n` operations (bisect a failure by moving `n`).
     trace: bool,
-    limit: u32,
+    limit: Cell<u32>,
     executed: Cell<u32>,
     me: RefCell<Option<std::rc::Weak<Fuzz>>>,
 }
@@ -194,15 +194,24 @@ impl Fuzz {
             mode,
             panics,
             trace: std::env::var_os("RUNGUI_FUZZ_TRACE").is_some(),
-            limit: std::env::var("RUNGUI_FUZZ_LIMIT")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(u32::MAX),
+            // `RUNGUI_FUZZ_LIMIT_SEED` names the one seed the limit is for (see `native.rs`)
+            limit: Cell::new(
+                std::env::var("RUNGUI_FUZZ_LIMIT")
+                    .ok()
+                    .filter(|_| std::env::var_os("RUNGUI_FUZZ_LIMIT_SEED").is_none())
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(u32::MAX),
+            ),
             executed: Cell::new(0),
             me: RefCell::new(None),
         });
         *fz.me.borrow_mut() = Some(Rc::downgrade(&fz));
         fz
+    }
+
+    /// Stop after `ops` operations (the debugging limit, see `RUNGUI_FUZZ_LIMIT`).
+    pub fn set_limit(&self, ops: u32) {
+        self.limit.set(ops);
     }
 
     // ---------------------------------------------------------------- input helpers
@@ -387,7 +396,7 @@ impl Fuzz {
                 return false;
             }
         }
-        !self.inp.borrow().exhausted() && self.executed.get() < self.limit
+        !self.inp.borrow().exhausted() && self.executed.get() < self.limit.get()
     }
 
     /// Destroy everything and, on the mock backend, verify nothing leaked.
@@ -471,7 +480,7 @@ impl Fuzz {
 
     /// One random operation. False once the budget is spent.
     fn step(&self) -> bool {
-        if self.budget.get() == 0 || self.executed.get() >= self.limit {
+        if self.budget.get() == 0 || self.executed.get() >= self.limit.get() {
             return false;
         }
         self.budget.set(self.budget.get() - 1);

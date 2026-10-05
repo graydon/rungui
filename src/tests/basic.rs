@@ -600,3 +600,29 @@ fn second_init_fails_and_handles_are_send() {
     is_send::<Window>();
     is_send::<WidgetId>();
 }
+
+#[test]
+fn mock_records_the_accessibility_metadata_pushed_by_the_core() {
+    init();
+    let win = Window::new("A11y");
+    let col = VBox::new(win);
+    Label::new(col, "&Name:");
+    let input = TextInput::new(col);
+    let ok = Button::new(col, "&OK");
+    ok.set_a11y_description("accepts the form");
+    win.show();
+    App::update();
+    let records = mock::a11y(win.id()).expect("window was resolved");
+    let of = |id: WidgetId| records.iter().find(|r| r.id == id).cloned();
+    assert_eq!(
+        of(input.id()).and_then(|r| r.name).as_deref(),
+        Some("Name:")
+    );
+    let ok_rec = of(ok.id()).expect("button listed");
+    assert_eq!(ok_rec.name.as_deref(), Some("OK"));
+    assert_eq!(ok_rec.description.as_deref(), Some("accepts the form"));
+    assert_eq!(ok_rec.role, A11yRole::Button);
+    // destroying the window forgets its record
+    win.destroy();
+    assert!(mock::a11y(win.id()).is_none());
+}

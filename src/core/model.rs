@@ -183,20 +183,6 @@ impl TreeData {
             cur = n.parent;
         }
     }
-    /// Is every ancestor expanded (i.e. is the node visible)?
-    pub fn is_visible(&self, id: u64) -> bool {
-        let mut cur = self.nodes.get(&id).and_then(|n| n.parent);
-        while let Some(p) = cur {
-            let Some(n) = self.nodes.get(&p) else {
-                return false;
-            };
-            if !n.expanded {
-                return false;
-            }
-            cur = n.parent;
-        }
-        true
-    }
 }
 
 /// One widget in the registry: the state every kind has, plus [`NodeData`], which holds the state
@@ -306,11 +292,12 @@ pub enum Data {
     TableSort,
     /// Rows + selection.
     TreeRows,
-    TreeSelected,
 }
 
 macro_rules! accessors {
     ($($get:ident, $get_mut:ident, $variant:ident, $ty:ty;)*) => {$(
+        // the getter of a pair is not needed for every variant
+        #[allow(dead_code)]
         pub fn $get(&self) -> Option<&$ty> {
             match &self.data {
                 NodeData::$variant(d) => Some(d),
@@ -369,8 +356,8 @@ impl NodeData {
 impl Node {
     accessors! {
         window, window_mut, Window, WindowData;
-        check, check_mut, Check, CheckData;
         menu_item, menu_item_mut, MenuItem, MenuItemData;
+        check, check_mut, Check, CheckData;
         text_data, text_data_mut, Text, TextData;
         range, range_mut, Range, RangeData;
         list, list_mut, List, ListData;

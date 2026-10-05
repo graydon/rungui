@@ -160,7 +160,18 @@ fn main() {
             // RUNGUI_FUZZ_NO_PANICS=1: no deliberate panics (so a debugger can stop on the first real
             // unwind or foreign exception)
             let panics = std::env::var_os("RUNGUI_FUZZ_NO_PANICS").is_none();
-            s.1 = Some(Fuzz::new(&bytes(seed, PROGRAM_LEN), Mode::Native, panics));
+            let fz = Fuzz::new(&bytes(seed, PROGRAM_LEN), Mode::Native, panics);
+            // RUNGUI_FUZZ_LIMIT_SEED=n RUNGUI_FUZZ_LIMIT=k: only seed n stops after k operations,
+            // so the state earlier seeds left behind is still there (bisecting such failures)
+            let limit_seed: Option<u64> = std::env::var("RUNGUI_FUZZ_LIMIT_SEED")
+                .ok()
+                .and_then(|v| v.parse().ok());
+            if limit_seed == Some(seed) {
+                if let Some(k) = std::env::var("RUNGUI_FUZZ_LIMIT").ok().and_then(|v| v.parse().ok()) {
+                    fz.set_limit(k);
+                }
+            }
+            s.1 = Some(fz);
         }
         let fz = s.1.clone().expect("set above");
         drop(s);

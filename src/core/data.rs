@@ -20,7 +20,7 @@ fn merge(pending: Option<Data>, what: Data) -> Data {
     match pending {
         None => what,
         Some(p) if p == what => p,
-        Some(_) if matches!(what, Data::TreeRows | Data::TreeSelected) => Data::TreeRows,
+        Some(_) if what == Data::TreeRows => Data::TreeRows,
         Some(_) => Data::TableAll,
     }
 }

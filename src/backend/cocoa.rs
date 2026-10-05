@@ -2431,7 +2431,7 @@ fn set_text(id: WidgetId, e: &Entry, t: &str) {
             }
         }
         Kind::Button | Kind::CheckBox | Kind::RadioButton | Kind::GroupBox => {
-            vm!(e.obj, "setTitle:", Id: ns(&crate::text::strip_mnemonic(t)))
+            vm!(e.obj, "setTitle:", Id: ns(&crate::mnemonic::strip_mnemonic(t)))
         }
         Kind::TextArea => {
             if from_ns(idm!(e.aux, "string")) != t {
@@ -2440,7 +2440,7 @@ fn set_text(id: WidgetId, e: &Entry, t: &str) {
         }
         Kind::Page => vm!(e.aux, "setLabel:", Id: ns(t)),
         Kind::Menu => {
-            let t = &crate::text::strip_mnemonic(t);
+            let t = &crate::mnemonic::strip_mnemonic(t);
             vm!(e.obj, "setTitle:", Id: ns(t));
             vm!(e.aux, "setTitle:", Id: ns(t));
             // An app-defined "Edit" menu replaces the built-in one.
@@ -2466,7 +2466,7 @@ fn set_text(id: WidgetId, e: &Entry, t: &str) {
             }
         }
         Kind::MenuItem | Kind::CheckMenuItem => {
-            vm!(e.obj, "setTitle:", Id: ns(&crate::text::strip_mnemonic(t)))
+            vm!(e.obj, "setTitle:", Id: ns(&crate::mnemonic::strip_mnemonic(t)))
         }
         _ => {}
     }

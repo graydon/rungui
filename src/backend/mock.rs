@@ -474,7 +474,7 @@ pub fn user_drag_sash_by(splitter: WidgetId, delta: i32) {
     core::event(s, Event::SashDragged(start + delta));
 }
 /// Simulate a key press on `splitter`'s focused sash (see [`SashKey`](crate::SashKey)).
-pub fn user_sash_key(splitter: WidgetId, key: crate::SashKey) {
+pub fn user_sash_key(splitter: WidgetId, key: super::SashKey) {
     if let Some(s) = sash_of(splitter) {
         core::event(s, Event::SashKey(key));
     }

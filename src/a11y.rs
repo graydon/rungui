@@ -14,7 +14,7 @@
 
 use crate::backend::Kind;
 use crate::core::{self, Registry};
-use crate::text::strip_mnemonic;
+use crate::mnemonic::strip_mnemonic;
 use crate::types::*;
 
 /// What a widget is, for assistive technology. Only roles that every backend can express are

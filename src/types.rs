@@ -86,6 +86,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 /// Raw native object, for users who want to write platform-specific code.
 /// The payload is the pointer value (GtkWidget*, HWND/HMENU, NSView*/NSWindow*/NSMenu*...).
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 pub enum NativeHandle {
     Gtk(usize),
     Win32(usize),
@@ -133,6 +134,7 @@ impl ImageData {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 pub enum MessageKind {
     Info,
     Warning,
@@ -141,6 +143,7 @@ pub enum MessageKind {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 pub enum Buttons {
     Ok,
     OkCancel,
@@ -149,6 +152,7 @@ pub enum Buttons {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 pub enum Answer {
     Ok,
     Cancel,
