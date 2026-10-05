@@ -442,3 +442,28 @@ fn tree_clear_after_selection_and_expansion_leaves_no_state() {
     mock::user_tree_select(tr.id(), Some(b.0));
     assert_eq!(n.get(), 0, "events for removed nodes are dropped");
 }
+
+#[test]
+fn expand_weights_stay_finite() {
+    init();
+    let win = Window::new("w");
+    let col = HBox::new(win);
+    let a = Label::new(col, "a");
+    let b = Label::new(col, "b");
+    let c = Label::new(col, "c");
+    win.set_size(400, 100);
+    for (w, weight) in [(&a, f32::NAN), (&b, f32::INFINITY), (&c, -3.0)] {
+        w.set_expand(weight);
+    }
+    win.show();
+    App::update();
+    let widths: Vec<i32> = [a, b, c]
+        .iter()
+        .map(|w| widget(w.id()).unwrap().bounds.w)
+        .collect();
+    assert!(widths.iter().all(|w| *w >= 0), "{widths:?}");
+    assert!(
+        widths[1] > widths[0] && widths[1] > widths[2],
+        "the infinite weight takes the space: {widths:?}"
+    );
+}

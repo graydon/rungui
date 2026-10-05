@@ -47,7 +47,13 @@ impl Widget {
     }
     /// Share of spare space along the parent stack's axis (0 = natural size, 1 = take a share).
     pub fn set_expand(&self, weight: f32) {
-        core::update(self.0, true, |n| n.lay.expand = weight.max(0.0));
+        // NaN counts as 0 and infinity as the largest weight, so the weights always sum finitely
+        let weight = if weight.is_nan() {
+            0.0
+        } else {
+            weight.clamp(0.0, MAX_EXPAND)
+        };
+        core::update(self.0, true, |n| n.lay.expand = weight);
     }
     /// Alignment inside the parent's cell/cross axis (default `Fill`).
     pub fn set_align(&self, a: Align) {

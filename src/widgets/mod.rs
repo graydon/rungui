@@ -94,6 +94,8 @@ fn on(id: WidgetId, ev: Ev, mut f: impl FnMut(&Event) + 'static) {
 
 // ------------------------------------------------------------------ common
 
+/// Largest expand weight (see `Widget::set_expand`).
+const MAX_EXPAND: f32 = 1e6;
 /// Largest grid cell index / span (keeps the track tables small).
 const MAX_CELL: usize = 1 << 10;
 /// Most columns a table keeps; backends index columns with 16 bits and nobody needs more.
