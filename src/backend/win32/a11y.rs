@@ -21,69 +21,21 @@
 
 use super::*;
 use crate::a11y::{A11yRole, NameSource};
+use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
+use windows::Win32::System::Variant::{VARIANT, VT_I4};
+use windows::Win32::UI::Accessibility::{
+    CAccPropServices, IAccPropServices, NotifyWinEvent, PROPID_ACC_DESCRIPTION, PROPID_ACC_NAME,
+    PROPID_ACC_ROLE, PROPID_ACC_STATE, PROPID_ACC_VALUE, ROLE_SYSTEM_CHECKBUTTON,
+    ROLE_SYSTEM_COMBOBOX, ROLE_SYSTEM_GRAPHIC, ROLE_SYSTEM_GROUPING, ROLE_SYSTEM_LINK,
+    ROLE_SYSTEM_LIST, ROLE_SYSTEM_MENUBAR, ROLE_SYSTEM_MENUITEM, ROLE_SYSTEM_MENUPOPUP,
+    ROLE_SYSTEM_OUTLINE, ROLE_SYSTEM_PAGETABLIST, ROLE_SYSTEM_PANE, ROLE_SYSTEM_PROGRESSBAR,
+    ROLE_SYSTEM_PROPERTYPAGE, ROLE_SYSTEM_PUSHBUTTON, ROLE_SYSTEM_RADIOBUTTON,
+    ROLE_SYSTEM_SEPARATOR, ROLE_SYSTEM_SLIDER, ROLE_SYSTEM_SPINBUTTON, ROLE_SYSTEM_STATICTEXT,
+    ROLE_SYSTEM_TABLE, ROLE_SYSTEM_TEXT, ROLE_SYSTEM_WINDOW,
+};
+use windows::core::GUID;
 
-const CLSID_ACC_PROP_SERVICES: GUID = guid(
-    0xB5F8350B,
-    0x0548,
-    0x48B1,
-    [0xA6, 0xEE, 0x88, 0xBD, 0x00, 0xB4, 0xA5, 0xE7],
-);
-const IID_ACC_PROP_SERVICES: GUID = guid(
-    0x6E26E776,
-    0x04F0,
-    0x495D,
-    [0x80, 0xE4, 0x33, 0x30, 0x35, 0x2E, 0x31, 0x69],
-);
-const PROP_NAME: GUID = guid(
-    0x608D3DF8,
-    0x8128,
-    0x4AA7,
-    [0xA4, 0x28, 0xF5, 0x5E, 0x49, 0x26, 0x72, 0x91],
-);
-const PROP_VALUE: GUID = guid(
-    0x123FE443,
-    0x211A,
-    0x4615,
-    [0x95, 0x27, 0xC4, 0x5A, 0x7E, 0x93, 0x71, 0x7A],
-);
-const PROP_DESCRIPTION: GUID = guid(
-    0x4D48DFE4,
-    0xBD3F,
-    0x491F,
-    [0xA6, 0x48, 0x49, 0x2D, 0x6F, 0x20, 0xC5, 0x88],
-);
-const PROP_ROLE: GUID = guid(
-    0xCB905FF2,
-    0x7BD1,
-    0x4C05,
-    [0xB3, 0xC8, 0xE6, 0xC2, 0x41, 0x36, 0x4D, 0x70],
-);
-const PROP_STATE: GUID = guid(
-    0xA8D4D5B0,
-    0x0A21,
-    0x42D0,
-    [0xA5, 0xC0, 0x51, 0x4E, 0x98, 0x4F, 0x45, 0x7B],
-);
-
-const OBJID_CLIENT: i32 = -4;
-const EVENT_OBJECT_STATECHANGE: u32 = 0x800A;
-const EVENT_OBJECT_NAMECHANGE: u32 = 0x800C;
-const EVENT_OBJECT_DESCRIPTIONCHANGE: u32 = 0x800D;
-const EVENT_OBJECT_VALUECHANGE: u32 = 0x800E;
-const VT_I4: u16 = 3;
 const STATE_SYSTEM_INVISIBLE: i32 = 0x8000;
-
-/// `VARIANT` (16 bytes on both x86 and x64) holding a `VT_I4`.
-#[repr(C)]
-struct Variant {
-    vt: u16,
-    _pad: [u16; 3],
-    val: i64,
-}
-
-type SetHwndProp = unsafe extern "system" fn(Obj, HWND, u32, u32, GUID, Variant) -> i32;
-type SetHwndPropStr = unsafe extern "system" fn(Obj, HWND, u32, u32, GUID, *const u16) -> i32;
-type ClearHwndProps = unsafe extern "system" fn(Obj, HWND, u32, u32, *const GUID, i32) -> i32;
 
 /// The desired (or currently applied) annotations of one HWND.
 #[derive(Clone, Default, PartialEq, Debug)]
@@ -102,62 +54,55 @@ impl Props {
 }
 
 thread_local! {
-    /// `IAccPropServices`, created lazily (0 = not yet / unavailable).
-    static SERVICE: Cell<usize> = const { Cell::new(0) };
+    /// `IAccPropServices`, created lazily (None = not yet / unavailable).
+    static SERVICE: RefCell<Option<IAccPropServices>> = const { RefCell::new(None) };
     /// What has been annotated so far, per window and HWND.
-    static APPLIED: RefCell<HashMap<WidgetId, HashMap<HWND, Props>>> = RefCell::new(HashMap::new());
+    static APPLIED: RefCell<HashMap<WidgetId, HashMap<HKey, Props>>> = RefCell::new(HashMap::new());
 }
 
-fn service() -> Obj {
-    let cur = SERVICE.with(|s| s.get());
-    if cur != 0 {
-        return cur as Obj;
+fn service() -> Option<IAccPropServices> {
+    if let Some(s) = existing_service() {
+        return Some(s);
     }
-    let mut o: Obj = null_mut();
-    let hr = unsafe {
-        CoCreateInstance(
-            &CLSID_ACC_PROP_SERVICES,
-            null_mut(),
-            1,
-            &IID_ACC_PROP_SERVICES,
-            &mut o,
-        )
-    };
-    if hr < 0 {
-        o = null_mut();
+    let svc = unsafe {
+        CoCreateInstance::<_, IAccPropServices>(&CAccPropServices, None, CLSCTX_INPROC_SERVER)
     }
-    SERVICE.with(|s| s.set(o as usize));
-    o
+    .ok()?;
+    SERVICE.with(|s| *s.borrow_mut() = Some(svc.clone()));
+    Some(svc)
+}
+fn existing_service() -> Option<IAccPropServices> {
+    SERVICE.with(|s| s.borrow().clone())
 }
 
 /// ROLE_SYSTEM_* for a role.
 fn msaa_role(r: A11yRole) -> i32 {
     use A11yRole as R;
-    match r {
-        R::Window => 9,
-        R::Pane => 16,
-        R::Group => 20,
-        R::Splitter => 21,
-        R::Table => 24,
-        R::Link => 30,
-        R::ListBox => 33,
-        R::Tree => 35,
-        R::TabPanel => 38,
-        R::Image => 40,
-        R::Label => 41,
-        R::TextInput | R::PasswordInput | R::MultilineTextInput => 42,
-        R::Button => 43,
-        R::CheckBox => 44,
-        R::RadioButton => 45,
-        R::ComboBox => 46,
-        R::ProgressBar => 48,
-        R::Slider => 51,
-        R::SpinButton => 52,
-        R::TabList => 60,
-        R::MenuBar => 2,
-        R::Menu => 11,
-        R::MenuItem | R::MenuItemCheckBox => 12,
-    }
+    (match r {
+        R::Window => ROLE_SYSTEM_WINDOW,
+        R::Pane => ROLE_SYSTEM_PANE,
+        R::Group => ROLE_SYSTEM_GROUPING,
+        R::Splitter => ROLE_SYSTEM_SEPARATOR,
+        R::Table => ROLE_SYSTEM_TABLE,
+        R::Link => ROLE_SYSTEM_LINK,
+        R::ListBox => ROLE_SYSTEM_LIST,
+        R::Tree => ROLE_SYSTEM_OUTLINE,
+        R::TabPanel => ROLE_SYSTEM_PROPERTYPAGE,
+        R::Image => ROLE_SYSTEM_GRAPHIC,
+        R::Label => ROLE_SYSTEM_STATICTEXT,
+        R::TextInput | R::PasswordInput | R::MultilineTextInput => ROLE_SYSTEM_TEXT,
+        R::Button => ROLE_SYSTEM_PUSHBUTTON,
+        R::CheckBox => ROLE_SYSTEM_CHECKBUTTON,
+        R::RadioButton => ROLE_SYSTEM_RADIOBUTTON,
+        R::ComboBox => ROLE_SYSTEM_COMBOBOX,
+        R::ProgressBar => ROLE_SYSTEM_PROGRESSBAR,
+        R::Slider => ROLE_SYSTEM_SLIDER,
+        R::SpinButton => ROLE_SYSTEM_SPINBUTTON,
+        R::TabList => ROLE_SYSTEM_PAGETABLIST,
+        R::MenuBar => ROLE_SYSTEM_MENUBAR,
+        R::Menu => ROLE_SYSTEM_MENUPOPUP,
+        R::MenuItem | R::MenuItemCheckBox => ROLE_SYSTEM_MENUITEM,
+    }) as i32
 }
 
 /// What each native HWND of `window` should carry, from the core's resolved names and roles.
@@ -175,7 +120,7 @@ fn desired(window: WidgetId) -> Vec<(WidgetId, HWND, Props)> {
         let Some((hwnd, aux)) = get(n.id, |w| (w.hwnd, w.aux)) else {
             continue;
         };
-        if hwnd == 0 {
+        if hwnd.is_invalid() {
             continue;
         }
         let custom = matches!(n.kind, Kind::Sash | Kind::Page | Kind::GroupBox);
@@ -195,7 +140,7 @@ fn desired(window: WidgetId) -> Vec<(WidgetId, HWND, Props)> {
             })
             .flatten();
         }
-        if n.kind == Kind::SpinBox && aux != 0 && (p.name.is_some() || p.desc.is_some()) {
+        if n.kind == Kind::SpinBox && !aux.is_invalid() && (p.name.is_some() || p.desc.is_some()) {
             out.push((
                 n.id,
                 aux,
@@ -209,7 +154,7 @@ fn desired(window: WidgetId) -> Vec<(WidgetId, HWND, Props)> {
         if !p.is_empty() {
             out.push((n.id, hwnd, p));
         }
-        if n.kind == Kind::GroupBox && aux != 0 {
+        if n.kind == Kind::GroupBox && !aux.is_invalid() {
             out.push((
                 n.id,
                 aux,
@@ -225,119 +170,119 @@ fn desired(window: WidgetId) -> Vec<(WidgetId, HWND, Props)> {
     out
 }
 
-unsafe fn set_str(svc: Obj, hwnd: HWND, prop: GUID, v: &str) {
-    let w = wide(v);
-    unsafe { vt::<SetHwndPropStr>(svc, 7)(svc, hwnd, OBJID_CLIENT as u32, 0, prop, w.as_ptr()) };
+const OBJECT_CLIENT: u32 = -4i32 as u32; // OBJID_CLIENT
+
+fn set_str(svc: &IAccPropServices, hwnd: HWND, prop: GUID, v: &str) {
+    unsafe {
+        let _ = svc.SetHwndPropStr(hwnd, OBJECT_CLIENT, 0, prop, &hs(v));
+    }
 }
-unsafe fn set_i4(svc: Obj, hwnd: HWND, prop: GUID, v: i32) {
-    let var = Variant {
-        vt: VT_I4,
-        _pad: [0; 3],
-        val: v as i64,
-    };
-    unsafe { vt::<SetHwndProp>(svc, 6)(svc, hwnd, OBJID_CLIENT as u32, 0, prop, var) };
+fn set_i4(svc: &IAccPropServices, hwnd: HWND, prop: GUID, v: i32) {
+    unsafe {
+        let mut var = VARIANT::default();
+        let inner = &mut *var.Anonymous.Anonymous;
+        inner.vt = VT_I4;
+        inner.Anonymous.lVal = v;
+        let _ = svc.SetHwndProp(hwnd, OBJECT_CLIENT, 0, prop, &var);
+    }
 }
-unsafe fn clear(svc: Obj, hwnd: HWND, prop: GUID) {
-    unsafe { vt::<ClearHwndProps>(svc, 9)(svc, hwnd, OBJID_CLIENT as u32, 0, &prop, 1) };
+fn clear(svc: &IAccPropServices, hwnd: HWND, prop: GUID) {
+    unsafe {
+        let _ = svc.ClearHwndProps(hwnd, OBJECT_CLIENT, 0, &[prop]);
+    }
+}
+fn notify(event: u32, hwnd: HWND) {
+    unsafe { NotifyWinEvent(event, hwnd, OBJECT_CLIENT as i32, 0) }
 }
 
-/// Bring one HWND's annotations from `old` to `new`; `notify` raises the matching WinEvents.
-unsafe fn sync(svc: Obj, hwnd: HWND, old: &Props, new: &Props, notify: bool) {
-    unsafe fn text(
-        svc: Obj,
+/// Bring one HWND's annotations from `old` to `new`; `raise` raises the matching WinEvents.
+fn sync(svc: &IAccPropServices, hwnd: HWND, old: &Props, new: &Props, raise: bool) {
+    fn text(
+        svc: &IAccPropServices,
         hwnd: HWND,
         prop: GUID,
         ev: u32,
         old: &Option<String>,
         new: &Option<String>,
-        notify: bool,
+        raise: bool,
     ) {
         if old == new {
             return;
         }
-        unsafe {
-            match new {
-                Some(v) => set_str(svc, hwnd, prop, v),
-                None => clear(svc, hwnd, prop),
-            }
-            if notify {
-                NotifyWinEvent(ev, hwnd, OBJID_CLIENT, 0);
-            }
+        match new {
+            Some(v) => set_str(svc, hwnd, prop, v),
+            None => clear(svc, hwnd, prop),
+        }
+        if raise {
+            notify(ev, hwnd);
         }
     }
-    unsafe fn int(
-        svc: Obj,
+    fn int(
+        svc: &IAccPropServices,
         hwnd: HWND,
         prop: GUID,
         ev: u32,
         old: Option<i32>,
         new: Option<i32>,
-        notify: bool,
+        raise: bool,
     ) {
         if old == new {
             return;
         }
-        unsafe {
-            match new {
-                Some(v) => set_i4(svc, hwnd, prop, v),
-                None => clear(svc, hwnd, prop),
-            }
-            if notify {
-                NotifyWinEvent(ev, hwnd, OBJID_CLIENT, 0);
-            }
+        match new {
+            Some(v) => set_i4(svc, hwnd, prop, v),
+            None => clear(svc, hwnd, prop),
+        }
+        if raise {
+            notify(ev, hwnd);
         }
     }
-    unsafe {
-        text(
-            svc,
-            hwnd,
-            PROP_NAME,
-            EVENT_OBJECT_NAMECHANGE,
-            &old.name,
-            &new.name,
-            notify,
-        );
-        text(
-            svc,
-            hwnd,
-            PROP_DESCRIPTION,
-            EVENT_OBJECT_DESCRIPTIONCHANGE,
-            &old.desc,
-            &new.desc,
-            notify,
-        );
-        text(
-            svc,
-            hwnd,
-            PROP_VALUE,
-            EVENT_OBJECT_VALUECHANGE,
-            &old.value,
-            &new.value,
-            notify,
-        );
-        int(svc, hwnd, PROP_ROLE, 0, old.role, new.role, false);
-        int(
-            svc,
-            hwnd,
-            PROP_STATE,
-            EVENT_OBJECT_STATECHANGE,
-            old.state,
-            new.state,
-            notify,
-        );
-    }
+    text(
+        svc,
+        hwnd,
+        PROPID_ACC_NAME,
+        EVENT_OBJECT_NAMECHANGE,
+        &old.name,
+        &new.name,
+        raise,
+    );
+    text(
+        svc,
+        hwnd,
+        PROPID_ACC_DESCRIPTION,
+        EVENT_OBJECT_DESCRIPTIONCHANGE,
+        &old.desc,
+        &new.desc,
+        raise,
+    );
+    text(
+        svc,
+        hwnd,
+        PROPID_ACC_VALUE,
+        EVENT_OBJECT_VALUECHANGE,
+        &old.value,
+        &new.value,
+        raise,
+    );
+    int(svc, hwnd, PROPID_ACC_ROLE, 0, old.role, new.role, false);
+    int(
+        svc,
+        hwnd,
+        PROPID_ACC_STATE,
+        EVENT_OBJECT_STATECHANGE,
+        old.state,
+        new.state,
+        raise,
+    );
 }
 
 /// Make the annotations of every native HWND in `window` match the core's current model.
 pub(super) fn apply(window: WidgetId) {
     let want = desired(window);
-    let svc = service();
-    if svc.is_null() {
-        return;
-    }
-    let mut want_by_hwnd: HashMap<HWND, Props> = HashMap::new();
+    let Some(svc) = service() else { return };
+    let mut want_by_hwnd: HashMap<HKey, Props> = HashMap::new();
     for (_, h, p) in want {
-        want_by_hwnd.insert(h, p);
+        want_by_hwnd.insert(h.into(), p);
     }
     let mut applied = APPLIED
         .with(|a| a.borrow_mut().remove(&window))
@@ -345,14 +290,14 @@ pub(super) fn apply(window: WidgetId) {
     let none = Props::default();
     for (h, old) in applied.iter() {
         if !want_by_hwnd.contains_key(h) {
-            unsafe { sync(svc, *h, old, &none, false) };
+            sync(&svc, h.hwnd(), old, &none, false);
         }
     }
     applied.retain(|h, _| want_by_hwnd.contains_key(h));
     for (h, new) in want_by_hwnd {
         let seen = applied.contains_key(&h);
         let old = applied.get(&h).cloned().unwrap_or_default();
-        unsafe { sync(svc, h, &old, &new, seen) };
+        sync(&svc, h.hwnd(), &old, &new, seen);
         applied.insert(h, new);
     }
     APPLIED.with(|a| a.borrow_mut().insert(window, applied));
@@ -360,14 +305,14 @@ pub(super) fn apply(window: WidgetId) {
 
 /// Remove the annotations of `hwnds` (call before the windows are destroyed).
 pub(super) fn forget(window: WidgetId, hwnds: &[HWND]) {
-    let svc = SERVICE.with(|s| s.get()) as Obj;
+    let svc = existing_service();
     APPLIED.with(|a| {
         let mut a = a.borrow_mut();
         let Some(m) = a.get_mut(&window) else { return };
         for h in hwnds {
-            if let Some(old) = m.remove(h) {
-                if !svc.is_null() {
-                    unsafe { sync(svc, *h, &old, &Props::default(), false) };
+            if let Some(old) = m.remove(&HKey::from(*h)) {
+                if let Some(svc) = &svc {
+                    sync(svc, *h, &old, &Props::default(), false);
                 }
             }
         }
@@ -376,11 +321,11 @@ pub(super) fn forget(window: WidgetId, hwnds: &[HWND]) {
 
 /// Remove every annotation of `window` (call before the window is destroyed).
 pub(super) fn forget_window(window: WidgetId) {
-    let svc = SERVICE.with(|s| s.get()) as Obj;
+    let svc = existing_service();
     if let Some(m) = APPLIED.with(|a| a.borrow_mut().remove(&window)) {
-        if !svc.is_null() {
+        if let Some(svc) = &svc {
             for (h, old) in m {
-                unsafe { sync(svc, h, &old, &Props::default(), false) };
+                sync(svc, h.hwnd(), &old, &Props::default(), false);
             }
         }
     }
@@ -388,18 +333,16 @@ pub(super) fn forget_window(window: WidgetId) {
 
 /// The HWND of a widget was replaced: move its annotations to the new one.
 pub(super) fn rehome(window: WidgetId, old: HWND, new: HWND) {
-    let svc = SERVICE.with(|s| s.get()) as Obj;
+    let svc = existing_service();
     APPLIED.with(|a| {
         let mut a = a.borrow_mut();
         let Some(m) = a.get_mut(&window) else { return };
-        if let Some(p) = m.remove(&old) {
-            if !svc.is_null() {
-                unsafe {
-                    sync(svc, old, &p, &Props::default(), false);
-                    sync(svc, new, &Props::default(), &p, false);
-                }
+        if let Some(p) = m.remove(&HKey::from(old)) {
+            if let Some(svc) = &svc {
+                sync(svc, old, &p, &Props::default(), false);
+                sync(svc, new, &Props::default(), &p, false);
             }
-            m.insert(new, p);
+            m.insert(new.into(), p);
         }
     });
 }

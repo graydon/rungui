@@ -1,13 +1,11 @@
-//! GNUstep emulation only: rustc links with --as-needed, and Objective-C classes are
-//! looked up by name at runtime, so no symbol would reference libgnustep-base/gui and
-//! the linker would drop them (classes then vanish -> segfault). Referencing one symbol
-//! from each library keeps them in DT_NEEDED.
+//! GNUstep emulation only: rustc links with --as-needed, and Objective-C classes are looked up by
+//! name at runtime, so no symbol would reference libgnustep-gui and the linker would drop it
+//! (classes then vanish -> crash). Referencing one function that lives in it (through the
+//! objc2-app-kit binding, no hand-declared extern) keeps it in DT_NEEDED; libgnustep-base comes
+//! along as a dependency of libgnustep-gui.
 #![cfg(rungui_gnustep)]
-unsafe extern "C" {
-    fn NSLog(fmt: *mut core::ffi::c_void, ...);
-    fn NSApplicationMain(argc: i32, argv: *const *const i8) -> i32;
-}
+use objc2_app_kit::NSRectFill;
+use objc2_foundation::NSRect;
+
 #[used]
-static KEEP_BASE: unsafe extern "C" fn(*mut core::ffi::c_void, ...) = NSLog;
-#[used]
-static KEEP_GUI: unsafe extern "C" fn(i32, *const *const i8) -> i32 = NSApplicationMain;
+static KEEP_GUI: extern "C-unwind" fn(NSRect) = NSRectFill;
