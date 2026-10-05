@@ -18,6 +18,11 @@ run cargo build --target x86_64-pc-windows-gnu --examples "$@"  # win32 via ming
 run cargo check --target aarch64-apple-darwin "$@"              # real cocoa cfg, type-check only
 run cargo check --target x86_64-apple-darwin "$@"
 run cargo build --release "$@"
+run cargo test --release --features mock "$@"                   # release arithmetic (wrapping) must agree too
+# the declared minimum Rust version, when that toolchain is installed
+if rustup toolchain list 2>/dev/null | grep -q '^1\.85'; then
+  run cargo +1.85.0 check --all-targets --features mock "$@"
+fi
 if cargo clippy --version >/dev/null 2>&1; then
   # warnings are errors in every mode (the real backends are separate code per target)
   run cargo clippy --all-targets "$@" -- -D warnings
