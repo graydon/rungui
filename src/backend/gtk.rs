@@ -48,6 +48,8 @@ struct W {
     sash_v: bool,
     sash_pos: i32,
     drag: Option<(f64, i32)>,
+    /// Page: whether the app wants it shown (see `show_pages`).
+    page_shown: bool,
 }
 
 thread_local! {
@@ -588,6 +590,7 @@ fn blank(kind: Kind, w: P, parent: Option<WidgetId>, win: Option<WidgetId>) -> W
         sash_v: false,
         sash_pos: 0,
         drag: None,
+        page_shown: true,
     }
 }
 
@@ -692,6 +695,29 @@ const RESP_OK: c_int = 1;
 const RESP_CANCEL: c_int = 2;
 const RESP_YES: c_int = 3;
 const RESP_NO: c_int = 4;
+
+/// Show the pages of a notebook that was hidden when they were added (see `Kind::Page` creation)
+/// and are wanted visible.
+unsafe fn show_pages(notebook: P) {
+    unsafe {
+        let list = gtk_container_get_children(notebook);
+        let mut l = list;
+        while !l.is_null() {
+            let page = (*l).data;
+            let wanted = WIDGETS.with(|m| {
+                m.borrow()
+                    .values()
+                    .find(|w| w.w == page && w.kind == Kind::Page)
+                    .is_none_or(|w| w.page_shown)
+            });
+            if wanted {
+                gtk_widget_show(page);
+            }
+            l = (*l).next;
+        }
+        g_list_free(list);
+    }
+}
 
 /// Natural-size floors for widgets whose GTK natural size is too small to use.
 const MIN_TEXT_AREA: Size = Size::new(240, 100);
@@ -1153,6 +1179,9 @@ unsafe fn create_inner(
                 gtk_widget_show(fixed);
                 let ag = gtk_accel_group_new();
                 gtk_window_add_accel_group(win, ag);
+                // the window now holds its own reference; ours would leak the group (and every
+                // accelerator closure in it) with each window
+                g_object_unref(ag);
                 connect(win, b"delete-event\0", h_delete as *const (), id);
                 ctx_hooks(win, id);
                 connect(sw, b"size-allocate\0", h_size_allocate as *const (), id);
@@ -1278,7 +1307,12 @@ unsafe fn create_inner(
             Kind::Page => {
                 let page = gtk_fixed_new();
                 let nb = pw.map_or(NULL, |p| p.w);
-                gtk_widget_show(page);
+                // GTK 3 raises a critical when a notebook that is hidden while it gets a visible
+                // page is later shown in a mapped window: show the page only once the notebook is
+                // (and `show_pages` does it when the notebook is shown later)
+                if gtk_widget_get_visible(nb) != 0 {
+                    gtk_widget_show(page);
+                }
                 gtk_notebook_append_page(nb, page, NULL);
                 w.w = page;
                 w.inner = page;
@@ -1447,8 +1481,14 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
             }
             Prop::Enabled(e) => gtk_widget_set_sensitive(w.w, *e as c_int),
             Prop::Visible(v) => {
+                if w.kind == Kind::Page {
+                    upd(id, |x| x.page_shown = *v);
+                }
                 if *v {
-                    gtk_widget_show(w.w)
+                    gtk_widget_show(w.w);
+                    if w.kind == Kind::Tabs {
+                        show_pages(w.w);
+                    }
                 } else {
                     gtk_widget_hide(w.w)
                 }

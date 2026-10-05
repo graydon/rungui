@@ -44,3 +44,11 @@ test = false
 doc = false
 bench = false
 required-features = ["mock"]
+
+# Create/destroy a window with every widget kind in a loop and report memory and fd use.
+[[bin]]
+name = "soak"
+path = "src/bin/soak.rs"
+test = false
+doc = false
+bench = false

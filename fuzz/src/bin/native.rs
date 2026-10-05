@@ -92,6 +92,9 @@ mod glib_log {
                 unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
             }
         };
+        if level & BAD == 0 && std::env::var_os("RUNGUI_FUZZ_VERBOSE").is_none() {
+            return; // info and debug chatter of the toolkit
+        }
         eprintln!("GLib [{}] level {level}: {}", text(domain), text(msg));
         if level & BAD != 0 {
             eprintln!("{}", std::backtrace::Backtrace::force_capture());
