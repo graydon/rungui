@@ -6,7 +6,7 @@
 #   scripts/fuzz-native.sh [seeds=300] [first_seed=1]     BACKEND=gtk|gnustep (default gtk)
 #   ASAN=1 scripts/fuzz-native.sh ...                      AddressSanitizer build (needs nightly)
 #   SOAK=1 scripts/fuzz-native.sh [iterations=1500]        leak soak instead: create/destroy loop
-#   MODAL=0|messages|files|all ...                         dialogs the driver may open (default: messages)
+#   MODAL=0|messages|files|all ...                         dialogs the driver may open (default: none; GTK trips over its own key handling when they are dismissed this way)
 #
 # GNUstep runs get NSZombieEnabled=YES (messages to freed objects are reported). Reproduce a failing
 # seed with `scripts/fuzz-native.sh 1 <seed>` and narrow it with scripts/fuzz-bisect.sh.
@@ -36,12 +36,12 @@ else
   exe="$T/debug/$bin"
 fi
 out="$(mktemp)"
-# MODAL=messages (default) lets the driver open message boxes, MODAL=files file dialogs too and
+# MODAL=messages lets the driver open message boxes, MODAL=files file dialogs too and
 # MODAL=all popup menus as well; MODAL=0 none. They block the toolkit's loop, so a background loop
 # presses Escape to dismiss whatever is open. The last two are opt-in because GTK 3 itself trips
 # over them now and then (assertions inside its file chooser, submenu arrows drawn with negative
 # sizes in popup menus).
-modal="${MODAL:-messages}"
+modal="${MODAL:-0}"
 [ "$bin" = native ] && [ "$BACKEND" = gtk ] || modal=0   # the dismissing loop below knows GTK dialogs only
 [ "$modal" != 0 ] && env_extra+=(RUNGUI_FUZZ_MODAL="$modal")
 export MODAL_PUMP=0
