@@ -7,6 +7,7 @@ fn tree_do<R>(id: WidgetId, f: impl FnOnce(&core::TreeData) -> R) -> Option<R> {
 }
 
 impl Tree {
+    /// An empty tree.
     pub fn new(parent: impl Into<WidgetId>) -> Tree {
         make(Tree::from_id, Kind::Tree, parent, |_| {})
     }
@@ -32,6 +33,7 @@ impl Tree {
             }
         });
     }
+    /// Remove every node.
     pub fn clear(&self) {
         core::data_update(self.id(), core::Data::TreeRows, |n| {
             if let Some(t) = n.tree_mut() {
@@ -39,6 +41,7 @@ impl Tree {
             }
         });
     }
+    /// Change a node's text.
     pub fn set_text(&self, node: TreeNodeId, text: &str) {
         core::data_update(self.id(), core::Data::TreeRows, |n| {
             if let Some(x) = n.tree_mut().and_then(|t| t.nodes.get_mut(&node.0)) {
@@ -46,6 +49,7 @@ impl Tree {
             }
         });
     }
+    /// A node's text (empty for an unknown node).
     pub fn text(&self, node: TreeNodeId) -> String {
         tree_do(self.id(), |t| t.nodes.get(&node.0).map(|n| n.text.clone()))
             .flatten()
@@ -61,11 +65,13 @@ impl Tree {
         })
         .unwrap_or_default()
     }
+    /// A node's parent (`None` for a top-level or unknown node).
     pub fn parent(&self, node: TreeNodeId) -> Option<TreeNodeId> {
         tree_do(self.id(), |t| t.nodes.get(&node.0).and_then(|n| n.parent))
             .flatten()
             .map(TreeNodeId)
     }
+    /// Whether the node exists.
     pub fn contains(&self, node: TreeNodeId) -> bool {
         tree_do(self.id(), |t| t.nodes.contains_key(&node.0)).unwrap_or(false)
     }
@@ -73,6 +79,7 @@ impl Tree {
     pub fn len(&self) -> usize {
         tree_do(self.id(), |t| t.nodes.len()).unwrap_or(0)
     }
+    /// Whether the tree has no nodes.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -84,12 +91,14 @@ impl Tree {
             }
         });
     }
+    /// Whether the node is expanded.
     pub fn expanded(&self, node: TreeNodeId) -> bool {
         tree_do(self.id(), |t| {
             t.nodes.get(&node.0).is_some_and(|n| n.expanded)
         })
         .unwrap_or(false)
     }
+    /// Expand or collapse every node.
     pub fn expand_all(&self, v: bool) {
         core::data_update(self.id(), core::Data::TreeRows, |n| {
             if let Some(t) = n.tree_mut() {
@@ -119,6 +128,7 @@ impl Tree {
             }
         });
     }
+    /// The selected node.
     pub fn selected(&self) -> Option<TreeNodeId> {
         tree_do(self.id(), |t| t.selected).flatten().map(TreeNodeId)
     }
@@ -128,6 +138,7 @@ impl Tree {
         let _g = Thaw(self.id());
         f(self)
     }
+    /// Run `f` with the new node when the user changes the selection (`None` when cleared).
     pub fn on_select(&self, mut f: impl FnMut(Option<TreeNodeId>) + 'static) {
         on(self.id(), Ev::TreeSelected, move |e| {
             if let Event::TreeSelected(x) = e {

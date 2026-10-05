@@ -3,14 +3,17 @@
 use super::*;
 
 impl Window {
+    /// A hidden top-level window; add widgets to it and call [`Window::show`].
     pub fn new(title: &str) -> Window {
         Window::from_id(core::create(Kind::Window, None, |n| {
             n.text = title.to_string()
         }))
     }
+    /// Change the title.
     pub fn set_title(&self, t: &str) {
         set_text(self.id(), t, false)
     }
+    /// The title.
     pub fn title(&self) -> String {
         text_of(self.id())
     }
@@ -27,11 +30,13 @@ impl Window {
             core::layout_window(self.id());
         }
     }
+    /// The client-area size: the last size set or reported by the user, else the size layout chose.
     pub fn size(&self) -> (i32, i32) {
         core::read(self.id(), |n| n.window().map(|w| (w.client.w, w.client.h)))
             .flatten()
             .unwrap_or((0, 0))
     }
+    /// Allow or forbid resizing by the user.
     pub fn set_resizable(&self, v: bool) {
         core::set(
             self.id(),
@@ -44,9 +49,11 @@ impl Window {
             Prop::Resizable(v),
         );
     }
+    /// Show the window (and lay it out).
     pub fn show(&self) {
         self.set_visible(true)
     }
+    /// Hide the window.
     pub fn hide(&self) {
         self.set_visible(false)
     }

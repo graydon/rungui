@@ -9,6 +9,7 @@ use super::*;
 /// and the second pane the rest. Hiding a pane gives the whole area to the other one. The user
 /// drags the sash to move the split; on backends without a native sash the split is fixed.
 impl Splitter {
+    /// A splitter dividing its area between two panes (its first two children).
     pub fn new(parent: impl Into<WidgetId>, orientation: Orientation) -> Splitter {
         let s = make(Splitter::from_id, Kind::Splitter, parent, |n| {
             n.lay.padding = 0;
@@ -22,6 +23,7 @@ impl Splitter {
         }
         s
     }
+    /// Which way the panes are laid out.
     pub fn orientation(&self) -> Orientation {
         core::read(self.id(), |n| n.split().map(|s| s.orient))
             .flatten()

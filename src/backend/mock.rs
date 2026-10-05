@@ -10,58 +10,89 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone, Debug, Default)]
+/// The mock's view of one native widget: everything the core pushed to it.
 pub struct MockWidget {
+    /// The widget kind.
     pub kind: Option<Kind>,
+    /// The native parent.
     pub parent: Option<WidgetId>,
+    /// Text, title or caption.
     pub text: String,
+    /// Tooltip text.
     pub tooltip: String,
+    /// Placeholder text.
     pub placeholder: String,
+    /// Keyboard accelerator text.
     pub accel: String,
+    /// Enabled state as pushed.
     pub enabled: bool,
+    /// Visible state as pushed.
     pub visible: bool,
+    /// Check state.
     pub checked: bool,
+    /// Read-only flag.
     pub readonly: bool,
+    /// Busy animation on.
     pub indeterminate: bool,
+    /// Focus was requested.
     pub focused: bool,
+    /// Slider/spin value or progress fraction.
     pub value: f64,
+    /// Range as (min, max, step).
     pub range: (f64, f64, f64),
+    /// Items of a combo box or list box.
     pub items: Vec<String>,
+    /// Selected item or tab.
     pub selected: Option<usize>,
+    /// Last bounds pushed.
     pub bounds: Rect,
+    /// The picture shown.
     pub image: Option<ImageData>,
     /// Number of `Prop::Bounds` pushes received (to test change-only updates).
     pub bounds_pushes: u32,
     /// Table state as last pushed by the core.
     pub columns: Vec<Column>,
+    /// Table rows.
     pub rows: Vec<Vec<String>>,
+    /// Table sort arrow as (column, ascending).
     pub sort: Option<(usize, bool)>,
     /// Tree state as last pushed by the core (user_tree_expand mutates `expanded`).
     pub tree_rows: Vec<TreeRow>,
+    /// Selected tree node.
     pub tree_selected: Option<u64>,
     /// Sash orientation (`Prop::Orientation`).
     pub orientation: Option<Orientation>,
+    /// Fixed-pitch font on.
     pub monospace: bool,
     /// TextArea soft wrap; starts `true` like a native text view.
     pub wrap: bool,
     /// Window screen position (`Prop::Position`) and minimum client size (`Prop::MinSize`).
     pub position: Option<(i32, i32)>,
+    /// Minimum client size of a window.
     pub min_size: Size,
 }
 
 /// What the core last told the mock about one native widget's accessibility (`a11y_changed`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct A11yRecord {
+    /// The widget.
     pub id: WidgetId,
+    /// Accessible name.
     pub name: Option<String>,
+    /// Accessible description.
     pub description: Option<String>,
+    /// Accessible role.
     pub role: crate::A11yRole,
 }
 
 /// One `Backend::popup_menu` call.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PopupRecord {
+    /// The popup menu shown.
     pub menu: WidgetId,
+    /// The window it was shown over.
     pub window: Option<WidgetId>,
+    /// Window-client position, or `None` for "at the pointer".
     pub at: Option<(i32, i32)>,
     /// Direct children of the menu at show time: (kind, text, enabled).
     pub items: Vec<(Kind, String, bool)>,
@@ -98,6 +129,7 @@ fn st<R>(f: impl FnOnce(&mut State) -> R) -> R {
     S.with(|s| f(&mut s.borrow_mut()))
 }
 
+/// The headless backend: records what the core pushes and plays the user and the operating system for tests.
 pub struct Mock;
 
 impl Backend for Mock {
@@ -339,6 +371,7 @@ pub fn wake_count() -> u32 {
 pub fn fail_next_timer() {
     st(|s| s.fail_timer = true);
 }
+/// How many native widgets exist.
 pub fn widget_count() -> usize {
     st(|s| s.widgets.len())
 }
@@ -367,6 +400,7 @@ pub fn advance(ms: u32) {
         core::timer_fired(tok);
     }
 }
+/// How many timers are running.
 pub fn timer_count() -> usize {
     st(|s| s.timers.len())
 }
@@ -385,9 +419,11 @@ pub fn user(id: WidgetId, ev: Event) {
     });
     core::event(id, ev);
 }
+/// The user clicks a button or menu item.
 pub fn user_click(id: WidgetId) {
     user(id, Event::Click)
 }
+/// The user types `t` into a text widget (the whole new content).
 pub fn user_text(id: WidgetId, t: &str) {
     user(id, Event::Text(t.into()))
 }
@@ -404,15 +440,19 @@ pub fn resize_window(id: WidgetId, w: i32, h: i32) {
 pub fn user_close(id: WidgetId) {
     core::close_requested(id)
 }
+/// Queue the answer the next message box returns (default: OK).
 pub fn queue_answer(a: Answer) {
     st(|s| s.answers.push_back(a));
 }
+/// Queue the paths the next file dialog returns (default: none, i.e. cancelled).
 pub fn queue_files(f: &[&str]) {
     st(|s| s.files.push_back(f.iter().map(|x| x.to_string()).collect()));
 }
+/// The most recent message box request.
 pub fn last_message() -> Option<MessageSpec> {
     st(|s| s.last_message.clone())
 }
+/// The most recent file dialog request.
 pub fn last_file_spec() -> Option<FileSpec> {
     st(|s| s.last_file_spec.clone())
 }
@@ -420,12 +460,15 @@ pub fn last_file_spec() -> Option<FileSpec> {
 pub fn queue_popup_choice(item: Option<WidgetId>) {
     st(|s| s.popup_choices.push_back(item));
 }
+/// Every popup menu shown so far.
 pub fn popup_log() -> Vec<PopupRecord> {
     st(|s| s.popups.clone())
 }
+/// The most recent popup menu.
 pub fn last_popup() -> Option<PopupRecord> {
     st(|s| s.popups.last().cloned())
 }
+/// Forget the recorded popups.
 pub fn clear_popup_log() {
     st(|s| s.popups.clear());
 }
@@ -437,12 +480,15 @@ pub fn user_context_menu(id: WidgetId, x: i32, y: i32) {
 pub fn user_select_row(id: WidgetId, row: Option<usize>) {
     user(id, Event::Selected(row))
 }
+/// The user double-clicks (or presses Enter on) a table row.
 pub fn user_activate_row(id: WidgetId, row: usize) {
     core::event(id, Event::Activated(row))
 }
+/// The user clicks a table column header.
 pub fn user_click_column(id: WidgetId, col: usize) {
     core::event(id, Event::ColumnClicked(col))
 }
+/// The user selects a tree node (`None` clears).
 pub fn user_tree_select(id: WidgetId, node: Option<u64>) {
     st(|s| {
         if let Some(w) = s.widgets.get_mut(&id) {
@@ -451,6 +497,7 @@ pub fn user_tree_select(id: WidgetId, node: Option<u64>) {
     });
     core::event(id, Event::TreeSelected(node))
 }
+/// The user double-clicks a tree node.
 pub fn user_tree_activate(id: WidgetId, node: u64) {
     core::event(id, Event::TreeActivated(node))
 }
@@ -494,7 +541,7 @@ pub fn user_drag_sash_by(splitter: WidgetId, delta: i32) {
     };
     core::event(s, Event::SashDragged(start + delta));
 }
-/// Simulate a key press on `splitter`'s focused sash (see [`SashKey`](crate::SashKey)).
+/// Simulate a key press on `splitter`'s focused sash (see [`SashKey`]).
 pub fn user_sash_key(splitter: WidgetId, key: super::SashKey) {
     if let Some(s) = sash_of(splitter) {
         core::event(s, Event::SashKey(key));
@@ -509,6 +556,7 @@ pub fn user_move_window(id: WidgetId, x: i32, y: i32) {
     });
     core::event(id, Event::Moved { x, y });
 }
+/// Make the next `create` fail with a backend error.
 pub fn fail_next_create() {
     st(|s| s.fail_create = true);
 }

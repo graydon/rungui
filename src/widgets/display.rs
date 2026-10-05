@@ -3,20 +3,24 @@
 use super::*;
 
 impl Label {
+    /// A static text label.
     pub fn new(parent: impl Into<WidgetId>, text: &str) -> Label {
         make(Label::from_id, Kind::Label, parent, |n| {
             n.text = text.to_string()
         })
     }
+    /// Change the text.
     pub fn set_text(&self, t: &str) {
         set_text(self.id(), t, true)
     }
+    /// The text.
     pub fn text(&self) -> String {
         text_of(self.id())
     }
 }
 
 impl Image {
+    /// An image, initially empty; set it with [`Image::set_image`].
     pub fn new(parent: impl Into<WidgetId>) -> Image {
         make(Image::from_id, Kind::Image, parent, |_| {})
     }

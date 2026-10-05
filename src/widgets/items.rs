@@ -62,20 +62,25 @@ pub(super) fn on_select(id: WidgetId, mut f: impl FnMut(Option<usize>) + 'static
 macro_rules! item_methods {
     ($t:ident) => {
         impl $t {
+            /// Replace the items; a selection past the end clears.
             pub fn set_items<S: AsRef<str>>(&self, items: &[S]) {
                 set_items(self.id(), items)
             }
+            /// The items.
             pub fn items(&self) -> Vec<String> {
                 core::read(self.id(), |n| n.list().map(|l| l.items.clone()))
                     .flatten()
                     .unwrap_or_default()
             }
+            /// Select item `i` (`None` clears; an index past the end is ignored); no callback fires.
             pub fn set_selected(&self, i: Option<usize>) {
                 set_selected(self.id(), i)
             }
+            /// The selected index.
             pub fn selected(&self) -> Option<usize> {
                 selected(self.id())
             }
+            /// The text of the selected item.
             pub fn selected_text(&self) -> Option<String> {
                 core::read(self.id(), |n| {
                     let l = n.list()?;
@@ -83,6 +88,7 @@ macro_rules! item_methods {
                 })
                 .flatten()
             }
+            /// Run `f` with the new index when the user changes the selection (`None` when cleared).
             pub fn on_select(&self, f: impl FnMut(Option<usize>) + 'static) {
                 on_select(self.id(), f)
             }
@@ -93,11 +99,13 @@ item_methods!(ComboBox);
 item_methods!(ListBox);
 
 impl ComboBox {
+    /// A drop-down list; fill it with `set_items`.
     pub fn new(parent: impl Into<WidgetId>) -> ComboBox {
         make(ComboBox::from_id, Kind::ComboBox, parent, |_| {})
     }
 }
 impl ListBox {
+    /// A scrolling list; fill it with `set_items`.
     pub fn new(parent: impl Into<WidgetId>) -> ListBox {
         make(ListBox::from_id, Kind::ListBox, parent, |_| {})
     }

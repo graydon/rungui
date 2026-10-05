@@ -23,40 +23,68 @@ use crate::types::*;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum A11yRole {
+    /// A top-level window.
     Window,
     /// A generic container (also the role of anything unrecognised).
     Pane,
+    /// A titled group of controls.
     Group,
+    /// Static text.
     Label,
+    /// A hyperlink.
     Link,
+    /// A picture.
     Image,
+    /// A push button.
     Button,
+    /// A check box.
     CheckBox,
+    /// A radio button.
     RadioButton,
+    /// A single-line text field.
     TextInput,
+    /// A single-line text field that masks its contents.
     PasswordInput,
+    /// A multi-line text area.
     MultilineTextInput,
+    /// A combo box (drop-down list).
     ComboBox,
+    /// A list box.
     ListBox,
+    /// A slider.
     Slider,
+    /// A spin box (number with up/down arrows).
     SpinButton,
+    /// A progress bar.
     ProgressBar,
+    /// The tab strip of a tabbed container.
     TabList,
+    /// The contents of one tab.
     TabPanel,
+    /// A menu bar.
     MenuBar,
+    /// A menu.
     Menu,
+    /// A menu item.
     MenuItem,
+    /// A menu item with a check mark.
     MenuItemCheckBox,
+    /// A table.
     Table,
+    /// A tree.
     Tree,
+    /// A draggable divider between two panes.
     Splitter,
 }
 
 /// Per-widget accessibility overrides (`None` = derive from the widget).
 #[derive(Clone, Debug, Default)]
 pub struct A11yProps {
+    /// Accessible name; `None` derives it from the widget text or the preceding label.
     pub name: Option<String>,
+    /// Accessible description; `None` falls back to the tooltip.
     pub desc: Option<String>,
+    /// Accessible role; `None` uses the widget kind's default.
     pub role: Option<A11yRole>,
 }
 

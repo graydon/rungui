@@ -24,13 +24,18 @@ pub(crate) const MAX_WINDOW_PX: i32 = 1 << 14;
 /// Rectangle in logical (DPI-independent) pixels; origin top-left, y grows downward.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub struct Rect {
+    /// Left edge.
     pub x: i32,
+    /// Top edge.
     pub y: i32,
+    /// Width.
     pub w: i32,
+    /// Height.
     pub h: i32,
 }
 
 impl Rect {
+    /// A rectangle from its position and size.
     pub const fn new(x: i32, y: i32, w: i32, h: i32) -> Rect {
         Rect { x, y, w, h }
     }
@@ -39,11 +44,14 @@ impl Rect {
 /// Width/height in logical pixels.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub struct Size {
+    /// Width.
     pub w: i32,
+    /// Height.
     pub h: i32,
 }
 
 impl Size {
+    /// A size from its width and height.
     pub const fn new(w: i32, h: i32) -> Size {
         Size { w, h }
     }
@@ -81,6 +89,7 @@ impl fmt::Display for Error {
     }
 }
 impl std::error::Error for Error {}
+/// `std::result::Result` with this crate's [`Error`].
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// Raw native object, for users who want to write platform-specific code.
@@ -88,12 +97,16 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[non_exhaustive]
 pub enum NativeHandle {
+    /// A `GtkWidget*` (or `GtkMenuItem*` for menus).
     Gtk(usize),
+    /// An `HWND` (or `HMENU` for menus).
     Win32(usize),
+    /// An `NSView*`, `NSWindow*` or `NSMenu*`.
     Cocoa(usize),
 }
 
 impl NativeHandle {
+    /// The raw pointer value.
     pub fn ptr(self) -> usize {
         match self {
             NativeHandle::Gtk(p) | NativeHandle::Win32(p) | NativeHandle::Cocoa(p) => p,
@@ -104,18 +117,25 @@ impl NativeHandle {
 /// Cross-axis alignment of a child inside its stack/grid cell.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub enum Align {
+    /// Place at the start (left, or top) of the cell.
     Start,
+    /// Center in the cell.
     Center,
+    /// Place at the end (right, or bottom) of the cell.
     End,
     #[default]
+    /// Stretch to fill the cell (the default).
     Fill,
 }
 
 /// Straight (non-premultiplied) RGBA8 pixels, row-major, `rgba.len() == w*h*4`.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct ImageData {
+    /// Width in pixels.
     pub w: u32,
+    /// Height in pixels.
     pub h: u32,
+    /// `w * h * 4` bytes: red, green, blue, alpha per pixel.
     pub rgba: Vec<u8>,
 }
 
@@ -135,55 +155,84 @@ impl ImageData {
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[non_exhaustive]
+/// Which icon a message box shows.
 pub enum MessageKind {
+    /// Information.
     Info,
+    /// Warning.
     Warning,
+    /// Error.
     Error,
+    /// A question.
     Question,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[non_exhaustive]
+/// Which buttons a message box offers.
 pub enum Buttons {
+    /// Just "OK".
     Ok,
+    /// "OK" and "Cancel".
     OkCancel,
+    /// "Yes" and "No".
     YesNo,
+    /// "Yes", "No" and "Cancel".
     YesNoCancel,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[non_exhaustive]
+/// The button a message box was answered with.
 pub enum Answer {
+    /// "OK".
     Ok,
+    /// "Cancel" (also what closing the box counts as when it has one).
     Cancel,
+    /// "Yes".
     Yes,
+    /// "No".
     No,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
+/// What a file dialog is for.
 pub enum FileMode {
+    /// Choose one existing file.
     Open,
+    /// Choose several existing files.
     OpenMany,
+    /// Choose where to save.
     Save,
+    /// Choose a directory.
     PickFolder,
 }
 
 /// A modal message box request (title/text are UTF-8).
 #[derive(Clone, Debug)]
 pub struct MessageSpec {
+    /// Which icon to show.
     pub kind: MessageKind,
+    /// Which buttons to offer.
     pub buttons: Buttons,
+    /// Window title.
     pub title: String,
+    /// Message text.
     pub text: String,
 }
 
 /// A modal file dialog request. `filters` are (label, extensions without dot); empty = all files.
 #[derive(Clone, Debug)]
 pub struct FileSpec {
+    /// What the dialog is for.
     pub mode: FileMode,
+    /// Dialog title.
     pub title: String,
+    /// (label, extensions) pairs; empty means all files.
     pub filters: Vec<(String, Vec<String>)>,
+    /// Directory to start in.
     pub initial_dir: Option<String>,
+    /// Suggested file name.
     pub initial_name: Option<String>,
 }
 
@@ -192,9 +241,13 @@ pub struct FileSpec {
 /// "Esc", "Del", "Tab", "Space", "Left", ...).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Accel {
+    /// The platform's primary modifier (Command on macOS).
     pub ctrl: bool,
+    /// Shift.
     pub shift: bool,
+    /// Alt (Option on macOS).
     pub alt: bool,
+    /// The key: an upper-case character or a name such as "F5" or "ENTER".
     pub key: String,
 }
 
@@ -218,16 +271,22 @@ impl Accel {
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub enum ColumnAlign {
     #[default]
+    /// Left aligned (the default).
     Left,
+    /// Centered.
     Center,
+    /// Right aligned.
     Right,
 }
 
 /// One column of a table. `width` is in logical pixels (initial width; the user may resize).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Column {
+    /// Header text.
     pub title: String,
+    /// Initial width in logical pixels.
     pub width: i32,
+    /// Alignment of the cells.
     pub align: ColumnAlign,
     /// Header click emits `Event::ColumnClicked` (headers of non-sortable columns may still be
     /// clickable natively; the core forwards the event either way).
@@ -235,6 +294,7 @@ pub struct Column {
 }
 
 impl Column {
+    /// A left-aligned, 100 pixel wide, unsortable column with this header.
     pub fn new(title: &str) -> Column {
         Column {
             title: title.to_string(),
@@ -248,10 +308,12 @@ impl Column {
         self.width = w.clamp(1, MAX_PX);
         self
     }
+    /// Set the alignment of the cells.
     pub fn align(mut self, a: ColumnAlign) -> Self {
         self.align = a;
         self
     }
+    /// Say whether clicking the header reports `on_column_click`.
     pub fn sortable(mut self, s: bool) -> Self {
         self.sortable = s;
         self
@@ -270,7 +332,9 @@ pub struct TreeRow {
     pub node: u64,
     /// 0 for roots.
     pub depth: u32,
+    /// The node's text.
     pub text: String,
+    /// Whether the node is expanded.
     pub expanded: bool,
     /// True if the node has children OR is flagged as lazily loadable (show an expander).
     pub has_children: bool,
@@ -281,6 +345,8 @@ pub struct TreeRow {
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub enum Orientation {
     #[default]
+    /// Panes side by side (left | right), separated by a vertical sash.
     Horizontal,
+    /// Panes stacked (top / bottom), separated by a horizontal sash.
     Vertical,
 }

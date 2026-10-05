@@ -6,11 +6,11 @@
 //! (text, checked, value, items, selection...), layout and the accessible names/roles. A backend only
 //! mirrors that graph into native objects, **keyed by [`WidgetId`]**: keep a private
 //! `id -> native object` map and, in the native object, the id (g_object_set_data / GWLP_USERDATA /
-//! ivar or associated object) so native callbacks can call back into [`crate::core::event`].
+//! ivar or associated object) so native callbacks can call back into `core::event`.
 //!
 //! # Rules every backend must follow
 //! 1. Everything is called on the main (UI) thread, except [`Backend::wake`], which may be called
-//!    from any thread and must make the native loop call [`crate::core::drain_posted`] soon, on the
+//!    from any thread and must make the native loop call `core::drain_posted` soon, on the
 //!    main thread (g_idle_add / PostMessage to a hidden window / dispatch_async(main)).
 //! 2. Programmatic changes via [`Backend::set`] must NOT emit events (block signals / set a guard
 //!    flag; on Win32 ignore EN_CHANGE etc. while inside `set`). Only user actions emit events.
@@ -102,27 +102,49 @@ pub use cocoa::Cocoa as Native;
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 #[non_exhaustive]
 pub enum Kind {
+    /// Top-level window.
     Window,
+    /// Static text.
     Label,
+    /// Push button.
     Button,
+    /// Check box.
     CheckBox,
+    /// Radio button.
     RadioButton,
+    /// Single-line text field.
     TextInput,
+    /// Masked text field.
     PasswordInput,
+    /// Multi-line text area.
     TextArea,
+    /// Drop-down list.
     ComboBox,
+    /// List box.
     ListBox,
+    /// Slider.
     Slider,
+    /// Progress bar.
     ProgressBar,
+    /// Spin box.
     SpinBox,
+    /// Tab control.
     Tabs,
+    /// One tab of a tab control.
     Page,
+    /// Titled frame.
     GroupBox,
+    /// Picture.
     Image,
+    /// Menu bar.
     MenuBar,
+    /// Menu (or submenu).
     Menu,
+    /// Menu item.
     MenuItem,
+    /// Menu item with a check mark.
     CheckMenuItem,
+    /// Menu separator.
     MenuSeparator,
     /// Multi-column report list (GtkTreeView+ListStore / SysListView32 / NSTableView).
     Table,
@@ -135,9 +157,13 @@ pub enum Kind {
     /// docs). Created by the core, never by the app. Optional: `create` may return `Unsupported`.
     Sash,
     // ---- virtual (core only) ----
+    /// Horizontal stack.
     HBox,
+    /// Vertical stack.
     VBox,
+    /// Grid.
     Grid,
+    /// Flexible empty space.
     Spacer,
     /// Two-pane container; the core places both panes and the `Sash`.
     Splitter,
@@ -185,17 +211,25 @@ pub enum Prop<'a> {
     /// Label/button/checkbox/menu text, window title, group title, tab title (on Page), text input
     /// contents, combo-box edit text. Never contains mnemonics processing; pass through verbatim.
     Text(&'a str),
+    /// Tooltip text (empty removes it).
     Tooltip(&'a str),
+    /// Placeholder text of an empty text field.
     Placeholder(&'a str),
+    /// Enabled state (already combined with the ancestors').
     Enabled(bool),
+    /// Visible state (already combined with the ancestors').
     Visible(bool),
     /// Check state of CheckBox/RadioButton/CheckMenuItem.
     Checked(bool),
     /// Slider/SpinBox value; ProgressBar fraction in 0.0..=1.0.
     Value(f64),
+    /// Range and step of a slider or spin box.
     Range {
+        /// Smallest value.
         min: f64,
+        /// Largest value.
         max: f64,
+        /// Step of one increment.
         step: f64,
     },
     /// Full replacement of ComboBox/ListBox items.
@@ -204,11 +238,15 @@ pub enum Prop<'a> {
     Selected(Option<usize>),
     /// Position + size relative to the native parent's client area (Window: client size only).
     Bounds(Rect),
+    /// The picture of an `Image` (`None` clears; always a valid [`ImageData`]).
     Image(Option<&'a ImageData>),
+    /// Keyboard accelerator of a menu item, e.g. "Ctrl+S".
     Accel(&'a str),
+    /// Read-only flag of a text widget.
     ReadOnly(bool),
     /// ProgressBar busy/indeterminate mode.
     Indeterminate(bool),
+    /// Whether the user may resize the window.
     Resizable(bool),
     /// Request keyboard focus.
     Focus,
@@ -239,7 +277,9 @@ pub enum Prop<'a> {
     /// Window: move the OUTER frame's top-left to screen position (x, y), logical pixels, origin
     /// at the top-left of the primary screen. Optional (Wayland and some WMs refuse): no-op if unsupported.
     Position {
+        /// Screen x of the window's top-left corner.
         x: i32,
+        /// Screen y of the window's top-left corner.
         y: i32,
     },
     /// Window: the smallest CLIENT size the user may resize to (`Size::default()` = no limit).
@@ -301,11 +341,17 @@ impl Prop<'_> {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[non_exhaustive]
 pub enum SashKey {
+    /// One step toward the start (left or up).
     Prev,
+    /// One step toward the end (right or down).
     Next,
+    /// A large step toward the start.
     PrevLarge,
+    /// A large step toward the end.
     NextLarge,
+    /// Jump to the smallest position.
     Min,
+    /// Jump to the largest position.
     Max,
 }
 
@@ -313,16 +359,26 @@ pub enum SashKey {
 #[derive(Clone, PartialEq, Debug)]
 #[non_exhaustive]
 pub enum Event {
+    /// A button or menu item was activated.
     Click,
+    /// A text widget's whole new content.
     Text(String),
+    /// A check box, radio button or check item changed state.
     Toggled(bool),
+    /// A selection changed (`None` = cleared).
     Selected(Option<usize>),
+    /// A slider or spin box has a new value.
     Value(f64),
+    /// A row was activated (double click or Enter).
     Activated(usize),
+    /// The window's client area changed size.
     Resized {
+        /// New client width.
         w: i32,
+        /// New client height.
         h: i32,
     },
+    /// The widget gained (`true`) or lost keyboard focus.
     Focus(bool),
     /// Table: a column header was clicked (user wants to sort by it).
     ColumnClicked(usize),
@@ -338,7 +394,9 @@ pub enum Event {
     /// `on_context_menu` callback (the widget itself, else its ancestors), runs the callback and then
     /// calls [`Backend::popup_menu`]. Emit it for every right-click: the core ignores the ones nobody wants.
     ContextMenu {
+        /// Window-client x.
         x: i32,
+        /// Window-client y.
         y: i32,
     },
     /// Sash: the user dragged it (or moved it with the keyboard) so that its leading edge (left
@@ -355,7 +413,9 @@ pub enum Event {
     /// Window: the user moved the window; outer frame top-left in screen coordinates (as in
     /// `Prop::Position`). Optional; mirrored into `Window::position`.
     Moved {
+        /// Screen x of the window's top-left corner.
         x: i32,
+        /// Screen y of the window's top-left corner.
         y: i32,
     },
 }
@@ -374,6 +434,7 @@ pub trait Backend {
     fn wake();
     /// Start a timer; on expiry call `core::timer_fired(token)`. One-shot unless `repeat`.
     fn timer_start(token: u64, millis: u32, repeat: bool) -> Result<()>;
+    /// Stop the timer `token`; stopping an unknown timer does nothing.
     fn timer_stop(token: u64);
 
     // ---- widgets ----
@@ -384,6 +445,7 @@ pub trait Backend {
     /// Destroy the native object. The core calls this deepest-first for every native node of a
     /// destroyed subtree, so children are already gone. Drop all id mappings. Unknown id = no-op.
     fn destroy(id: WidgetId);
+    /// Apply a property to a widget; never emits events (rule 2 above).
     fn set(id: WidgetId, prop: &Prop);
     /// Natural size of a leaf widget given its current text/items/etc. For containers: ignored.
     fn preferred_size(id: WidgetId) -> Size;
@@ -391,9 +453,11 @@ pub trait Backend {
     fn chrome(_id: WidgetId) -> Size {
         Size::default()
     }
+    /// The raw native object of a widget.
     fn native_handle(id: WidgetId) -> Option<NativeHandle>;
 
     // ---- modal dialogs (run a nested loop, return the result; callbacks may re-enter core) ----
+    /// Show a modal message box and return the answer.
     fn message_box(parent: Option<WidgetId>, spec: &MessageSpec) -> Answer;
     /// Selected paths (UTF-8, lossy if necessary); empty = cancelled.
     fn file_dialog(parent: Option<WidgetId>, spec: &FileSpec) -> Vec<String>;

@@ -81,15 +81,19 @@ fn on_value(id: WidgetId, mut f: impl FnMut(f64) + 'static) {
 macro_rules! value_methods {
     ($t:ident) => {
         impl $t {
+            /// Set the value, clamped to the range (NaN becomes the minimum); no callback fires.
             pub fn set_value(&self, v: f64) {
                 set_value(self.id(), v)
             }
+            /// The current value.
             pub fn value(&self) -> f64 {
                 value(self.id())
             }
+            /// Set the range and step; non-finite numbers are replaced by safe ones and the value is clamped.
             pub fn set_range(&self, min: f64, max: f64, step: f64) {
                 set_range(self.id(), min, max, step)
             }
+            /// Run `f` with the new value when the user changes it.
             pub fn on_change(&self, f: impl FnMut(f64) + 'static) {
                 on_value(self.id(), f)
             }
@@ -100,6 +104,7 @@ value_methods!(Slider);
 value_methods!(SpinBox);
 
 impl Slider {
+    /// A slider over `min..=max` with step 1, starting at `min`.
     pub fn new(parent: impl Into<WidgetId>, min: f64, max: f64) -> Slider {
         let s = make(Slider::from_id, Kind::Slider, parent, |n| {
             if let Some(r) = n.range_mut() {
@@ -111,6 +116,7 @@ impl Slider {
     }
 }
 impl SpinBox {
+    /// A spin box over `min..=max` changing by `step`, starting at `min`.
     pub fn new(parent: impl Into<WidgetId>, min: f64, max: f64, step: f64) -> SpinBox {
         let s = make(SpinBox::from_id, Kind::SpinBox, parent, |n| {
             if let Some(r) = n.range_mut() {
@@ -123,6 +129,7 @@ impl SpinBox {
 }
 
 impl ProgressBar {
+    /// A progress bar showing `0.0..=1.0` (see [`ProgressBar::set_fraction`]).
     pub fn new(parent: impl Into<WidgetId>) -> ProgressBar {
         make(ProgressBar::from_id, Kind::ProgressBar, parent, |_| {})
     }
@@ -130,9 +137,11 @@ impl ProgressBar {
     pub fn set_fraction(&self, f: f64) {
         set_value(self.id(), f)
     }
+    /// The fraction shown.
     pub fn fraction(&self) -> f64 {
         value(self.id())
     }
+    /// Show a busy animation instead of a fraction.
     pub fn set_indeterminate(&self, v: bool) {
         core::set(
             self.id(),

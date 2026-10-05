@@ -5,9 +5,11 @@ use super::*;
 macro_rules! text_methods {
     ($t:ident) => {
         impl $t {
+            /// Replace the text (no callback fires).
             pub fn set_text(&self, t: &str) {
                 set_text(self.id(), t, false)
             }
+            /// The text.
             pub fn text(&self) -> String {
                 text_of(self.id())
             }
@@ -19,6 +21,7 @@ macro_rules! text_methods {
                     }
                 })
             }
+            /// Forbid or allow editing by the user.
             pub fn set_read_only(&self, v: bool) {
                 core::set(
                     self.id(),
@@ -45,6 +48,7 @@ macro_rules! text_methods {
                     Prop::Monospace(v),
                 );
             }
+            /// Whether the fixed-pitch font is on.
             pub fn monospace(&self) -> bool {
                 core::read(self.id(), |n| n.text_data().is_some_and(|t| t.monospace))
                     .unwrap_or(false)
@@ -56,6 +60,7 @@ text_methods!(TextInput);
 text_methods!(TextArea);
 
 impl TextInput {
+    /// A single-line text field.
     pub fn new(parent: impl Into<WidgetId>) -> TextInput {
         make(TextInput::from_id, Kind::TextInput, parent, |_| {})
     }
@@ -63,6 +68,7 @@ impl TextInput {
     pub fn password(parent: impl Into<WidgetId>) -> TextInput {
         make(TextInput::from_id, Kind::PasswordInput, parent, |_| {})
     }
+    /// Text shown while the field is empty.
     pub fn set_placeholder(&self, t: &str) {
         core::set(
             self.id(),
@@ -78,6 +84,7 @@ impl TextInput {
 }
 
 impl TextArea {
+    /// A multi-line text area, wrapping lines by default.
     pub fn new(parent: impl Into<WidgetId>) -> TextArea {
         make(TextArea::from_id, Kind::TextArea, parent, |_| {})
     }
@@ -94,6 +101,7 @@ impl TextArea {
             Prop::Wrap(v),
         );
     }
+    /// Whether long lines wrap.
     pub fn wrap(&self) -> bool {
         core::read(self.id(), |n| n.text_data().is_some_and(|t| t.wrap)).unwrap_or(false)
     }

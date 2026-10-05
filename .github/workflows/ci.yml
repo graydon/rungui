@@ -27,7 +27,9 @@ jobs:
       - name: scripts/check-all.sh
         run: scripts/check-all.sh
       - name: Docs build without warnings
-        run: RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+        run: |
+          RUSTDOCFLAGS="-D warnings" cargo doc --no-deps
+          RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --features mock
 
   windows:
     runs-on: windows-latest

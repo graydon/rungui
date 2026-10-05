@@ -62,6 +62,8 @@
 //!   in-memory backend for tests; `--features emulate-mac` builds the Cocoa backend on Linux
 //!   against GNUstep.
 
+#![warn(missing_docs)]
+
 mod link_keepalive;
 
 mod a11y;

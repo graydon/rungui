@@ -3,6 +3,7 @@
 use super::*;
 
 impl Widget {
+    /// The widget's id.
     pub fn id(&self) -> WidgetId {
         self.0
     }
@@ -15,9 +16,11 @@ impl Widget {
     pub fn destroy(&self) {
         core::destroy(self.0)
     }
+    /// Enable or disable the widget and everything inside it.
     pub fn set_enabled(&self, v: bool) {
         core::set_flag(self.0, false, v)
     }
+    /// Whether the widget itself is enabled (a disabled ancestor still disables it on screen).
     pub fn enabled(&self) -> bool {
         core::read(self.0, |n| n.enabled).unwrap_or(false)
     }
@@ -25,9 +28,11 @@ impl Widget {
     pub fn set_visible(&self, v: bool) {
         core::set_flag(self.0, true, v)
     }
+    /// Whether the widget itself is shown (a hidden ancestor still hides it).
     pub fn visible(&self) -> bool {
         core::read(self.0, |n| n.visible).unwrap_or(false)
     }
+    /// Set the tooltip text (empty removes it); also the default accessible description.
     pub fn set_tooltip(&self, t: &str) {
         core::set(
             self.0,
@@ -36,6 +41,7 @@ impl Widget {
             Prop::Tooltip(t),
         );
     }
+    /// Move keyboard focus to the widget.
     pub fn focus(&self) {
         core::set(self.0, false, |_| {}, Prop::Focus);
     }
@@ -94,12 +100,15 @@ impl Widget {
     pub fn set_a11y_name(&self, s: &str) {
         core::update(self.0, false, |n| n.a11y.name = Some(s.to_string()));
     }
+    /// Override the accessible description (otherwise the tooltip).
     pub fn set_a11y_description(&self, s: &str) {
         core::update(self.0, false, |n| n.a11y.desc = Some(s.to_string()));
     }
+    /// Override the accessible role (otherwise the kind's default).
     pub fn set_a11y_role(&self, r: A11yRole) {
         core::update(self.0, false, |n| n.a11y.role = Some(r));
     }
+    /// The accessibility overrides set on the widget.
     pub fn a11y(&self) -> A11yProps {
         core::read(self.0, |n| n.a11y.clone()).unwrap_or_default()
     }
@@ -109,6 +118,7 @@ impl Widget {
         let p = popup.into();
         core::modify(self.0, |n| n.context_menu = Some(p));
     }
+    /// Detach the context menu.
     pub fn clear_context_menu(&self) {
         core::modify(self.0, |n| n.context_menu = None);
     }

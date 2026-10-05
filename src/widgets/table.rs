@@ -15,6 +15,7 @@ fn cells<S: AsRef<str>>(c: &[S]) -> Vec<String> {
 }
 
 impl Table {
+    /// An empty table without columns.
     pub fn new(parent: impl Into<WidgetId>) -> Table {
         make(Table::from_id, Kind::Table, parent, |_| {})
     }
@@ -30,6 +31,7 @@ impl Table {
             }
         });
     }
+    /// Append a column.
     pub fn add_column(&self, col: Column) {
         core::data_update(self.id(), core::Data::TableAll, |n| {
             if let Some(t) = n.table_mut().filter(|t| t.columns.len() < MAX_COLUMNS) {
@@ -37,6 +39,7 @@ impl Table {
             }
         });
     }
+    /// The columns.
     pub fn columns(&self) -> Vec<Column> {
         core::read(self.id(), |n| n.table().map(|t| t.columns.clone()))
             .flatten()
@@ -54,6 +57,7 @@ impl Table {
             }
         });
     }
+    /// Append a row (missing cells are empty).
     pub fn push_row<S: AsRef<str>>(&self, row: &[S]) {
         let v = cells(row);
         core::data_update(self.id(), core::Data::TableRows, |n| {
@@ -92,6 +96,7 @@ impl Table {
             }
         });
     }
+    /// Remove every row.
     pub fn clear(&self) {
         core::data_update(self.id(), core::Data::TableRows, |n| {
             if let Some(t) = n.table_mut() {
@@ -115,21 +120,25 @@ impl Table {
             }
         });
     }
+    /// The text of one cell (empty when out of range).
     pub fn cell(&self, row: usize, col: usize) -> String {
         core::read(self.id(), |n| n.table()?.rows.get(row)?.get(col).cloned())
             .flatten()
             .unwrap_or_default()
     }
+    /// The cells of a row (empty when out of range).
     pub fn row(&self, row: usize) -> Vec<String> {
         core::read(self.id(), |n| n.table()?.rows.get(row).cloned())
             .flatten()
             .unwrap_or_default()
     }
+    /// Every row.
     pub fn rows(&self) -> Vec<Vec<String>> {
         core::read(self.id(), |n| n.table().map(|t| t.rows.clone()))
             .flatten()
             .unwrap_or_default()
     }
+    /// How many rows there are.
     pub fn row_count(&self) -> usize {
         core::read(self.id(), |n| n.table().map_or(0, |t| t.rows.len())).unwrap_or(0)
     }
@@ -147,6 +156,7 @@ impl Table {
             }
         });
     }
+    /// The selected row.
     pub fn selected(&self) -> Option<usize> {
         selected(self.id())
     }
@@ -166,9 +176,11 @@ impl Table {
             }
         });
     }
+    /// The sort arrow set with [`Table::set_sort_indicator`].
     pub fn sort_indicator(&self) -> Option<(usize, bool)> {
         core::read(self.id(), |n| n.table().and_then(|t| t.sort)).flatten()
     }
+    /// Run `f` with the new row when the user changes the selection (`None` when cleared).
     pub fn on_select(&self, f: impl FnMut(Option<usize>) + 'static) {
         on_select(self.id(), f)
     }

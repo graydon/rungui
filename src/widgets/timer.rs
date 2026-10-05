@@ -7,9 +7,11 @@ use super::*;
 pub struct Timer(u64);
 
 impl Timer {
+    /// Run `f` once after `ms` milliseconds (on the UI thread).
     pub fn once(ms: u32, f: impl FnMut() + 'static) -> Timer {
         Timer::start(ms, false, f)
     }
+    /// Run `f` every `ms` milliseconds until stopped.
     pub fn every(ms: u32, f: impl FnMut() + 'static) -> Timer {
         Timer::start(ms, true, f)
     }
@@ -22,6 +24,7 @@ impl Timer {
             }
         }
     }
+    /// Stop the timer; stopping a stopped or failed timer does nothing.
     pub fn stop(&self) {
         core::timer_stop(self.0)
     }

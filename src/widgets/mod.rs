@@ -18,6 +18,7 @@ macro_rules! handle {
     ($($(#[$m:meta])* $name:ident),* $(,)?) => {$(
         $(#[$m])*
         #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+        #[doc = concat!("A handle to a [`", stringify!($name), "`](crate::", stringify!($name), "); `Copy`, and inert once the widget is destroyed.")]
         pub struct $name(Widget);
         impl Deref for $name {
             type Target = Widget;
