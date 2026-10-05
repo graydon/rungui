@@ -16,7 +16,7 @@ seeds="${1:-300}"; first="${2:-1}"
 BACKEND="${BACKEND:-gtk}"
 T="${CARGO_TARGET_DIR:-target}"
 case "$BACKEND" in
-  gtk) feat=(); env_extra=(G_DEBUG=fatal-warnings NO_AT_BRIDGE=1) ;;
+  gtk) feat=(); env_extra=(NO_AT_BRIDGE=1)   # the driver aborts on GLib warnings itself (and can skip known GTK ones) ;;
   gnustep) feat=(--features emulate-mac); env_extra=(NSZombieEnabled=YES) ;;
   *) echo "unknown BACKEND $BACKEND"; exit 2 ;;
 esac

@@ -35,6 +35,8 @@ fn bytes(seed: u64, n: usize) -> Vec<u8> {
 #[cfg(all(target_os = "linux", not(feature = "emulate-mac")))]
 mod glib_log {
     use std::ffi::{CStr, c_char, c_int, c_void};
+    /// Warnings of the toolkit itself that are not rungui bugs.
+    const KNOWN: [&str; 1] = ["gtk_distribute_natural_allocation"];
     /// GLib log levels that mean a bug: ERROR, CRITICAL, WARNING.
     const BAD: c_int = 0b100 | 0b1000 | 0b10000;
     unsafe extern "C" {
@@ -104,7 +106,13 @@ mod glib_log {
         if level & BAD == 0 && std::env::var_os("RUNGUI_FUZZ_VERBOSE").is_none() {
             return; // info and debug chatter of the toolkit
         }
-        eprintln!("GLib [{}] level {level}: {}", text(domain), text(msg));
+        let message = text(msg);
+        // GTK 3 asserts when a menu bar is narrower than its menus' minimum widths (a fuzzed window
+        // with dozens of menus); it keeps working, so do not stop for it
+        if KNOWN.iter().any(|k| message.contains(k)) {
+            return;
+        }
+        eprintln!("GLib [{}] level {level}: {message}", text(domain));
         if level & BAD != 0 {
             eprintln!("{}", std::backtrace::Backtrace::force_capture());
             unsafe {
