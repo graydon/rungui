@@ -1217,6 +1217,13 @@ fn alloc_init_class(c: Id) -> Id {
 
 // ---------------------------------------------------------------- menus & accelerators
 
+/// "Unbounded" extent for text containers and scroll content (what AppKit itself uses).
+const HUGE_EXTENT: f64 = 1e7;
+/// Width of the stepper beside a spin box's text field, in points.
+const STEPPER_WIDTH: f64 = 19.0;
+/// `NSAlertFirstButtonReturn`: the return value of `runModal` for the first button; later buttons add one each.
+const ALERT_FIRST_BUTTON: isize = 1000;
+
 const MOD_SHIFT: usize = 1 << 17;
 const MOD_OPTION: usize = 1 << 19;
 const MOD_COMMAND: usize = 1 << 20;
@@ -1628,13 +1635,13 @@ impl Backend for Cocoa {
                 vm!(sv, "setBorderType:", usize: 2);
                 let tv = view_new("NSTextView", rect(0.0, 0.0, 200.0, 100.0));
                 vm!(tv, "setMinSize:", NSSize: NSSize { w: 0.0, h: 100.0 });
-                vm!(tv, "setMaxSize:", NSSize: NSSize { w: 1e7, h: 1e7 });
+                vm!(tv, "setMaxSize:", NSSize: NSSize { w: HUGE_EXTENT, h: HUGE_EXTENT });
                 vm!(tv, "setVerticallyResizable:", u8: 1);
                 vm!(tv, "setHorizontallyResizable:", u8: 0);
                 vm!(tv, "setAutoresizingMask:", usize: 2);
                 let tc = idm!(tv, "textContainer");
                 if !tc.is_null() {
-                    vm!(tc, "setContainerSize:", NSSize: NSSize { w: 200.0, h: 1e7 });
+                    vm!(tc, "setContainerSize:", NSSize: NSSize { w: 200.0, h: HUGE_EXTENT });
                     vm!(tc, "setWidthTracksTextView:", u8: 1);
                 }
                 vm!(tv, "setRichText:", u8: 0);
@@ -1730,7 +1737,7 @@ impl Backend for Cocoa {
             Kind::SpinBox => {
                 let c = flip_view();
                 let tf = label_field(true, false);
-                let stp = view_new("NSStepper", rect(0.0, 0.0, 19.0, 27.0));
+                let stp = view_new("NSStepper", rect(0.0, 0.0, STEPPER_WIDTH, 27.0));
                 vm!(stp, "setMinValue:", f64: 0.0);
                 vm!(stp, "setMaxValue:", f64: 100.0);
                 vm!(stp, "setIncrement:", f64: 1.0);
@@ -2238,9 +2245,9 @@ impl Backend for Cocoa {
         }
         let r = send!(isize, alert, "runModal");
         release(alert);
-        // NSAlertFirstButtonReturn = 1000 (+ index); legacy GNUstep: 1 = first, 0 = second, -1 = third.
-        let idx = if r >= 1000 {
-            (r - 1000) as usize
+        // first button + index; legacy GNUstep: 1 = first, 0 = second, -1 = third.
+        let idx = if r >= ALERT_FIRST_BUTTON {
+            (r - ALERT_FIRST_BUTTON) as usize
         } else {
             match r {
                 1 => 0,
@@ -2522,10 +2529,6 @@ fn resize_window(win: Id, w: f64, h: f64) {
     vm!(win, "setFrameTopLeftPoint:", NSPoint: NSPoint { x: f.x, y: f.y + f.h });
 }
 
-/// Largest content size a resizable window may take (AppKit's default maximum is about this).
-#[cfg(rungui_gnustep)]
-const MAX_CONTENT: f64 = 1e7;
-
 /// Make a window user-resizable or not. AppKit toggles the resizable style-mask bit; GNUstep raises
 /// an exception for `setStyleMask:` on a live window, so there a fixed window has its minimum and
 /// maximum content size pinned to its current size instead (see `pin_size`).
@@ -2547,7 +2550,7 @@ fn set_resizable(id: WidgetId, e: &Entry, resizable: bool) {
         if resizable {
             let min = st(|s| s.min_size.get(&id).copied()).unwrap_or_default();
             vm!(e.obj, "setContentMinSize:", NSSize: min);
-            vm!(e.obj, "setContentMaxSize:", NSSize: NSSize { w: MAX_CONTENT, h: MAX_CONTENT });
+            vm!(e.obj, "setContentMaxSize:", NSSize: NSSize { w: HUGE_EXTENT, h: HUGE_EXTENT });
         } else {
             let cur = client_size(e);
             pin_size(e.obj, cur.w, cur.h);
@@ -2578,7 +2581,7 @@ fn set_bounds(e: &Entry, id: WidgetId, r: Rect) {
             vm!(e.obj, "setFrame:", NSRect: rect_from(r));
             match k {
                 Kind::SpinBox => {
-                    let sw = 19.0;
+                    let sw = STEPPER_WIDTH;
                     let (w, h) = (r.w.max(0) as f64, r.h.max(0) as f64);
                     vm!(e.aux, "setFrame:", NSRect: rect(0.0, 0.0, (w - sw).max(0.0), h));
                     vm!(e.aux2, "setFrame:", NSRect: rect((w - sw).max(0.0), 0.0, sw, h));
@@ -2619,7 +2622,7 @@ fn set_wrap(e: &Entry, wrap: bool) {
     if tc.is_null() {
         return;
     }
-    let huge = 1e7;
+    let huge = HUGE_EXTENT;
     if wrap {
         vm!(sv, "setHasHorizontalScroller:", u8: 0);
         vm!(tv, "setHorizontallyResizable:", u8: 0);

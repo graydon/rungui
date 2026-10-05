@@ -118,7 +118,7 @@ fn service() -> Obj {
         CoCreateInstance(
             &CLSID_ACC_PROP_SERVICES,
             null_mut(),
-            1,
+            CLSCTX_INPROC_SERVER,
             &IID_ACC_PROP_SERVICES,
             &mut o,
         )

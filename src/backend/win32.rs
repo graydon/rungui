@@ -49,6 +49,16 @@ const WM_TREEEXP: u32 = WM_APP + 3;
 /// Range of the WM_COMMAND ids handed to menu items (below it are control ids, above system ones).
 const CMD_FIRST: u16 = 1000;
 const CMD_LAST: u16 = 0xEFFF;
+/// Resolution of a progress bar (the core's 0.0..=1.0 maps to 0..PROGRESS_STEPS).
+const PROGRESS_STEPS: i32 = 1000;
+/// A trackbar has integer positions: `slider_steps` picks 1..=SLIDER_MAX_STEPS of them from the
+/// range and step, or SLIDER_DEFAULT_STEPS when the step is unusable.
+const SLIDER_MAX_STEPS: f64 = 100_000.0;
+const SLIDER_DEFAULT_STEPS: i32 = 1000;
+/// Initial outer size of a new window in device pixels (the core resizes it before it is shown).
+const NEW_WINDOW_SIZE: (i32, i32) = (400, 300);
+/// Size of the probe rectangle used to measure a tab control's non-client area.
+const TAB_PROBE: i32 = 1000;
 
 static MSG_HWND: AtomicIsize = AtomicIsize::new(0);
 
@@ -287,9 +297,9 @@ fn fmt_value(v: f64, step: f64) -> String {
 fn slider_steps(r: (f64, f64, f64)) -> i32 {
     let span = r.1 - r.0;
     if r.2 > 0.0 && span > 0.0 {
-        (span / r.2).round().clamp(1.0, 100000.0) as i32
+        (span / r.2).round().clamp(1.0, SLIDER_MAX_STEPS) as i32
     } else {
-        1000
+        SLIDER_DEFAULT_STEPS
     }
 }
 
@@ -894,8 +904,8 @@ fn create_impl(id: WidgetId, kind: Kind, parent: Option<WidgetId>) -> Result<()>
                 style,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
-                400,
-                300,
+                NEW_WINDOW_SIZE.0,
+                NEW_WINDOW_SIZE.1,
                 0,
                 0,
                 inst,
@@ -1117,7 +1127,7 @@ fn create_impl(id: WidgetId, kind: Kind, parent: Option<WidgetId>) -> Result<()>
             send(h, TBM_SETRANGE, 1, (slider_steps(w.range) as isize) << 16);
         }
         Kind::ProgressBar => {
-            send(h, PBM_SETRANGE32, 0, 1000);
+            send(h, PBM_SETRANGE32, 0, PROGRESS_STEPS as isize);
         }
         Kind::ComboBox => {
             send(h, CB_SETMINVISIBLE, 10, 0);
@@ -1652,11 +1662,14 @@ fn chrome_impl(id: WidgetId) -> Option<Size> {
             let mut rc = RECT {
                 left: 0,
                 top: 0,
-                right: 1000,
-                bottom: 1000,
+                right: TAB_PROBE,
+                bottom: TAB_PROBE,
             };
             send(h, TCM_ADJUSTRECT, 0, &mut rc as *mut _ as isize);
-            let (dw, dh) = (1000 - (rc.right - rc.left), 1000 - (rc.bottom - rc.top));
+            let (dw, dh) = (
+                TAB_PROBE - (rc.right - rc.left),
+                TAB_PROBE - (rc.bottom - rc.top),
+            );
             Some(Size::new(lp(dw, dpi), lp(dh, dpi)))
         }
         _ => None,
@@ -2237,7 +2250,7 @@ fn apply_value(id: WidgetId, v: f64) {
             send(
                 h,
                 PBM_SETPOS,
-                (v.clamp(0.0, 1.0) * 1000.0).round() as usize,
+                (v.clamp(0.0, 1.0) * f64::from(PROGRESS_STEPS)).round() as usize,
                 0,
             );
         }
