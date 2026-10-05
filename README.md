@@ -1,23 +1,53 @@
 # rungui — Rust Unified Native GUI
 
-A small portable desktop GUI library for Rust: a thin layer over GTK3 (Linux), Win32 (Windows)
-and AppKit (macOS). The platform C APIs are declared by hand (no binding crates, no
-`gtk-rs`/`winapi`). Text is UTF-8 in Rust and converted at the boundary. The aim is
-FLTK/libui/IUP-level simplicity: no user-facing traits, handles are `Copy` ids, a stale handle is
-inert instead of a panic, and `native_handle()` gives you the real `GtkWidget*` / `HWND` /
-`NSView*` when the portable API is not enough.
-
 ## LLM notice
 
 This repository is written by an LLM.
 
 If LLM code is a no-go for you, close the tab and move on.
 
-I have lightly skimmed it to make sure it's roughly doing what I expect. I have not reviewed
-every line, by any means. There are probably bugs present. On the other hand I have been
-waiting for someone (including myself) to have time or inclination to write this crate
-for over ten years, and Sonnet 5.5 wrote it in 3 hours this evening while I was doing
-chores around the house, so .. I feel like the bugs are a risk I'm willing to take.
+If there are bugs I'll fix them, but it's a small codebase bridging to stable
+APIs and was synthesized in 3 hours with a cheap model; it really shouldn't
+require much maintenance. It's just fussy code no human bothered to write.
+
+## Overview
+
+Rungui is a portable wrapper over 3 desktop GUI toolkits: linux/GTK, macOS/cocoa
+and win32. It is intended as a simple 80/20 option in the sprawling landscape of
+"GUIs for Rust".
+
+Benefits:
+
+  1. It's lightweight: 14kloc and no external dependencies, compiles in ~3
+     seconds to a few hundred KiB of object code. All FFIs are locally declared.
+
+  2. It gets a fair amount of the tricky stuff in GUIs -- eg. accessibility and
+     text-rendering, tables and trees -- by delegating to the platform libraries.
+
+  3. It doesn't have any complex traits or macros or preprocessors or anything.
+     You just build a tree of nested objects and attach callbacks.
+
+  4. It doesn't hide the platform libraries, you can call `native_handle()` to
+     get a `GtkWidget*` / `HWND` / `NSView*` if you want to go further.
+
+Drawbacks:
+
+  1. You have to write your applications "the old fashioned way" with stateful
+     UI object handles and callbacks, not "the new way" with FRP-style
+     reactive/declarative UI or immediate mode or anything.
+
+  2. There's some runtime overhead mapping the memory-safe `Copy` integer IDs
+     used as object handles to native abstractions, and there's some imprecision
+     about lifetimes and validity contexts (eg. if you use such a handle on the
+     wrong thread or after the object dies it just goes inert and does nothing).
+
+  3. It doesn't do cutting-edge GPU rendering or cool visual effects or run on
+     webassembly or anything flashy. Just a bunch of old standard widgets.
+
+  4. While it is 100% Rust and the interface ought to be safe, of course the
+     platform libraries are typically decades-old C code and so there are lots
+     of `unsafe` blocks inside the implementation.
+
 
 ## Quickstart
 
@@ -46,21 +76,16 @@ cargo run-win --example kitchen_sink   # Win32 backend under wine (x86_64 Linux)
 cargo doc --open                   # tutorial + API
 ```
 
-Containers: `VBox`, `HBox`, `Grid`, `GroupBox`, `Tabs`/`Page`, `Splitter` (two panes with a
-draggable sash; layout is core-driven). Widgets: `Label`, `Button`,
-`CheckBox`, `RadioButton`, `TextInput`, `TextArea`, `ComboBox`, `ListBox`, `Slider`, `SpinBox`,
-`ProgressBar`, `Image`, `Table`, `Tree`, menus (incl. popup), `message_box`, `FileDialog`, `Timer`.
-Text widgets can be monospace (`set_monospace`) and a `TextArea` can turn off soft wrapping
-(`set_wrap(false)`); windows have `set_position` / `position` and `set_min_size`.
-Cross-thread: only `App::post` / `App::quit`.
+Containers: `VBox`, `HBox`, `Grid`, `GroupBox`, `Tabs`/`Page`, `Splitter`.
 
-## It runs the same program on three native toolkits
+Widgets: `Label`, `Button`, `CheckBox`, `RadioButton`, `TextInput`, `TextArea`, `ComboBox`, `ListBox`, `Slider`, `SpinBox`, `ProgressBar`, `Image`, `Table`, `Tree`, `Menu`, `MenuBar`, `MenuItem`, `PopupMenu`, `message_box`, `FileDialog`, `Timer`.
+
+## Example screenshots
 
 `examples/file_manager` is a dual-pane file manager (folder tree, two sortable file tables,
 text / hex / image preview, menus with accelerators, context menu, status bar, copy / move /
 rename / delete). It is about 2k lines of ordinary Rust against rungui's public API, with no
-backend-specific code. These are release builds browsing this repository, taken on a Linux
-machine under Xvfb:
+backend-specific code.
 
 **GTK3 (Linux)**
 
@@ -78,15 +103,12 @@ machine under Xvfb:
 
 ![file manager on the Cocoa backend under GNUstep](doc/screenshots/file-manager-gnustep.png)
 
-The Win32 and GNUstep shots are emulated environments: no window manager (so no title bars), and
-GNUstep's look and its detached menu at the top left. The Win32 backend has not yet been run on
-real Windows; see [`doc/STATUS.md`](doc/STATUS.md). 
+ The Win32 backend has not yet been run on real Windows, only Wine.
+ See [`doc/STATUS.md`](doc/STATUS.md). 
 
 ## Dependencies
 
-**Rust crates.** None: rungui has no crate dependencies on any platform. The platform C APIs are
-declared by hand in the crate; there are no binding crates (`gtk-rs`, `winapi`, `objc2`).
-Needs Rust 1.85+ (edition 2024); built and tested with 1.94.
+**Rust crates.** None:
 
 **Native libraries.** What gets linked is decided in `build.rs`:
 
@@ -103,31 +125,23 @@ Needs Rust 1.85+ (edition 2024); built and tested with 1.94.
 (Windows builds), `wine wine64` (x86_64 hosts only; runs them), and the rustup targets
 `aarch64-apple-darwin` and `x86_64-apple-darwin` (type-checking the real macOS backend).
 
-## Binary size and linkage
+## Binary sizes
 
-Plain `cargo build --release` with the default profile, x86_64.
+Plain `cargo build --release`:
 
 | Binary | GTK3 built | GTK3 stripped | Cocoa/macOS built | Cocoa/macOS stripped | Cocoa/GNUstep built | Cocoa/GNUstep stripped | Win32 built | Win32 stripped |
 |---|---|---|---|---|---|---|---|---|
-| `hello` (a window, a label, a button) | 756 KiB | **601 KiB** | 803 KiB | **663 KiB** | 873 KiB | **711 KiB** | 1,738 KiB | **1,266 KiB** |
-| `file_manager` (the whole app above) | 1,092 KiB | **862 KiB** | 1,087 KiB | **884 KiB** | 1,173 KiB | **939 KiB** | 1,964 KiB | **1,427 KiB** |
-
-Direct dynamic dependencies, the part the program itself asks for:
-
-* **GTK3:** `libgtk-3 libgdk-3 libgdk_pixbuf-2.0 libatk-1.0 libgobject-2.0 libglib-2.0 libgcc_s libc`
-* **Cocoa/macOS:** `AppKit.framework Foundation.framework CoreGraphics.framework libobjc libSystem`
-* **Cocoa/GNUstep:** `libgnustep-gui libgnustep-base libobjc libgcc_s libc`
-* **Win32** (import table, `objdump -p`; Windows has no `ldd`): `api-ms-win-core-synch-l1-2-0.dll`, `api-ms-win-core-winrt-error-l1-1-0.dll`, `bcryptprimitives.dll`, `combase.dll`, `gdi32.dll`, `kernel32.dll`, `KERNEL32.dll`, `msimg32.dll`, `msvcrt.dll`, `ntdll.dll`, `ole32.dll`, `oleaut32.dll`, `propsys.dll`, `rpcrt4.dll`, `SHELL32.dll`, `user32.dll`, `USERENV.dll`, `UxTheme.dll`, `WS2_32.dll`
-
+| `hello` | 756 KiB | **601 KiB** | 803 KiB | **663 KiB** | 873 KiB | **711 KiB** | 1,738 KiB | **1,266 KiB** |
+| `file_manager` | 1,092 KiB | **862 KiB** | 1,087 KiB | **884 KiB** | 1,173 KiB | **939 KiB** | 1,964 KiB | **1,427 KiB** |
 
 ## Platform status
 
-* **Linux (GTK3):** complete and run-tested under Xvfb, including a dual-pane file manager example.
+* **Linux (GTK3):** complete and run-tested under Xvfb.
 * **Windows (Win32) and macOS (AppKit):** written and cross-built; run under wine and GNUstep on
-  Linux, never yet on real Windows. Manually tested on macOS. Bring-up is in progress.
-* **Mock:** a headless backend (`--features mock`) that the 116-test suite runs against.
+  Linux, never yet on real Windows. Manually tested on macOS.
+* **Mock:** a headless backend (`--features mock`) for testingt.
 
-Per-widget, per-platform status, how each part was verified, known gaps and next steps are in
+Per-widget, per-platform status is in
 [`doc/STATUS.md`](doc/STATUS.md). `scripts/check-all.sh` builds and tests every mode; see
 [`doc/BUILDING.md`](doc/BUILDING.md) and [`doc/DESIGN.md`](doc/DESIGN.md).
 
@@ -137,23 +151,10 @@ See "Known gaps" in [`doc/STATUS.md`](doc/STATUS.md).
 
 ## License
 
-Licensed under either of
-
-* Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or <https://www.apache.org/licenses/LICENSE-2.0>)
-* MIT license ([LICENSE-MIT](LICENSE-MIT) or <https://opensource.org/licenses/MIT>)
-
-at your option.
-
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion
-in this crate by you, as defined in the Apache-2.0 license, shall be dual licensed as above,
-without any additional terms or conditions.
+ASL2/MIT at your option
 
 ## Contributing
 
-I want to keep this thing very small and simple. Contributions are .. possible, but unlikely
-to be accepted given the LLM-generated nature of the codebase in the first place. Maybe make a
-suggestion, but we live in a time when the LLM obviously implements any idea faster than I
-could review the same change proposed from outside. The time and attention economics of
-LLM-driven development are different and I'm still trying to figure them out.
-
-Feel free to fork and do whatever you want with it, of course.
+I want to keep this thing very small and simple. Bug reports or fixes welcome. I
+intend to shake bugs out of it until it feels stable and then call it 1.0 and
+mostly leave it be. Beyond that, if you have big ambitions probably best to fork.
