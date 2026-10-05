@@ -623,8 +623,28 @@ fn keyval(key: &str) -> c_uint {
     }
 }
 
+/// The size of the X screen (all monitors), or `i32::MAX` when it cannot be asked.
+fn screen_size() -> (i32, i32) {
+    unsafe {
+        let screen = gdk_screen_get_default();
+        if screen.is_null() {
+            return (i32::MAX, i32::MAX);
+        }
+        let (w, h) = (gdk_screen_get_width(screen), gdk_screen_get_height(screen));
+        if w > 0 && h > 0 {
+            (w, h)
+        } else {
+            (i32::MAX, i32::MAX)
+        }
+    }
+}
+
 fn apply_window_size(w: &W) {
-    let (cw, ch) = w.client;
+    // A window larger than the screen is never useful, and the server allocates a backing store
+    // for it (a 16384 x 16384 window made Xvfb fail): content that does not fit is clipped, as
+    // when a window manager constrains the window.
+    let (sw, sh) = screen_size();
+    let (cw, ch) = (w.client.0.min(sw), w.client.1.min(sh));
     if cw <= 0 || ch <= 0 {
         return;
     }

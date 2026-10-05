@@ -419,6 +419,8 @@ unsafe extern "C" {
     pub fn gdk_display_get_default_seat(display: P) -> P;
     pub fn gdk_seat_get_pointer(seat: P) -> P;
     pub fn gdk_screen_get_default() -> P;
+    pub fn gdk_screen_get_width(screen: P) -> c_int;
+    pub fn gdk_screen_get_height(screen: P) -> c_int;
     pub fn gdk_screen_get_root_window(screen: P) -> P;
     pub fn gtk_menu_popup_at_pointer(menu: P, ev: P);
     pub fn gtk_menu_popup_at_rect(
