@@ -1010,193 +1010,157 @@ fn define_classes() -> Result<(Id, Id)> {
         objc_registerClassPair(flip);
         let sash = objc_allocateClassPair(nsview, c"RunguiSash".as_ptr(), 0);
         if !sash.is_null() {
-            add(
-                sash,
-                "mouseDown:",
-                sash_mouse_down as *const c_void,
-                c"v@:@",
-            );
-            add(
-                sash,
-                "mouseDragged:",
-                sash_mouse_dragged as *const c_void,
-                c"v@:@",
-            );
-            add(sash, "mouseUp:", sash_mouse_up as *const c_void, c"v@:@");
-            add(
-                sash,
-                "resetCursorRects",
-                sash_reset_cursor_rects as *const c_void,
-                c"v@:",
-            );
-            add(
-                sash,
-                "drawRect:",
-                sash_draw as *const c_void,
-                c"v@:{CGRect={CGPoint=dd}{CGSize=dd}}",
-            );
-            add(sash, "acceptsFirstMouse:", yes as *const c_void, c"c@:@");
-            add(
-                sash,
-                "mouseDownCanMoveWindow",
-                no_flag as *const c_void,
-                c"c@:",
-            );
-            add(
-                sash,
-                "acceptsFirstResponder",
-                yes_flag as *const c_void,
-                c"c@:",
-            );
-            add(
-                sash,
-                "becomeFirstResponder",
-                sash_focus_changed as *const c_void,
-                c"c@:",
-            );
-            add(
-                sash,
-                "resignFirstResponder",
-                sash_focus_changed as *const c_void,
-                c"c@:",
-            );
-            add(sash, "keyDown:", sash_key_down as *const c_void, c"v@:@");
+            let sash_methods: &[(&str, *const c_void, &CStr)] = &[
+                ("mouseDown:", sash_mouse_down as *const c_void, c"v@:@"),
+                (
+                    "mouseDragged:",
+                    sash_mouse_dragged as *const c_void,
+                    c"v@:@",
+                ),
+                ("mouseUp:", sash_mouse_up as *const c_void, c"v@:@"),
+                (
+                    "resetCursorRects",
+                    sash_reset_cursor_rects as *const c_void,
+                    c"v@:",
+                ),
+                (
+                    "drawRect:",
+                    sash_draw as *const c_void,
+                    c"v@:{CGRect={CGPoint=dd}{CGSize=dd}}",
+                ),
+                ("acceptsFirstMouse:", yes as *const c_void, c"c@:@"),
+                ("mouseDownCanMoveWindow", no_flag as *const c_void, c"c@:"),
+                ("acceptsFirstResponder", yes_flag as *const c_void, c"c@:"),
+                (
+                    "becomeFirstResponder",
+                    sash_focus_changed as *const c_void,
+                    c"c@:",
+                ),
+                (
+                    "resignFirstResponder",
+                    sash_focus_changed as *const c_void,
+                    c"c@:",
+                ),
+                ("keyDown:", sash_key_down as *const c_void, c"v@:@"),
+            ];
+            for (sel, imp, ty) in sash_methods {
+                add(sash, sel, *imp, ty);
+            }
+
             objc_registerClassPair(sash);
         }
-        add(t, "runguiWake:", on_wake as *const c_void, c"v@:@");
-        add(t, "runguiQuit:", on_quit_item as *const c_void, c"v@:@");
-        add(t, "runguiTimer:", on_timer as *const c_void, c"v@:@");
-        add(t, "runguiAction:", on_action as *const c_void, c"v@:@");
-        add(t, "runguiDouble:", on_double as *const c_void, c"v@:@");
-        add(
-            t,
-            "controlTextDidChange:",
-            on_text_changed as *const c_void,
-            c"v@:@",
-        );
-        add(
-            t,
-            "textDidChange:",
-            on_text_changed as *const c_void,
-            c"v@:@",
-        );
-        add(
-            t,
-            "controlTextDidBeginEditing:",
-            on_begin_edit as *const c_void,
-            c"v@:@",
-        );
-        add(
-            t,
-            "textDidBeginEditing:",
-            on_begin_edit as *const c_void,
-            c"v@:@",
-        );
-        add(
-            t,
-            "controlTextDidEndEditing:",
-            on_end_edit as *const c_void,
-            c"v@:@",
-        );
-        add(
-            t,
-            "textDidEndEditing:",
-            on_end_edit as *const c_void,
-            c"v@:@",
-        );
-        add(
-            t,
-            "windowShouldClose:",
-            on_should_close as *const c_void,
-            c"c@:@",
-        );
-        add(t, "windowDidResize:", on_resized as *const c_void, c"v@:@");
-        add(t, "windowDidMove:", on_moved as *const c_void, c"v@:@");
-        add(
-            t,
-            "windowDidBecomeKey:",
-            on_became_key as *const c_void,
-            c"v@:@",
-        );
-        add(
-            t,
-            "tabView:didSelectTabViewItem:",
-            on_tab_selected as *const c_void,
-            c"v@:@@",
-        );
-        add(
-            t,
-            "numberOfRowsInTableView:",
-            tv_rows as *const c_void,
-            c"q@:@",
-        );
-        add(
-            t,
-            "tableView:objectValueForTableColumn:row:",
-            tv_value as *const c_void,
-            c"@@:@@q",
-        );
-        add(
-            t,
-            "tableViewSelectionDidChange:",
-            tv_selection as *const c_void,
-            c"v@:@",
-        );
-        add(
-            t,
-            "tableView:didClickTableColumn:",
-            tv_column_clicked as *const c_void,
-            c"v@:@@",
-        );
-        add(
-            t,
-            "outlineView:numberOfChildrenOfItem:",
-            ov_count as *const c_void,
-            c"q@:@@",
-        );
-        add(
-            t,
-            "outlineView:child:ofItem:",
-            ov_child as *const c_void,
-            c"@@:@q@",
-        );
-        add(
-            t,
-            "outlineView:isItemExpandable:",
-            ov_expandable as *const c_void,
-            c"c@:@@",
-        );
-        add(
-            t,
-            "outlineView:objectValueForTableColumn:byItem:",
-            ov_value as *const c_void,
-            c"@@:@@@",
-        );
-        #[cfg(rungui_gnustep)]
-        add(
-            t,
-            "application:openFile:",
-            app_open_file as *const c_void,
-            c"c@:@@",
-        );
-        add(
-            t,
-            "outlineViewItemDidExpand:",
-            ov_did_expand as *const c_void,
-            c"v@:@",
-        );
-        add(
-            t,
-            "outlineViewItemDidCollapse:",
-            ov_did_collapse as *const c_void,
-            c"v@:@",
-        );
-        add(
-            t,
-            "outlineViewSelectionDidChange:",
-            ov_selection as *const c_void,
-            c"v@:@",
-        );
+
+        // the shared target, delegate and data source of every native object
+        let target_methods: &[(&str, *const c_void, &CStr)] = &[
+            ("runguiWake:", on_wake as *const c_void, c"v@:@"),
+            ("runguiQuit:", on_quit_item as *const c_void, c"v@:@"),
+            ("runguiTimer:", on_timer as *const c_void, c"v@:@"),
+            ("runguiAction:", on_action as *const c_void, c"v@:@"),
+            ("runguiDouble:", on_double as *const c_void, c"v@:@"),
+            (
+                "controlTextDidChange:",
+                on_text_changed as *const c_void,
+                c"v@:@",
+            ),
+            ("textDidChange:", on_text_changed as *const c_void, c"v@:@"),
+            (
+                "controlTextDidBeginEditing:",
+                on_begin_edit as *const c_void,
+                c"v@:@",
+            ),
+            (
+                "textDidBeginEditing:",
+                on_begin_edit as *const c_void,
+                c"v@:@",
+            ),
+            (
+                "controlTextDidEndEditing:",
+                on_end_edit as *const c_void,
+                c"v@:@",
+            ),
+            ("textDidEndEditing:", on_end_edit as *const c_void, c"v@:@"),
+            (
+                "windowShouldClose:",
+                on_should_close as *const c_void,
+                c"c@:@",
+            ),
+            ("windowDidResize:", on_resized as *const c_void, c"v@:@"),
+            ("windowDidMove:", on_moved as *const c_void, c"v@:@"),
+            (
+                "windowDidBecomeKey:",
+                on_became_key as *const c_void,
+                c"v@:@",
+            ),
+            (
+                "tabView:didSelectTabViewItem:",
+                on_tab_selected as *const c_void,
+                c"v@:@@",
+            ),
+            (
+                "numberOfRowsInTableView:",
+                tv_rows as *const c_void,
+                c"q@:@",
+            ),
+            (
+                "tableView:objectValueForTableColumn:row:",
+                tv_value as *const c_void,
+                c"@@:@@q",
+            ),
+            (
+                "tableViewSelectionDidChange:",
+                tv_selection as *const c_void,
+                c"v@:@",
+            ),
+            (
+                "tableView:didClickTableColumn:",
+                tv_column_clicked as *const c_void,
+                c"v@:@@",
+            ),
+            (
+                "outlineView:numberOfChildrenOfItem:",
+                ov_count as *const c_void,
+                c"q@:@@",
+            ),
+            (
+                "outlineView:child:ofItem:",
+                ov_child as *const c_void,
+                c"@@:@q@",
+            ),
+            (
+                "outlineView:isItemExpandable:",
+                ov_expandable as *const c_void,
+                c"c@:@@",
+            ),
+            (
+                "outlineView:objectValueForTableColumn:byItem:",
+                ov_value as *const c_void,
+                c"@@:@@@",
+            ),
+            #[cfg(rungui_gnustep)]
+            (
+                "application:openFile:",
+                app_open_file as *const c_void,
+                c"c@:@@",
+            ),
+            (
+                "outlineViewItemDidExpand:",
+                ov_did_expand as *const c_void,
+                c"v@:@",
+            ),
+            (
+                "outlineViewItemDidCollapse:",
+                ov_did_collapse as *const c_void,
+                c"v@:@",
+            ),
+            (
+                "outlineViewSelectionDidChange:",
+                ov_selection as *const c_void,
+                c"v@:@",
+            ),
+        ];
+        for (sel, imp, ty) in target_methods {
+            add(t, sel, *imp, ty);
+        }
         objc_registerClassPair(t);
         let app_cls = objc_allocateClassPair(cls("NSApplication"), c"RunguiApp".as_ptr(), 0);
         if !app_cls.is_null() {
@@ -1567,262 +1531,39 @@ impl Backend for Cocoa {
             kind,
             ..Default::default()
         };
+        let mk = Make {
+            id,
+            kind,
+            target,
+            act,
+            name: &name,
+            pview,
+            pe,
+            parent,
+        };
         match kind {
-            Kind::Window => {
-                let w = idm!(
-                    idm!(cls("NSWindow"), "alloc"),
-                    "initWithContentRect:styleMask:backing:defer:",
-                    NSRect: rect(0.0, 0.0, 400.0, 300.0),
-                    usize: 15,
-                    usize: 2,
-                    u8: 0
-                );
-                if w.is_null() {
-                    return Err(Error::Backend("NSWindow creation failed".into()));
-                }
-                vm!(w, "setReleasedWhenClosed:", u8: 0);
-                vm!(w, "setDelegate:", Id: target);
-                let flip = flip_view();
-                vm!(w, "setContentView:", Id: flip);
-                release(flip);
-                e.obj = w;
-                e.cont = flip;
-            }
+            Kind::Window => make_window(&mk, &mut e)?,
             Kind::Label => e.obj = label_field(false, false),
-            Kind::Sash => {
-                if cls("RunguiSash").is_null() {
-                    return Err(Error::Unsupported);
-                }
-                e.obj = view_new("RunguiSash", NSRect::default());
-            }
-            Kind::TextInput | Kind::PasswordInput => {
-                let f = label_field(true, kind == Kind::PasswordInput);
-                vm!(f, "setDelegate:", Id: target);
-                e.obj = f;
-            }
-            Kind::Button => {
-                let v = view_new("NSButton", rect(0.0, 0.0, 80.0, 24.0));
-                vm!(v, "setButtonType:", usize: 7);
-                vm!(v, "setBezelStyle:", usize: 1);
-                set_target_action(v, target, act);
-                e.obj = v;
-            }
-            Kind::CheckBox | Kind::RadioButton => {
-                let v = view_new("NSButton", rect(0.0, 0.0, 80.0, 20.0));
-                let radio = kind == Kind::RadioButton;
-                vm!(v, "setButtonType:", usize: if radio { 4 } else { 3 });
-                let mut a = act;
-                if radio {
-                    // AppKit auto-groups radios sharing target+action in one superview; the core
-                    // owns exclusivity, so give every radio its own action selector.
-                    let name = format!("runguiRadio{}:", id.0);
-                    a = sel_named(&name);
-                    unsafe {
-                        class_addMethod(
-                            st(|s| s.tclass),
-                            a,
-                            on_action as *const c_void,
-                            c"v@:@".as_ptr(),
-                        );
-                    }
-                }
-                set_target_action(v, target, a);
-                e.obj = v;
-            }
-            Kind::TextArea => {
-                let sv = view_new("NSScrollView", rect(0.0, 0.0, 200.0, 100.0));
-                vm!(sv, "setHasVerticalScroller:", u8: 1);
-                vm!(sv, "setBorderType:", usize: 2);
-                let tv = view_new("NSTextView", rect(0.0, 0.0, 200.0, 100.0));
-                vm!(tv, "setMinSize:", NSSize: NSSize { w: 0.0, h: 100.0 });
-                vm!(tv, "setMaxSize:", NSSize: NSSize { w: HUGE_EXTENT, h: HUGE_EXTENT });
-                vm!(tv, "setVerticallyResizable:", u8: 1);
-                vm!(tv, "setHorizontallyResizable:", u8: 0);
-                vm!(tv, "setAutoresizingMask:", usize: 2);
-                let tc = idm!(tv, "textContainer");
-                if !tc.is_null() {
-                    vm!(tc, "setContainerSize:", NSSize: NSSize { w: 200.0, h: HUGE_EXTENT });
-                    vm!(tc, "setWidthTracksTextView:", u8: 1);
-                }
-                vm!(tv, "setRichText:", u8: 0);
-                vm!(tv, "setAllowsUndo:", u8: 1);
-                vm!(tv, "setDelegate:", Id: target);
-                vm!(sv, "setDocumentView:", Id: tv);
-                release(tv);
-                e.obj = sv;
-                e.aux = tv;
-            }
-            Kind::ComboBox => {
-                let v = view_new("NSPopUpButton", rect(0.0, 0.0, 140.0, 26.0));
-                set_target_action(v, target, act);
-                e.obj = v;
-            }
-            Kind::ListBox => {
-                let sv = view_new("NSScrollView", rect(0.0, 0.0, 160.0, 100.0));
-                vm!(sv, "setHasVerticalScroller:", u8: 1);
-                vm!(sv, "setBorderType:", usize: 2);
-                let tv = view_new("NSTableView", rect(0.0, 0.0, 160.0, 100.0));
-                let col =
-                    idm!(idm!(cls("NSTableColumn"), "alloc"), "initWithIdentifier:", Id: ns("c"));
-                vm!(col, "setWidth:", f64: 150.0);
-                let cell = idm!(col, "dataCell");
-                if !cell.is_null() {
-                    vm!(cell, "setEditable:", u8: 0);
-                }
-                vm!(tv, "addTableColumn:", Id: col);
-                release(col);
-                vm!(tv, "setHeaderView:", Id: NIL);
-                vm!(tv, "setAllowsMultipleSelection:", u8: 0);
-                vm!(tv, "setAllowsEmptySelection:", u8: 1);
-                vm!(tv, "setDataSource:", Id: target);
-                vm!(tv, "setDelegate:", Id: target);
-                vm!(tv, "setTarget:", Id: target);
-                vm!(tv, "setDoubleAction:", Sel: sel!("runguiDouble:"));
-                vm!(sv, "setDocumentView:", Id: tv);
-                release(tv);
-                e.obj = sv;
-                e.aux = tv;
-            }
-            Kind::Table | Kind::Tree => {
-                let tree = kind == Kind::Tree;
-                let sv = view_new("NSScrollView", rect(0.0, 0.0, 300.0, 150.0));
-                vm!(sv, "setHasVerticalScroller:", u8: 1);
-                vm!(sv, "setHasHorizontalScroller:", u8: 1);
-                vm!(sv, "setBorderType:", usize: 2);
-                let tv = view_new(
-                    if tree { "NSOutlineView" } else { "NSTableView" },
-                    rect(0.0, 0.0, 300.0, 150.0),
-                );
-                vm!(tv, "setAllowsMultipleSelection:", u8: 0);
-                vm!(tv, "setAllowsEmptySelection:", u8: 1);
-                vm!(tv, "setDataSource:", Id: target);
-                vm!(tv, "setDelegate:", Id: target);
-                vm!(tv, "setTarget:", Id: target);
-                vm!(tv, "setDoubleAction:", Sel: sel!("runguiDouble:"));
-                if tree {
-                    vm!(tv, "setHeaderView:", Id: NIL);
-                    let col = idm!(idm!(cls("NSTableColumn"), "alloc"), "initWithIdentifier:", Id: ns("0"));
-                    vm!(col, "setWidth:", f64: 200.0);
-                    let cell = idm!(col, "dataCell");
-                    if !cell.is_null() {
-                        vm!(cell, "setEditable:", u8: 0);
-                    }
-                    vm!(tv, "addTableColumn:", Id: col);
-                    vm!(tv, "setOutlineTableColumn:", Id: col);
-                    release(col);
-                }
-                vm!(sv, "setDocumentView:", Id: tv);
-                release(tv);
-                e.obj = sv;
-                e.aux = tv;
-            }
-            Kind::PopupMenu => {
-                e.obj = new_menu("");
-            }
-            Kind::Slider => {
-                let v = view_new("NSSlider", rect(0.0, 0.0, 150.0, 21.0));
-                vm!(v, "setMinValue:", f64: 0.0);
-                vm!(v, "setMaxValue:", f64: 100.0);
-                set_target_action(v, target, act);
-                e.obj = v;
-            }
-            Kind::ProgressBar => {
-                let v = view_new("NSProgressIndicator", rect(0.0, 0.0, 150.0, 20.0));
-                vm!(v, "setStyle:", usize: 0);
-                vm!(v, "setIndeterminate:", u8: 0);
-                vm!(v, "setMinValue:", f64: 0.0);
-                vm!(v, "setMaxValue:", f64: 1.0);
-                e.obj = v;
-            }
-            Kind::SpinBox => {
-                let c = flip_view();
-                let tf = label_field(true, false);
-                let stp = view_new("NSStepper", rect(0.0, 0.0, STEPPER_WIDTH, 27.0));
-                vm!(stp, "setMinValue:", f64: 0.0);
-                vm!(stp, "setMaxValue:", f64: 100.0);
-                vm!(stp, "setIncrement:", f64: 1.0);
-                vm!(stp, "setValueWraps:", u8: 0);
-                set_target_action(stp, target, act);
-                set_target_action(tf, target, act);
-                vm!(tf, "setDelegate:", Id: target);
-                vm!(c, "addSubview:", Id: tf);
-                vm!(c, "addSubview:", Id: stp);
-                release(tf);
-                release(stp);
-                e.obj = c;
-                e.aux = tf;
-                e.aux2 = stp;
-            }
-            Kind::Tabs => {
-                let v = view_new("NSTabView", rect(0.0, 0.0, 300.0, 200.0));
-                vm!(v, "setDelegate:", Id: target);
-                e.obj = v;
-            }
-            Kind::Page => {
-                let item =
-                    idm!(idm!(cls("NSTabViewItem"), "alloc"), "initWithIdentifier:", Id: NIL);
-                let pv = flip_view();
-                vm!(item, "setView:", Id: pv);
-                release(pv);
-                {
-                    let _q = Quiet::new();
-                    vm!(pview, "addTabViewItem:", Id: item);
-                }
-                release(item);
-                release_stale_page_view(pview);
-                e.obj = pv;
-                e.cont = pv;
-                e.aux = item;
-            }
-            Kind::GroupBox => {
-                let bx = view_new("NSBox", rect(0.0, 0.0, 200.0, 100.0));
-                let flip = flip_view();
-                vm!(bx, "setContentView:", Id: flip);
-                release(flip);
-                e.obj = bx;
-                e.cont = flip;
-            }
-            Kind::Image => {
-                let v = view_new("NSImageView", rect(0.0, 0.0, 32.0, 32.0));
-                vm!(v, "setImageScaling:", usize: 0);
-                e.obj = v;
-            }
-            Kind::MenuBar => {
-                let (bar, edit) = new_menubar(target, &name, true);
-                e.obj = bar;
-                e.aux = edit;
-                st(|s| {
-                    s.menubars.insert(parent.unwrap_or(WidgetId::DEAD), bar);
-                    s.std_edit.insert(id, edit);
-                });
-                if let Some(pe) = pe {
-                    if bm!(pe.obj, "isKeyWindow") || bm!(pe.obj, "isVisible") {
-                        install_menubar(parent.unwrap_or(WidgetId::DEAD));
-                    }
-                }
-            }
-            Kind::Menu => {
-                let item = idm!(idm!(cls("NSMenuItem"), "alloc"), "init");
-                let menu = new_menu("");
-                vm!(item, "setSubmenu:", Id: menu);
-                vm!(pe.map(|p| p.obj).unwrap_or(NIL), "addItem:", Id: item);
-                release(item);
-                e.obj = menu;
-                e.aux = item;
-                release(menu);
-            }
-            Kind::MenuItem | Kind::CheckMenuItem => {
-                let it = new_item("", act, "");
-                vm!(it, "setTarget:", Id: target);
-                vm!(pe.map(|p| p.obj).unwrap_or(NIL), "addItem:", Id: it);
-                release(it);
-                e.obj = it;
-            }
-            Kind::MenuSeparator => {
-                let it = idm!(cls("NSMenuItem"), "separatorItem");
-                vm!(pe.map(|p| p.obj).unwrap_or(NIL), "addItem:", Id: it);
-                e.obj = it;
-            }
+            Kind::Sash => make_sash(&mut e)?,
+            Kind::TextInput | Kind::PasswordInput => make_text_field(&mk, &mut e)?,
+            Kind::Button => make_button(&mk, &mut e)?,
+            Kind::CheckBox | Kind::RadioButton => make_check(&mk, &mut e)?,
+            Kind::TextArea => make_text_area(&mk, &mut e)?,
+            Kind::ComboBox => make_combo(&mk, &mut e)?,
+            Kind::ListBox => make_list(&mk, &mut e)?,
+            Kind::Table | Kind::Tree => make_table_or_tree(&mk, &mut e)?,
+            Kind::PopupMenu => make_popup_menu(&mut e)?,
+            Kind::Slider => make_slider(&mk, &mut e)?,
+            Kind::ProgressBar => make_progress(&mut e)?,
+            Kind::SpinBox => make_spin(&mk, &mut e)?,
+            Kind::Tabs => make_tabs(&mk, &mut e)?,
+            Kind::Page => make_page(&mk, &mut e)?,
+            Kind::GroupBox => make_group(&mut e)?,
+            Kind::Image => make_image(&mut e)?,
+            Kind::MenuBar => make_menu_bar(&mk, &mut e)?,
+            Kind::Menu => make_menu(&mk, &mut e)?,
+            Kind::MenuItem | Kind::CheckMenuItem => make_menu_item(&mk, &mut e)?,
+            Kind::MenuSeparator => make_separator(&mk, &mut e)?,
             _ => return Err(Error::Unsupported),
         }
         if e.obj.is_null() {
@@ -1839,7 +1580,7 @@ impl Backend for Cocoa {
         st(|s| {
             s.rev.insert(e.obj as usize, id);
             for p in [e.aux, e.aux2] {
-                if !p.is_null() && kind != Kind::MenuBar {
+                if !p.is_null() && !matches!(kind, Kind::MenuBar | Kind::RadioButton) {
                     s.rev.insert(p as usize, id);
                 }
             }
@@ -1855,7 +1596,9 @@ impl Backend for Cocoa {
         let _q = Quiet::new();
         let Some(e) = st(|s| {
             let e = s.ents.remove(&id)?;
-            s.rev.retain(|_, v| *v != id);
+            for p in [e.obj, e.aux, e.aux2] {
+                s.rev.remove(&(p as usize));
+            }
             s.items.remove(&id);
             s.rows.remove(&id);
             s.range.remove(&id);
@@ -1945,6 +1688,10 @@ impl Backend for Cocoa {
                 if e.kind == Kind::Tabs {
                     release_stale_page_view(e.obj);
                 }
+                if e.kind == Kind::RadioButton {
+                    vm!(e.obj, "setTarget:", Id: NIL); // the button does not retain its target
+                    release(e.aux);
+                }
                 autorelease(idm!(e.obj, "retain"));
                 vm!(e.obj, "removeFromSuperview");
             }
@@ -1957,199 +1704,32 @@ impl Backend for Cocoa {
         let Some(e) = ent(id) else { return };
         match prop {
             Prop::Text(t) => set_text(id, &e, t),
-            Prop::Tooltip(t) => {
-                if is_view_kind(e.kind) {
-                    vm!(e.obj, "setToolTip:", Id: ns(t));
-                }
-            }
-            Prop::Placeholder(t) => {
-                if matches!(e.kind, Kind::TextInput | Kind::PasswordInput) {
-                    let cell = idm!(e.obj, "cell");
-                    if responds(cell, "setPlaceholderString:") {
-                        vm!(cell, "setPlaceholderString:", Id: ns(t));
-                    }
-                }
-            }
+            Prop::Tooltip(t) => prop_tooltip(&e, t),
+            Prop::Placeholder(t) => prop_placeholder(&e, t),
             Prop::Enabled(en) => set_enabled(id, &e, *en),
             Prop::Visible(v) => set_visible(id, &e, *v),
-            Prop::Checked(c) => {
-                if matches!(
-                    e.kind,
-                    Kind::CheckBox | Kind::RadioButton | Kind::CheckMenuItem
-                ) {
-                    vm!(e.obj, "setState:", isize: *c as isize);
-                }
-            }
-            Prop::Value(v) => match e.kind {
-                Kind::Slider | Kind::ProgressBar => vm!(e.obj, "setDoubleValue:", f64: *v),
-                Kind::SpinBox => set_spin(&e, *v),
-                _ => {}
-            },
-            Prop::Range { min, max, step } => {
-                st(|s| s.range.insert(id, (*min, *max, *step)));
-                match e.kind {
-                    Kind::Slider => {
-                        vm!(e.obj, "setMinValue:", f64: *min);
-                        vm!(e.obj, "setMaxValue:", f64: *max);
-                    }
-                    Kind::SpinBox => {
-                        vm!(e.aux2, "setMinValue:", f64: *min);
-                        vm!(e.aux2, "setMaxValue:", f64: *max);
-                        vm!(e.aux2, "setIncrement:", f64: if *step > 0.0 { *step } else { 1.0 });
-                    }
-                    _ => {}
-                }
-            }
+            Prop::Checked(c) => prop_checked(&e, *c),
+            Prop::Value(v) => prop_value(&e, *v),
+            Prop::Range { min, max, step } => prop_range(id, &e, *min, *max, *step),
             Prop::Items(items) => set_items(id, &e, items),
-            Prop::Selected(sel) => match e.kind {
-                Kind::ComboBox => {
-                    vm!(e.obj, "selectItemAtIndex:", isize: sel.map_or(-1, |i| i as isize))
-                }
-                Kind::Tabs => {
-                    if let Some(i) = sel {
-                        vm!(e.obj, "selectTabViewItemAtIndex:", isize: *i as isize);
-                    }
-                }
-                Kind::ListBox | Kind::Table => {
-                    // GNUstep raises for any selection change on a table without columns, and
-                    // AppKit for a row its view does not (yet) have; the core re-sends the
-                    // selection together with the columns
-                    if send!(isize, e.aux, "numberOfColumns") > 0 {
-                        match sel {
-                            Some(i) if (*i as isize) < send!(isize, e.aux, "numberOfRows") => {
-                                let set = idm!(cls("NSIndexSet"), "indexSetWithIndex:", usize: *i);
-                                vm!(e.aux, "selectRowIndexes:byExtendingSelection:", Id: set, u8: 0);
-                                vm!(e.aux, "scrollRowToVisible:", isize: *i as isize);
-                            }
-                            _ => vm!(e.aux, "deselectAll:", Id: NIL),
-                        }
-                    }
-                }
-                _ => {}
-            },
+            Prop::Selected(sel) => prop_selected(&e, *sel),
             Prop::Bounds(r) => set_bounds(&e, id, *r),
             Prop::Image(img) => set_image(id, &e, *img),
-            Prop::Accel(a) => {
-                if matches!(e.kind, Kind::MenuItem | Kind::CheckMenuItem) {
-                    let (key, mask) = Accel::parse(a)
-                        .and_then(|a| key_equivalent(&a))
-                        .unwrap_or_default();
-                    vm!(e.obj, "setKeyEquivalent:", Id: ns(&key));
-                    vm!(e.obj, "setKeyEquivalentModifierMask:", usize: mask);
-                }
-            }
-            Prop::ReadOnly(ro) => {
-                st(|s| {
-                    if *ro {
-                        s.readonly.insert(id);
-                    } else {
-                        s.readonly.remove(&id);
-                    }
-                });
-                match e.kind {
-                    Kind::TextInput | Kind::PasswordInput => {
-                        vm!(e.obj, "setEditable:", u8: b(!*ro))
-                    }
-                    Kind::TextArea => vm!(e.aux, "setEditable:", u8: b(!*ro)),
-                    _ => {}
-                }
-            }
-            Prop::Indeterminate(ind) => {
-                if e.kind == Kind::ProgressBar {
-                    vm!(e.obj, "setIndeterminate:", u8: b(*ind));
-                    if *ind {
-                        vm!(e.obj, "startAnimation:", Id: NIL);
-                    } else {
-                        vm!(e.obj, "stopAnimation:", Id: NIL);
-                    }
-                }
-            }
-            Prop::Resizable(r) => {
-                if e.kind == Kind::Window {
-                    set_resizable(id, &e, *r);
-                }
-            }
+            Prop::Accel(a) => prop_accel(&e, a),
+            Prop::ReadOnly(ro) => prop_read_only(id, &e, *ro),
+            Prop::Indeterminate(ind) => prop_indeterminate(&e, *ind),
+            Prop::Resizable(r) => prop_resizable(id, &e, *r),
             Prop::Columns(cols) => set_columns(&e, cols),
-            Prop::Rows(rows) => {
-                st(|s| s.rows.insert(id, rows.to_vec()));
-                vm!(e.aux, "reloadData");
-            }
+            Prop::Rows(rows) => prop_rows(id, &e, rows),
             Prop::SortIndicator(si) => set_sort_indicator(&e, *si),
             Prop::TreeRows(rows) => set_tree_rows(id, &e, rows),
-            Prop::TreeSelected(n) => {
-                let row = n.and_then(|n| {
-                    let item = st(|s| {
-                        s.trees.get(&id).and_then(|m| {
-                            m.by_id.get(&n).and_then(|i| m.nodes.get(*i)).map(|n| n.obj)
-                        })
-                    })?;
-                    let r = send!(isize, e.aux, "rowForItem:", Id: item);
-                    (r >= 0).then_some(r)
-                });
-                match row {
-                    Some(r) => {
-                        let set = idm!(cls("NSIndexSet"), "indexSetWithIndex:", usize: r as usize);
-                        vm!(e.aux, "selectRowIndexes:byExtendingSelection:", Id: set, u8: 0);
-                        vm!(e.aux, "scrollRowToVisible:", isize: r);
-                    }
-                    None => vm!(e.aux, "deselectAll:", Id: NIL),
-                }
-            }
-            Prop::Orientation(o) => {
-                if e.kind == Kind::Sash {
-                    st(|s| s.sash_orient.insert(id, *o));
-                    let w = idm!(e.obj, "window");
-                    if !w.is_null() {
-                        vm!(w, "invalidateCursorRectsForView:", Id: e.obj);
-                    }
-                    vm!(e.obj, "setNeedsDisplay:", u8: 1);
-                }
-            }
+            Prop::TreeSelected(n) => prop_tree_selected(id, &e, *n),
+            Prop::Orientation(o) => prop_orientation(id, &e, *o),
             Prop::Monospace(m) => set_monospace(&e, *m),
-            Prop::Wrap(w) => {
-                if e.kind == Kind::TextArea {
-                    set_wrap(&e, *w);
-                }
-            }
-            Prop::Position { x, y } => {
-                if e.kind == Kind::Window {
-                    st(|s| s.placed.insert(id));
-                    let p = NSPoint {
-                        x: *x as f64,
-                        y: primary_screen_height() - *y as f64,
-                    };
-                    vm!(e.obj, "setFrameTopLeftPoint:", NSPoint: p);
-                }
-            }
-            Prop::MinSize(sz) => {
-                if e.kind == Kind::Window {
-                    let (mw, mh) = (sz.w.max(0) as f64, sz.h.max(0) as f64);
-                    st(|s| s.min_size.insert(id, NSSize { w: mw, h: mh }));
-                    if !st(|s| s.fixed.contains(&id)) {
-                        vm!(e.obj, "setContentMinSize:", NSSize: NSSize { w: mw, h: mh });
-                    }
-                    // AppKit only enforces the minimum on the next resize: grow right away, as
-                    // the core never lays out below it (and GNUstep would otherwise move the window).
-                    let cur = client_size(&e);
-                    if cur.w < mw || cur.h < mh {
-                        resize_window(e.obj, cur.w.max(mw), cur.h.max(mh));
-                    }
-                }
-            }
-            Prop::Focus => {
-                let target = match e.kind {
-                    Kind::TextArea | Kind::ListBox | Kind::SpinBox | Kind::Table | Kind::Tree => {
-                        e.aux
-                    }
-                    Kind::Window => return,
-                    k if is_view_kind(k) => e.obj,
-                    _ => return,
-                };
-                let w = idm!(target, "window");
-                if !w.is_null() {
-                    vm!(w, "makeFirstResponder:", Id: target);
-                }
-            }
+            Prop::Wrap(w) => prop_wrap(&e, *w),
+            Prop::Position { x, y } => prop_position(id, &e, *x, *y),
+            Prop::MinSize(sz) => prop_min_size(id, &e, *sz),
+            Prop::Focus => prop_focus(&e),
             _ => {}
         }
     }
@@ -2794,5 +2374,580 @@ fn set_tree_rows(id: WidgetId, e: &Entry, rows: &[TreeRow]) {
     }
     if let Some(old) = old {
         old.nodes.iter().for_each(|n| autorelease(n.obj));
+    }
+}
+
+/// What `Backend::create` has worked out before building the native object of a widget.
+#[derive(Copy, Clone)]
+struct Make<'a> {
+    id: WidgetId,
+    kind: Kind,
+    /// The shared `RunguiTarget` instance (delegate, data source, action target).
+    target: Id,
+    /// The generic `runguiAction:` selector.
+    act: Sel,
+    /// The application name (menu bar titles).
+    name: &'a str,
+    /// The view or container that receives a view child (nil for menus and windows).
+    pview: Id,
+    /// The parent's entry.
+    pe: Option<Entry>,
+    parent: Option<WidgetId>,
+}
+
+/// `Kind::Window`: create the native object(s) into `e`.
+fn make_window(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { target, .. } = *c;
+    let w = idm!(
+        idm!(cls("NSWindow"), "alloc"),
+        "initWithContentRect:styleMask:backing:defer:",
+        NSRect: rect(0.0, 0.0, 400.0, 300.0),
+        usize: 15,
+        usize: 2,
+        u8: 0
+    );
+    if w.is_null() {
+        return Err(Error::Backend("NSWindow creation failed".into()));
+    }
+    vm!(w, "setReleasedWhenClosed:", u8: 0);
+    vm!(w, "setDelegate:", Id: target);
+    let flip = flip_view();
+    vm!(w, "setContentView:", Id: flip);
+    release(flip);
+    e.obj = w;
+    e.cont = flip;
+    Ok(())
+}
+
+/// `Kind::Sash`: create the native object(s) into `e`.
+fn make_sash(e: &mut Entry) -> Result<()> {
+    if cls("RunguiSash").is_null() {
+        return Err(Error::Unsupported);
+    }
+    e.obj = view_new("RunguiSash", NSRect::default());
+    Ok(())
+}
+
+/// `Kind::TextInput | Kind::PasswordInput`: create the native object(s) into `e`.
+fn make_text_field(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { kind, target, .. } = *c;
+    let f = label_field(true, kind == Kind::PasswordInput);
+    vm!(f, "setDelegate:", Id: target);
+    e.obj = f;
+    Ok(())
+}
+
+/// `Kind::Button`: create the native object(s) into `e`.
+fn make_button(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { target, act, .. } = *c;
+    let v = view_new("NSButton", rect(0.0, 0.0, 80.0, 24.0));
+    vm!(v, "setButtonType:", usize: 7);
+    vm!(v, "setBezelStyle:", usize: 1);
+    set_target_action(v, target, act);
+    e.obj = v;
+    Ok(())
+}
+
+/// `Kind::CheckBox | Kind::RadioButton`: create the native object(s) into `e`.
+fn make_check(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make {
+        kind, target, act, ..
+    } = *c;
+    let v = view_new("NSButton", rect(0.0, 0.0, 80.0, 20.0));
+    let radio = kind == Kind::RadioButton;
+    vm!(v, "setButtonType:", usize: if radio { 4 } else { 3 });
+    if radio {
+        // AppKit auto-groups radios that share target and action within one superview; the core
+        // owns exclusivity, so every radio gets a target of its own (kept in `aux`, released with
+        // the radio). Giving each its own action selector instead would add a method and an
+        // interned selector to the class for every radio ever created.
+        let own_target = alloc_init_class(st(|s| s.tclass));
+        e.aux = own_target;
+        set_target_action(v, own_target, act);
+    } else {
+        set_target_action(v, target, act);
+    }
+    e.obj = v;
+    Ok(())
+}
+
+/// `Kind::TextArea`: create the native object(s) into `e`.
+fn make_text_area(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { target, .. } = *c;
+    let sv = view_new("NSScrollView", rect(0.0, 0.0, 200.0, 100.0));
+    vm!(sv, "setHasVerticalScroller:", u8: 1);
+    vm!(sv, "setBorderType:", usize: 2);
+    let tv = view_new("NSTextView", rect(0.0, 0.0, 200.0, 100.0));
+    vm!(tv, "setMinSize:", NSSize: NSSize { w: 0.0, h: 100.0 });
+    vm!(tv, "setMaxSize:", NSSize: NSSize { w: HUGE_EXTENT, h: HUGE_EXTENT });
+    vm!(tv, "setVerticallyResizable:", u8: 1);
+    vm!(tv, "setHorizontallyResizable:", u8: 0);
+    vm!(tv, "setAutoresizingMask:", usize: 2);
+    let tc = idm!(tv, "textContainer");
+    if !tc.is_null() {
+        vm!(tc, "setContainerSize:", NSSize: NSSize { w: 200.0, h: HUGE_EXTENT });
+        vm!(tc, "setWidthTracksTextView:", u8: 1);
+    }
+    vm!(tv, "setRichText:", u8: 0);
+    vm!(tv, "setAllowsUndo:", u8: 1);
+    vm!(tv, "setDelegate:", Id: target);
+    vm!(sv, "setDocumentView:", Id: tv);
+    release(tv);
+    e.obj = sv;
+    e.aux = tv;
+    Ok(())
+}
+
+/// `Kind::ComboBox`: create the native object(s) into `e`.
+fn make_combo(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { target, act, .. } = *c;
+    let v = view_new("NSPopUpButton", rect(0.0, 0.0, 140.0, 26.0));
+    set_target_action(v, target, act);
+    e.obj = v;
+    Ok(())
+}
+
+/// `Kind::ListBox`: create the native object(s) into `e`.
+fn make_list(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { target, .. } = *c;
+    let sv = view_new("NSScrollView", rect(0.0, 0.0, 160.0, 100.0));
+    vm!(sv, "setHasVerticalScroller:", u8: 1);
+    vm!(sv, "setBorderType:", usize: 2);
+    let tv = view_new("NSTableView", rect(0.0, 0.0, 160.0, 100.0));
+    let col = idm!(idm!(cls("NSTableColumn"), "alloc"), "initWithIdentifier:", Id: ns("c"));
+    vm!(col, "setWidth:", f64: 150.0);
+    let cell = idm!(col, "dataCell");
+    if !cell.is_null() {
+        vm!(cell, "setEditable:", u8: 0);
+    }
+    vm!(tv, "addTableColumn:", Id: col);
+    release(col);
+    vm!(tv, "setHeaderView:", Id: NIL);
+    vm!(tv, "setAllowsMultipleSelection:", u8: 0);
+    vm!(tv, "setAllowsEmptySelection:", u8: 1);
+    vm!(tv, "setDataSource:", Id: target);
+    vm!(tv, "setDelegate:", Id: target);
+    vm!(tv, "setTarget:", Id: target);
+    vm!(tv, "setDoubleAction:", Sel: sel!("runguiDouble:"));
+    vm!(sv, "setDocumentView:", Id: tv);
+    release(tv);
+    e.obj = sv;
+    e.aux = tv;
+    Ok(())
+}
+
+/// `Kind::Table | Kind::Tree`: create the native object(s) into `e`.
+fn make_table_or_tree(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { kind, target, .. } = *c;
+    let tree = kind == Kind::Tree;
+    let sv = view_new("NSScrollView", rect(0.0, 0.0, 300.0, 150.0));
+    vm!(sv, "setHasVerticalScroller:", u8: 1);
+    vm!(sv, "setHasHorizontalScroller:", u8: 1);
+    vm!(sv, "setBorderType:", usize: 2);
+    let tv = view_new(
+        if tree { "NSOutlineView" } else { "NSTableView" },
+        rect(0.0, 0.0, 300.0, 150.0),
+    );
+    vm!(tv, "setAllowsMultipleSelection:", u8: 0);
+    vm!(tv, "setAllowsEmptySelection:", u8: 1);
+    vm!(tv, "setDataSource:", Id: target);
+    vm!(tv, "setDelegate:", Id: target);
+    vm!(tv, "setTarget:", Id: target);
+    vm!(tv, "setDoubleAction:", Sel: sel!("runguiDouble:"));
+    if tree {
+        vm!(tv, "setHeaderView:", Id: NIL);
+        let col = idm!(idm!(cls("NSTableColumn"), "alloc"), "initWithIdentifier:", Id: ns("0"));
+        vm!(col, "setWidth:", f64: 200.0);
+        let cell = idm!(col, "dataCell");
+        if !cell.is_null() {
+            vm!(cell, "setEditable:", u8: 0);
+        }
+        vm!(tv, "addTableColumn:", Id: col);
+        vm!(tv, "setOutlineTableColumn:", Id: col);
+        release(col);
+    }
+    vm!(sv, "setDocumentView:", Id: tv);
+    release(tv);
+    e.obj = sv;
+    e.aux = tv;
+    Ok(())
+}
+
+/// `Kind::PopupMenu`: create the native object(s) into `e`.
+fn make_popup_menu(e: &mut Entry) -> Result<()> {
+    e.obj = new_menu("");
+    Ok(())
+}
+
+/// `Kind::Slider`: create the native object(s) into `e`.
+fn make_slider(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { target, act, .. } = *c;
+    let v = view_new("NSSlider", rect(0.0, 0.0, 150.0, 21.0));
+    vm!(v, "setMinValue:", f64: 0.0);
+    vm!(v, "setMaxValue:", f64: 100.0);
+    set_target_action(v, target, act);
+    e.obj = v;
+    Ok(())
+}
+
+/// `Kind::ProgressBar`: create the native object(s) into `e`.
+fn make_progress(e: &mut Entry) -> Result<()> {
+    let v = view_new("NSProgressIndicator", rect(0.0, 0.0, 150.0, 20.0));
+    vm!(v, "setStyle:", usize: 0);
+    vm!(v, "setIndeterminate:", u8: 0);
+    vm!(v, "setMinValue:", f64: 0.0);
+    vm!(v, "setMaxValue:", f64: 1.0);
+    e.obj = v;
+    Ok(())
+}
+
+/// `Kind::SpinBox`: create the native object(s) into `e`.
+fn make_spin(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { target, act, .. } = *c;
+    let c = flip_view();
+    let tf = label_field(true, false);
+    let stp = view_new("NSStepper", rect(0.0, 0.0, STEPPER_WIDTH, 27.0));
+    vm!(stp, "setMinValue:", f64: 0.0);
+    vm!(stp, "setMaxValue:", f64: 100.0);
+    vm!(stp, "setIncrement:", f64: 1.0);
+    vm!(stp, "setValueWraps:", u8: 0);
+    set_target_action(stp, target, act);
+    set_target_action(tf, target, act);
+    vm!(tf, "setDelegate:", Id: target);
+    vm!(c, "addSubview:", Id: tf);
+    vm!(c, "addSubview:", Id: stp);
+    release(tf);
+    release(stp);
+    e.obj = c;
+    e.aux = tf;
+    e.aux2 = stp;
+    Ok(())
+}
+
+/// `Kind::Tabs`: create the native object(s) into `e`.
+fn make_tabs(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { target, .. } = *c;
+    let v = view_new("NSTabView", rect(0.0, 0.0, 300.0, 200.0));
+    vm!(v, "setDelegate:", Id: target);
+    e.obj = v;
+    Ok(())
+}
+
+/// `Kind::Page`: create the native object(s) into `e`.
+fn make_page(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { pview, .. } = *c;
+    let item = idm!(idm!(cls("NSTabViewItem"), "alloc"), "initWithIdentifier:", Id: NIL);
+    let pv = flip_view();
+    vm!(item, "setView:", Id: pv);
+    release(pv);
+    {
+        let _q = Quiet::new();
+        vm!(pview, "addTabViewItem:", Id: item);
+    }
+    release(item);
+    release_stale_page_view(pview);
+    e.obj = pv;
+    e.cont = pv;
+    e.aux = item;
+    Ok(())
+}
+
+/// `Kind::GroupBox`: create the native object(s) into `e`.
+fn make_group(e: &mut Entry) -> Result<()> {
+    let bx = view_new("NSBox", rect(0.0, 0.0, 200.0, 100.0));
+    let flip = flip_view();
+    vm!(bx, "setContentView:", Id: flip);
+    release(flip);
+    e.obj = bx;
+    e.cont = flip;
+    Ok(())
+}
+
+/// `Kind::Image`: create the native object(s) into `e`.
+fn make_image(e: &mut Entry) -> Result<()> {
+    let v = view_new("NSImageView", rect(0.0, 0.0, 32.0, 32.0));
+    vm!(v, "setImageScaling:", usize: 0);
+    e.obj = v;
+    Ok(())
+}
+
+/// `Kind::MenuBar`: create the native object(s) into `e`.
+fn make_menu_bar(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make {
+        id,
+        target,
+        name,
+        pe,
+        parent,
+        ..
+    } = *c;
+    let (bar, edit) = new_menubar(target, name, true);
+    e.obj = bar;
+    e.aux = edit;
+    st(|s| {
+        s.menubars.insert(parent.unwrap_or(WidgetId::DEAD), bar);
+        s.std_edit.insert(id, edit);
+    });
+    if let Some(pe) = pe {
+        if bm!(pe.obj, "isKeyWindow") || bm!(pe.obj, "isVisible") {
+            install_menubar(parent.unwrap_or(WidgetId::DEAD));
+        }
+    }
+    Ok(())
+}
+
+/// `Kind::Menu`: create the native object(s) into `e`.
+fn make_menu(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { pe, .. } = *c;
+    let item = idm!(idm!(cls("NSMenuItem"), "alloc"), "init");
+    let menu = new_menu("");
+    vm!(item, "setSubmenu:", Id: menu);
+    vm!(pe.map(|p| p.obj).unwrap_or(NIL), "addItem:", Id: item);
+    release(item);
+    e.obj = menu;
+    e.aux = item;
+    release(menu);
+    Ok(())
+}
+
+/// `Kind::MenuItem | Kind::CheckMenuItem`: create the native object(s) into `e`.
+fn make_menu_item(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make {
+        target, act, pe, ..
+    } = *c;
+    let it = new_item("", act, "");
+    vm!(it, "setTarget:", Id: target);
+    vm!(pe.map(|p| p.obj).unwrap_or(NIL), "addItem:", Id: it);
+    release(it);
+    e.obj = it;
+    Ok(())
+}
+
+/// `Kind::MenuSeparator`: create the native object(s) into `e`.
+fn make_separator(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { pe, .. } = *c;
+    let it = idm!(cls("NSMenuItem"), "separatorItem");
+    vm!(pe.map(|p| p.obj).unwrap_or(NIL), "addItem:", Id: it);
+    e.obj = it;
+    Ok(())
+}
+
+/// `Prop::Tooltip`.
+fn prop_tooltip(e: &Entry, t: &str) {
+    if is_view_kind(e.kind) {
+        vm!(e.obj, "setToolTip:", Id: ns(t));
+    }
+}
+
+/// `Prop::Placeholder`.
+fn prop_placeholder(e: &Entry, t: &str) {
+    if matches!(e.kind, Kind::TextInput | Kind::PasswordInput) {
+        let cell = idm!(e.obj, "cell");
+        if responds(cell, "setPlaceholderString:") {
+            vm!(cell, "setPlaceholderString:", Id: ns(t));
+        }
+    }
+}
+
+/// `Prop::Checked`.
+fn prop_checked(e: &Entry, c: bool) {
+    if matches!(
+        e.kind,
+        Kind::CheckBox | Kind::RadioButton | Kind::CheckMenuItem
+    ) {
+        vm!(e.obj, "setState:", isize: c as isize);
+    }
+}
+
+/// `Prop::Value`.
+fn prop_value(e: &Entry, v: f64) {
+    match e.kind {
+        Kind::Slider | Kind::ProgressBar => vm!(e.obj, "setDoubleValue:", f64: v),
+        Kind::SpinBox => set_spin(e, v),
+        _ => {}
+    }
+}
+
+/// `Prop::Range`.
+fn prop_range(id: WidgetId, e: &Entry, min: f64, max: f64, step: f64) {
+    st(|s| s.range.insert(id, (min, max, step)));
+    match e.kind {
+        Kind::Slider => {
+            vm!(e.obj, "setMinValue:", f64: min);
+            vm!(e.obj, "setMaxValue:", f64: max);
+        }
+        Kind::SpinBox => {
+            vm!(e.aux2, "setMinValue:", f64: min);
+            vm!(e.aux2, "setMaxValue:", f64: max);
+            vm!(e.aux2, "setIncrement:", f64: if step > 0.0 { step } else { 1.0 });
+        }
+        _ => {}
+    }
+}
+
+/// `Prop::Selected`.
+fn prop_selected(e: &Entry, sel: Option<usize>) {
+    match e.kind {
+        Kind::ComboBox => {
+            vm!(e.obj, "selectItemAtIndex:", isize: sel.map_or(-1, |i| i as isize))
+        }
+        Kind::Tabs => {
+            if let Some(i) = sel {
+                vm!(e.obj, "selectTabViewItemAtIndex:", isize: i as isize);
+            }
+        }
+        Kind::ListBox | Kind::Table => {
+            // GNUstep raises for any selection change on a table without columns, and
+            // AppKit for a row its view does not (yet) have; the core re-sends the
+            // selection together with the columns
+            if send!(isize, e.aux, "numberOfColumns") > 0 {
+                match sel {
+                    Some(i) if (i as isize) < send!(isize, e.aux, "numberOfRows") => {
+                        let set = idm!(cls("NSIndexSet"), "indexSetWithIndex:", usize: i);
+                        vm!(e.aux, "selectRowIndexes:byExtendingSelection:", Id: set, u8: 0);
+                        vm!(e.aux, "scrollRowToVisible:", isize: i as isize);
+                    }
+                    _ => vm!(e.aux, "deselectAll:", Id: NIL),
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `Prop::Accel`.
+fn prop_accel(e: &Entry, a: &str) {
+    if matches!(e.kind, Kind::MenuItem | Kind::CheckMenuItem) {
+        let (key, mask) = Accel::parse(a)
+            .and_then(|a| key_equivalent(&a))
+            .unwrap_or_default();
+        vm!(e.obj, "setKeyEquivalent:", Id: ns(&key));
+        vm!(e.obj, "setKeyEquivalentModifierMask:", usize: mask);
+    }
+}
+
+/// `Prop::ReadOnly`.
+fn prop_read_only(id: WidgetId, e: &Entry, ro: bool) {
+    st(|s| {
+        if ro {
+            s.readonly.insert(id);
+        } else {
+            s.readonly.remove(&id);
+        }
+    });
+    match e.kind {
+        Kind::TextInput | Kind::PasswordInput => {
+            vm!(e.obj, "setEditable:", u8: b(!ro))
+        }
+        Kind::TextArea => vm!(e.aux, "setEditable:", u8: b(!ro)),
+        _ => {}
+    }
+}
+
+/// `Prop::Indeterminate`.
+fn prop_indeterminate(e: &Entry, ind: bool) {
+    if e.kind == Kind::ProgressBar {
+        vm!(e.obj, "setIndeterminate:", u8: b(ind));
+        if ind {
+            vm!(e.obj, "startAnimation:", Id: NIL);
+        } else {
+            vm!(e.obj, "stopAnimation:", Id: NIL);
+        }
+    }
+}
+
+/// `Prop::Resizable`.
+fn prop_resizable(id: WidgetId, e: &Entry, r: bool) {
+    if e.kind == Kind::Window {
+        set_resizable(id, e, r);
+    }
+}
+
+/// `Prop::Rows`.
+fn prop_rows(id: WidgetId, e: &Entry, rows: &[Vec<String>]) {
+    st(|s| s.rows.insert(id, rows.to_vec()));
+    vm!(e.aux, "reloadData");
+}
+
+/// `Prop::TreeSelected`.
+fn prop_tree_selected(id: WidgetId, e: &Entry, n: Option<u64>) {
+    let row = n.and_then(|n| {
+        let item = st(|s| {
+            s.trees
+                .get(&id)
+                .and_then(|m| m.by_id.get(&n).and_then(|i| m.nodes.get(*i)).map(|n| n.obj))
+        })?;
+        let r = send!(isize, e.aux, "rowForItem:", Id: item);
+        (r >= 0).then_some(r)
+    });
+    match row {
+        Some(r) => {
+            let set = idm!(cls("NSIndexSet"), "indexSetWithIndex:", usize: r as usize);
+            vm!(e.aux, "selectRowIndexes:byExtendingSelection:", Id: set, u8: 0);
+            vm!(e.aux, "scrollRowToVisible:", isize: r);
+        }
+        None => vm!(e.aux, "deselectAll:", Id: NIL),
+    }
+}
+
+/// `Prop::Orientation`.
+fn prop_orientation(id: WidgetId, e: &Entry, o: Orientation) {
+    if e.kind == Kind::Sash {
+        st(|s| s.sash_orient.insert(id, o));
+        let w = idm!(e.obj, "window");
+        if !w.is_null() {
+            vm!(w, "invalidateCursorRectsForView:", Id: e.obj);
+        }
+        vm!(e.obj, "setNeedsDisplay:", u8: 1);
+    }
+}
+
+/// `Prop::Wrap`.
+fn prop_wrap(e: &Entry, w: bool) {
+    if e.kind == Kind::TextArea {
+        set_wrap(e, w);
+    }
+}
+
+/// `Prop::Position`.
+fn prop_position(id: WidgetId, e: &Entry, x: i32, y: i32) {
+    if e.kind == Kind::Window {
+        st(|s| s.placed.insert(id));
+        let p = NSPoint {
+            x: x as f64,
+            y: primary_screen_height() - y as f64,
+        };
+        vm!(e.obj, "setFrameTopLeftPoint:", NSPoint: p);
+    }
+}
+
+/// `Prop::MinSize`.
+fn prop_min_size(id: WidgetId, e: &Entry, sz: Size) {
+    if e.kind == Kind::Window {
+        let (mw, mh) = (sz.w.max(0) as f64, sz.h.max(0) as f64);
+        st(|s| s.min_size.insert(id, NSSize { w: mw, h: mh }));
+        if !st(|s| s.fixed.contains(&id)) {
+            vm!(e.obj, "setContentMinSize:", NSSize: NSSize { w: mw, h: mh });
+        }
+        // AppKit only enforces the minimum on the next resize: grow right away, as
+        // the core never lays out below it (and GNUstep would otherwise move the window).
+        let cur = client_size(e);
+        if cur.w < mw || cur.h < mh {
+            resize_window(e.obj, cur.w.max(mw), cur.h.max(mh));
+        }
+    }
+}
+
+/// `Prop::Focus`.
+fn prop_focus(e: &Entry) {
+    let target = match e.kind {
+        Kind::TextArea | Kind::ListBox | Kind::SpinBox | Kind::Table | Kind::Tree => e.aux,
+        Kind::Window => return,
+        k if is_view_kind(k) => e.obj,
+        _ => return,
+    };
+    let w = idm!(target, "window");
+    if !w.is_null() {
+        vm!(w, "makeFirstResponder:", Id: target);
     }
 }

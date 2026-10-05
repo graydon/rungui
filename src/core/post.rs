@@ -1,6 +1,6 @@
 //! Cross-thread post queue and the idle flush (layout + accessibility).
 
-use super::{REG, flush_models, guarded, wake, wake_answered, with};
+use super::{REG, flush_models, guarded, wake_answered, with};
 use crate::backend::{Backend, Native as B};
 use crate::layout;
 use crate::types::WidgetId;
@@ -8,9 +8,18 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
 type Job = Box<dyn FnOnce() + Send>;
+
+/// The closures posted to one UI thread, and whether that thread has been asked to wake up for them.
+#[derive(Default)]
+struct Queue {
+    jobs: VecDeque<Job>,
+    /// A wake-up was requested and `drain_posted` has not run since: further posts need none.
+    wake_pending: bool,
+}
+
 /// Posted jobs, per target (UI) thread, so independent toolkit instances (tests) never steal
 /// each other's work. A normal app has exactly one UI thread.
-static QUEUES: Mutex<Option<HashMap<std::thread::ThreadId, VecDeque<Job>>>> = Mutex::new(None);
+static QUEUES: Mutex<Option<HashMap<std::thread::ThreadId, Queue>>> = Mutex::new(None);
 /// The thread that most recently completed `init`: where `post` from other threads is delivered.
 pub(super) static UI_THREAD: Mutex<Option<std::thread::ThreadId>> = Mutex::new(None);
 
@@ -36,14 +45,18 @@ pub fn post(f: impl FnOnce() + Send + 'static) {
 
 /// Queue `f` for a specific UI thread.
 pub fn post_to(target: std::thread::ThreadId, f: impl FnOnce() + Send + 'static) {
-    QUEUES
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get_or_insert_with(HashMap::new)
-        .entry(target)
-        .or_default()
-        .push_back(Box::new(f));
-    wake();
+    let need_wake = {
+        let mut queues = QUEUES.lock().unwrap_or_else(|e| e.into_inner());
+        let q = queues
+            .get_or_insert_with(HashMap::new)
+            .entry(target)
+            .or_default();
+        q.jobs.push_back(Box::new(f));
+        !std::mem::replace(&mut q.wake_pending, true)
+    };
+    if need_wake {
+        B::wake();
+    }
 }
 
 /// Backend entry point: called on the main thread after `Backend::wake`. Runs queued closures
@@ -51,11 +64,16 @@ pub fn post_to(target: std::thread::ThreadId, f: impl FnOnce() + Send + 'static)
 pub fn drain_posted() {
     wake_answered();
     let me = std::thread::current().id();
+    // clear the flag before reading the queue, so a closure posted after the read wakes us again
     let batch = QUEUES
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .as_mut()
-        .and_then(|m| m.get_mut(&me).map(std::mem::take))
+        .and_then(|m| m.get_mut(&me))
+        .map(|q| {
+            q.wake_pending = false;
+            std::mem::take(&mut q.jobs)
+        })
         .unwrap_or_default();
     for job in batch {
         guarded(job);

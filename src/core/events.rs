@@ -161,7 +161,7 @@ pub fn event(id: WidgetId, ev: Event) {
             }
             _ => {}
         }
-        r.touch(id, false);
+        // nothing to mark dirty: a user event changes no layout and no accessible name
         Some(true)
     })
     .flatten();
