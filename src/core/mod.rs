@@ -110,7 +110,7 @@ impl Registry {
         !std::mem::replace(&mut self.scheduled, true)
     }
     /// Effective (own && all ancestors) value of visible/enabled for every native node in the subtree.
-    fn effective(&self, id: WidgetId, visible: bool) -> Vec<(WidgetId, bool)> {
+    fn effective(&self, id: WidgetId, visible: bool) -> Vec<(WidgetId, Kind, bool)> {
         let flag = |n: &Node| if visible { n.visible } else { n.enabled };
         let mut acc = true;
         let mut p = self.nodes.get(&id).and_then(|n| n.parent);
@@ -127,7 +127,7 @@ impl Registry {
             };
             let a = a && flag(n);
             if n.kind.is_native() {
-                out.push((i, a));
+                out.push((i, n.kind, a));
             }
             stack.extend(n.children.iter().map(|c| (*c, a)));
         }

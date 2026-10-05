@@ -54,15 +54,15 @@ pub fn set_flag(id: WidgetId, visible: bool, v: bool) {
     if visible && v && k == Kind::Window {
         layout_window(id);
     }
-    for (nid, eff) in with(|r| r.effective(id, visible)).unwrap_or_default() {
-        B::set(
-            nid,
-            &if visible {
-                Prop::Visible(eff)
-            } else {
-                Prop::Enabled(eff)
-            },
-        );
+    for (nid, kind, eff) in with(|r| r.effective(id, visible)).unwrap_or_default() {
+        let prop = if visible {
+            Prop::Visible(eff)
+        } else {
+            Prop::Enabled(eff)
+        };
+        if prop.applies_to(kind) {
+            B::set(nid, &prop);
+        }
     }
 }
 
