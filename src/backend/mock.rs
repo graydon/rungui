@@ -48,6 +48,15 @@ pub struct MockWidget {
     pub min_size: Size,
 }
 
+/// What the core last told the mock about one native widget's accessibility (`a11y_changed`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct A11yRecord {
+    pub id: WidgetId,
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub role: crate::A11yRole,
+}
+
 /// One `Backend::popup_menu` call.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PopupRecord {
@@ -71,6 +80,8 @@ struct State {
     /// Kinds `create` refuses with `Unsupported` (to test optional-widget fallbacks).
     unsupported: Vec<Kind>,
     popups: Vec<PopupRecord>,
+    /// Per window: the accessibility metadata of its last `a11y_changed`.
+    a11y: HashMap<WidgetId, Vec<A11yRecord>>,
     /// Per popup: the item the simulated user picks (None = dismissed).
     popup_choices: VecDeque<Option<WidgetId>>,
 }
@@ -135,6 +146,7 @@ impl Backend for Mock {
     fn destroy(id: WidgetId) {
         st(|s| {
             s.widgets.remove(&id);
+            s.a11y.remove(&id);
         });
     }
     fn set(id: WidgetId, prop: &Prop) {
@@ -174,6 +186,22 @@ impl Backend for Mock {
                 Prop::MinSize(m) => w.min_size = *m,
                 _ => {}
             }
+        });
+    }
+    fn a11y_changed(window: WidgetId) {
+        let records = crate::a11y::resolve(window).map(|v| {
+            v.into_iter()
+                .map(|r| A11yRecord {
+                    id: r.id,
+                    name: r.name,
+                    description: r.description,
+                    role: r.role,
+                })
+                .collect()
+        });
+        st(|s| match records {
+            Some(v) => s.a11y.insert(window, v),
+            None => s.a11y.remove(&window),
         });
     }
     fn preferred_size(id: WidgetId) -> Size {
@@ -278,6 +306,11 @@ impl Backend for Mock {
 pub fn widget(id: WidgetId) -> Option<MockWidget> {
     core::flush_models(); // table/tree models reach the backend at the next loop turn
     st(|s| s.widgets.get(&id).cloned())
+}
+/// The accessibility records pushed for `window` by its last `a11y_changed`, in layout order.
+pub fn a11y(window: WidgetId) -> Option<Vec<A11yRecord>> {
+    core::flush_models();
+    st(|s| s.a11y.get(&window).cloned())
 }
 pub fn widget_count() -> usize {
     st(|s| s.widgets.len())

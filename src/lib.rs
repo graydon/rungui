@@ -64,8 +64,6 @@
 
 mod link_keepalive;
 
-// The mock backend has no native objects to annotate, so there only the tests read the resolver.
-#[cfg_attr(all(feature = "mock", not(test)), allow(dead_code))]
 mod a11y;
 pub mod backend;
 pub mod core;

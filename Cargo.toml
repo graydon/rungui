@@ -14,7 +14,7 @@ readme = "README.md"
 keywords = ["gui", "native", "gtk", "win32", "cocoa"]
 categories = ["gui", "os"]
 # Keep the published crate small: no docs directory (it stays on GitHub), CI, devcontainer or helper scripts.
-exclude = [".devcontainer/", ".github/", ".claude/", ".cargo/", "doc/", "scripts/"]
+exclude = [".devcontainer/", ".github/", ".claude/", ".cargo/", "doc/", "scripts/", "fuzz/"]
 
 [features]
 default = []

@@ -1,0 +1,37 @@
+[package]
+name = "rungui-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+rungui = { path = ".." }
+
+[features]
+# Headless in-memory backend (for the libFuzzer target and `tests/random_ops.rs`).
+mock = ["rungui/mock"]
+# Cocoa backend on GNUstep (linux hosts).
+emulate-mac = ["rungui/emulate-mac"]
+
+[[bin]]
+name = "api_mock"
+path = "fuzz_targets/api_mock.rs"
+test = false
+doc = false
+bench = false
+required-features = ["mock"]
+
+# Drives the real toolkit (GTK, GNUstep or Win32) with the same random operations; see the file.
+[[bin]]
+name = "native"
+path = "src/bin/native.rs"
+test = false
+doc = false
+bench = false
+
+# Not part of the main workspace: it needs nightly and libFuzzer.
+[workspace]
