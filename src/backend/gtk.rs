@@ -25,7 +25,7 @@ struct W {
     kind: Kind,
     /// The widget placed in the parent (GtkWindow, GtkButton, GtkScrolledWindow, GtkMenuItem ...).
     w: P,
-    /// Child container (GtkFixed / GtkMenu / menu bar) or the inner widget (GtkTextView, GtkListBox).
+    /// Child container (GtkFixed / GtkMenu / menu bar) or the inner widget (GtkTextView, GtkTreeView).
     inner: P,
     /// Window: the vertical box holding menu bar + fixed.
     outer: P,
@@ -176,22 +176,6 @@ unsafe extern "C" fn h_value_changed(w: P, d: P) {
 unsafe extern "C" fn h_combo_changed(w: P, d: P) {
     let i = unsafe { gtk_combo_box_get_active(w) };
     emit(wid(d), Event::Selected((i >= 0).then_some(i as usize)));
-}
-unsafe extern "C" fn h_row_selected(_lb: P, row: P, d: P) {
-    let i = if row.is_null() {
-        -1
-    } else {
-        unsafe { gtk_list_box_row_get_index(row) }
-    };
-    emit(wid(d), Event::Selected((i >= 0).then_some(i as usize)));
-}
-unsafe extern "C" fn h_row_activated(_lb: P, row: P, d: P) {
-    if !row.is_null() {
-        let i = unsafe { gtk_list_box_row_get_index(row) };
-        if i >= 0 {
-            emit(wid(d), Event::Activated(i as usize));
-        }
-    }
 }
 unsafe extern "C" fn h_switch_page(_nb: P, _page: P, num: c_uint, d: P) {
     emit(wid(d), Event::Selected(Some(num as usize)));
@@ -861,6 +845,8 @@ fn atk_role_for(kind: Kind, role: A11yRole) -> Option<c_int> {
     match kind {
         Kind::Sash => return Some(ATK_ROLE_SPLIT_PANE),
         Kind::Table => return Some(ATK_ROLE_TABLE),
+        // a one-column tree view, which GTK would report as a table
+        Kind::ListBox => return Some(ATK_ROLE_LIST_BOX),
         Kind::Tree => return Some(ATK_ROLE_TREE_TABLE),
         _ => {}
     }
@@ -1511,19 +1497,22 @@ unsafe fn set_items(w: &W, items: &&[String]) {
                 }
             }
             Kind::ListBox => {
-                let list = gtk_container_get_children(w.inner);
-                let mut l = list;
-                while !l.is_null() {
-                    gtk_widget_destroy((*l).data);
-                    l = (*l).next;
+                // fill the store while the view is detached (the view reacts to every row)
+                let tv = w.inner;
+                let store = gtk_tree_view_get_model(tv);
+                if store.is_null() {
+                    return;
                 }
-                g_list_free(list);
+                g_object_ref(store);
+                gtk_tree_view_set_model(tv, NULL);
+                gtk_list_store_clear(store);
                 for it in items.iter() {
-                    let lab = gtk_label_new(cs(it).as_ptr());
-                    gtk_label_set_xalign(lab, 0.0);
-                    gtk_list_box_insert(w.inner, lab, -1);
+                    let mut iter = TreeIter::new();
+                    gtk_list_store_append(store, &mut iter);
+                    gtk_list_store_set(store, &mut iter, 0 as c_int, cs(it).as_ptr(), -1 as c_int);
                 }
-                gtk_widget_show_all(w.inner);
+                gtk_tree_view_set_model(tv, store);
+                g_object_unref(store);
             }
             _ => {}
         }
@@ -1540,7 +1529,7 @@ unsafe fn set_selected(w: &W, sel: Option<usize>) {
                     gtk_notebook_set_current_page(w.w, i as c_int);
                 }
             }
-            Kind::Table => {
+            Kind::Table | Kind::ListBox => {
                 let selw = gtk_tree_view_get_selection(w.inner);
                 match sel {
                     Some(i) => {
@@ -1550,12 +1539,6 @@ unsafe fn set_selected(w: &W, sel: Option<usize>) {
                         gtk_tree_path_free(path);
                     }
                     None => gtk_tree_selection_unselect_all(selw),
-                }
-            }
-            Kind::ListBox => {
-                match sel.map(|i| gtk_list_box_get_row_at_index(w.inner, i as c_int)) {
-                    Some(row) if !row.is_null() => gtk_list_box_select_row(w.inner, row),
-                    _ => gtk_list_box_unselect_all(w.inner),
                 }
             }
             _ => {}
@@ -1879,21 +1862,33 @@ unsafe fn set_tree_rows(w: &W, rows: &&[TreeRow]) {
         if store.is_null() {
             return;
         }
-        gtk_tree_store_clear(store);
-        let mut stack: Vec<TreeIter> = vec![];
-        let mut iters: Vec<TreeIter> = Vec::with_capacity(rows.len());
+        let rows: &[TreeRow] = rows;
+        // children of every row (and the roots) from the pre-order flattening
+        let mut kids: Vec<Vec<usize>> = vec![vec![]; rows.len()];
+        let mut roots: Vec<usize> = vec![];
+        let mut stack: Vec<usize> = vec![];
         for (i, r) in rows.iter().enumerate() {
-            let depth = (r.depth as usize).min(stack.len());
-            stack.truncate(depth);
+            stack.truncate((r.depth as usize).min(stack.len()));
+            match stack.last() {
+                Some(p) => kids[*p].push(i),
+                None => roots.push(i),
+            }
+            stack.push(i);
+        }
+        // Fill the store while the view is detached (otherwise the view reacts to every row), and
+        // insert each node's children last-to-first with `prepend`: `append` walks the sibling
+        // list, which makes a node with thousands of children quadratic.
+        g_object_ref(store);
+        gtk_tree_view_set_model(tv, NULL);
+        gtk_tree_store_clear(store);
+        let mut iters: Vec<TreeIter> = vec![TreeIter::new(); rows.len()];
+        let mut todo: Vec<(usize, Option<usize>)> = roots.iter().map(|r| (*r, None)).collect();
+        while let Some((row, parent)) = todo.pop() {
+            let r = &rows[row];
+            let parent_iter =
+                parent.map_or(std::ptr::null_mut(), |p| &mut iters[p] as *mut TreeIter);
             let mut it = TreeIter::new();
-            let parent = if depth > 0 {
-                stack
-                    .get_mut(depth - 1)
-                    .map_or(std::ptr::null_mut(), |t| t as *mut TreeIter)
-            } else {
-                std::ptr::null_mut()
-            };
-            gtk_tree_store_append(store, &mut it, parent);
+            gtk_tree_store_prepend(store, &mut it, parent_iter);
             gtk_tree_store_set(
                 store,
                 &mut it,
@@ -1903,8 +1898,7 @@ unsafe fn set_tree_rows(w: &W, rows: &&[TreeRow]) {
                 r.node,
                 -1 as c_int,
             );
-            let has_kids = rows.get(i + 1).is_some_and(|n| n.depth > r.depth);
-            if r.has_children && !has_kids {
+            if r.has_children && kids[row].is_empty() {
                 // placeholder child so lazily loaded nodes show an expander
                 let mut d = TreeIter::new();
                 gtk_tree_store_append(store, &mut d, &mut it);
@@ -1918,9 +1912,12 @@ unsafe fn set_tree_rows(w: &W, rows: &&[TreeRow]) {
                     -1 as c_int,
                 );
             }
-            stack.push(it);
-            iters.push(it);
+            iters[row] = it;
+            todo.extend(kids[row].iter().map(|k| (*k, Some(row))));
         }
+        gtk_tree_view_set_model(tv, store);
+        g_object_unref(store);
+        // expand parents before children (the flattening is pre-order)
         for (r, it) in rows.iter().zip(iters.iter_mut()) {
             if r.expanded {
                 let path = gtk_tree_model_get_path(store, it);
@@ -2067,17 +2064,30 @@ unsafe fn build_combo(id: WidgetId, w: &mut W) {
     }
 }
 
-/// Build the native widget(s) of a `ListBox` into `w`.
+/// Build the native widget(s) of a `ListBox` into `w`: a headerless one-column tree view over a
+/// list store. (A `GtkListBox` makes a widget per row and takes seconds, quadratically, to fill
+/// once it is on screen; the tree view is virtual.)
 unsafe fn build_list(id: WidgetId, w: &mut W) {
     unsafe {
-        let lb = gtk_list_box_new();
-        gtk_list_box_set_activate_on_single_click(lb, 0);
-        connect(lb, b"row-selected\0", h_row_selected as *const (), id);
-        connect(lb, b"row-activated\0", h_row_activated as *const (), id);
-        ctx_hooks(lb, id);
-        focus_hooks(lb, id);
-        w.w = scrolled(lb);
-        w.inner = lb;
+        let tv = gtk_tree_view_new();
+        gtk_tree_view_set_headers_visible(tv, 0);
+        let sel = gtk_tree_view_get_selection(tv);
+        gtk_tree_selection_set_mode(sel, 1);
+        connect(sel, b"changed\0", h_sel_changed as *const (), id);
+        connect(tv, b"row-activated\0", h_tv_activated as *const (), id);
+        ctx_hooks(tv, id);
+        focus_hooks(tv, id);
+        let mut types = [G_TYPE_STRING];
+        let store = gtk_list_store_newv(1, types.as_mut_ptr());
+        gtk_tree_view_set_model(tv, store);
+        g_object_unref(store);
+        let col = gtk_tree_view_column_new();
+        let r = gtk_cell_renderer_text_new();
+        gtk_tree_view_column_pack_start(col, r, 1);
+        gtk_tree_view_column_add_attribute(col, r, c"text".as_ptr(), 0);
+        gtk_tree_view_append_column(tv, col);
+        w.w = scrolled(tv);
+        w.inner = tv;
     }
 }
 

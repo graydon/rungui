@@ -52,3 +52,11 @@ path = "src/bin/soak.rs"
 test = false
 doc = false
 bench = false
+
+# Times the real backend on big UIs (tens of thousands of rows, thousands of widgets).
+[[bin]]
+name = "bench_native"
+path = "src/bin/bench_native.rs"
+test = false
+doc = false
+bench = false

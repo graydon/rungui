@@ -320,13 +320,6 @@ unsafe extern "C" {
     pub fn gtk_combo_box_text_remove_all(c: P);
     pub fn gtk_combo_box_set_active(c: P, i: c_int);
     pub fn gtk_combo_box_get_active(c: P) -> c_int;
-    pub fn gtk_list_box_new() -> P;
-    pub fn gtk_list_box_insert(l: P, w: P, pos: c_int);
-    pub fn gtk_list_box_select_row(l: P, r: P);
-    pub fn gtk_list_box_unselect_all(l: P);
-    pub fn gtk_list_box_get_row_at_index(l: P, i: c_int) -> P;
-    pub fn gtk_list_box_row_get_index(r: P) -> c_int;
-    pub fn gtk_list_box_set_activate_on_single_click(l: P, v: c_int);
     pub fn gtk_scale_new_with_range(
         orient: c_int,
         min: c_double,
@@ -397,6 +390,7 @@ unsafe extern "C" {
     pub fn gtk_list_store_set(s: P, it: *mut TreeIter, ...);
     pub fn gtk_tree_store_newv(n: c_int, types: *mut c_ulong) -> P;
     pub fn gtk_tree_store_clear(s: P);
+    pub fn gtk_tree_store_prepend(s: P, it: *mut TreeIter, parent: *mut TreeIter);
     pub fn gtk_tree_store_append(s: P, it: *mut TreeIter, parent: *mut TreeIter);
     pub fn gtk_tree_store_set(s: P, it: *mut TreeIter, ...);
     pub fn gtk_tree_model_get(m: P, it: *mut TreeIter, ...);
