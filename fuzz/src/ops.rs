@@ -219,6 +219,7 @@ impl Fuzz {
     fn u8(&self) -> u8 {
         self.inp.borrow_mut().u8()
     }
+    #[allow(clippy::manual_is_multiple_of)] // is_multiple_of needs Rust 1.89, the crate supports 1.85
     fn coin(&self, one_in: u8) -> bool {
         self.u8() % one_in.max(1) == 0
     }
@@ -701,7 +702,7 @@ impl Fuzz {
             }
             2 => {
                 let h = self.hook();
-                Button::from_id(self.of(&[Tag::Button])).on_click(move || h())
+                Button::from_id(self.of(&[Tag::Button])).on_click(h)
             }
             3 => {
                 let id = self.of(&[Tag::CheckBox, Tag::Radio]);
@@ -872,7 +873,7 @@ impl Fuzz {
             }
             21 => {
                 let h = self.hook();
-                MenuItem::from_id(self.of(&[Tag::MenuItem])).on_click(move || h());
+                MenuItem::from_id(self.of(&[Tag::MenuItem])).on_click(h);
                 let h = self.hook();
                 CheckMenuItem::from_id(self.of(&[Tag::CheckMenuItem])).on_toggle(move |_| h())
             }
@@ -897,9 +898,9 @@ impl Fuzz {
                 let ms = u32::from(self.u8());
                 let h = self.hook();
                 let t = if self.coin(2) {
-                    Timer::once(ms, move || h())
+                    Timer::once(ms, h)
                 } else {
-                    Timer::every(ms, move || h())
+                    Timer::every(ms, h)
                 };
                 let mut ts = self.timers.borrow_mut();
                 if ts.len() >= 32 {
@@ -1011,10 +1012,8 @@ impl Fuzz {
                 self.remember_tree_node(id);
             }
             13 => {
-                if let Some(n) = self.tree_node(tr) {
-                    if self.coin(3) {
-                        tr.remove(n);
-                    }
+                if let Some(n) = self.tree_node(tr).filter(|_| self.coin(3)) {
+                    tr.remove(n);
                 }
             }
             14 => {

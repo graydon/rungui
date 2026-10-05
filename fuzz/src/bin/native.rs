@@ -45,7 +45,11 @@ mod glib_log {
         fn gtk_widget_get_child_visible(w: *mut c_void) -> c_int;
         fn gtk_widget_get_allocated_width(w: *mut c_void) -> c_int;
         fn gtk_widget_get_allocated_height(w: *mut c_void) -> c_int;
-        fn gtk_container_forall(c: *mut c_void, f: unsafe extern "C" fn(*mut c_void, *mut c_void), d: *mut c_void);
+        fn gtk_container_forall(
+            c: *mut c_void,
+            f: unsafe extern "C" fn(*mut c_void, *mut c_void),
+            d: *mut c_void,
+        );
         fn g_type_name_from_instance(i: *mut c_void) -> *const c_char;
         fn g_log_set_default_handler(
             f: unsafe extern "C" fn(*const c_char, c_int, *const c_char, *mut c_void),
@@ -84,7 +88,12 @@ mod glib_log {
             }
         }
     }
-    unsafe extern "C" fn handler(domain: *const c_char, level: c_int, msg: *const c_char, _d: *mut c_void) {
+    unsafe extern "C" fn handler(
+        domain: *const c_char,
+        level: c_int,
+        msg: *const c_char,
+        _d: *mut c_void,
+    ) {
         let text = |p: *const c_char| {
             if p.is_null() {
                 String::new()
@@ -121,7 +130,11 @@ mod glib_log {
 fn resources() -> (u64, usize) {
     let rss_pages = std::fs::read_to_string("/proc/self/statm")
         .ok()
-        .and_then(|s| s.split_whitespace().nth(1).and_then(|p| p.parse::<u64>().ok()))
+        .and_then(|s| {
+            s.split_whitespace()
+                .nth(1)
+                .and_then(|p| p.parse::<u64>().ok())
+        })
         .unwrap_or(0);
     let fds = std::fs::read_dir("/proc/self/fd").map_or(0, |d| d.count());
     (rss_pages * 4, fds)
@@ -152,7 +165,10 @@ fn main() {
                 App::quit();
                 return;
             }
-            if seed % REPORT_EVERY == 0 {
+            #[allow(clippy::manual_is_multiple_of)]
+            // is_multiple_of needs a newer Rust than the crate
+            let report = seed % REPORT_EVERY == 0;
+            if report {
                 let (rss, fds) = resources();
                 println!("resources at seed {seed}: rss {rss} KiB, {fds} fds");
             }
@@ -166,10 +182,11 @@ fn main() {
             let limit_seed: Option<u64> = std::env::var("RUNGUI_FUZZ_LIMIT_SEED")
                 .ok()
                 .and_then(|v| v.parse().ok());
-            if limit_seed == Some(seed) {
-                if let Some(k) = std::env::var("RUNGUI_FUZZ_LIMIT").ok().and_then(|v| v.parse().ok()) {
-                    fz.set_limit(k);
-                }
+            let limit: Option<u32> = std::env::var("RUNGUI_FUZZ_LIMIT")
+                .ok()
+                .and_then(|v| v.parse().ok());
+            if let (true, Some(k)) = (limit_seed == Some(seed), limit) {
+                fz.set_limit(k);
             }
             s.1 = Some(fz);
         }

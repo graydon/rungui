@@ -20,7 +20,11 @@ const LIVE_MS: u32 = 2;
 fn resources() -> (u64, usize) {
     let rss_pages = std::fs::read_to_string("/proc/self/statm")
         .ok()
-        .and_then(|s| s.split_whitespace().nth(1).and_then(|p| p.parse::<u64>().ok()))
+        .and_then(|s| {
+            s.split_whitespace()
+                .nth(1)
+                .and_then(|p| p.parse::<u64>().ok())
+        })
         .unwrap_or(0);
     let fds = std::fs::read_dir("/proc/self/fd").map_or(0, |d| d.count());
     (rss_pages * 4, fds)
@@ -28,11 +32,12 @@ fn resources() -> (u64, usize) {
 
 /// The parts of the window, so a leak can be narrowed down by naming only some of them.
 const SECTIONS: [&str; 13] = [
-    "menus", "menubar", "accel", "popup", "basic", "text", "lists", "numeric", "image", "tabs", "table", "tree", "group",
+    "menus", "menubar", "accel", "popup", "basic", "text", "lists", "numeric", "image", "tabs",
+    "table", "tree", "group",
 ];
 
 /// A window and the popup menu that belongs to it: popups have no parent, so the app destroys them.
-fn build(only: &[String]) -> (Window, Option<PopupMenu>) {
+fn build(only: &[String]) -> Live {
     let on = |name: &str| only.is_empty() || only.iter().any(|o| o == name);
     let win = Window::new("soak");
     if on("menus") || on("menubar") || on("accel") {
@@ -120,6 +125,10 @@ fn build(only: &[String]) -> (Window, Option<PopupMenu>) {
     (win, popup)
 }
 
+/// The window being soaked: its popup menu is destroyed with it.
+/// A window and the popup menu that belongs to it: popups have no parent, so the app destroys them.
+type Live = (Window, Option<PopupMenu>);
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let iterations: u32 = args.next().and_then(|a| a.parse().ok()).unwrap_or(2000);
@@ -131,7 +140,7 @@ fn main() {
     let app = App::new("rungui-soak").expect("toolkit init");
     App::set_quit_on_last_close(false);
     let n = Rc::new(Cell::new(0u32));
-    let live: Rc<Cell<Option<(Window, Option<PopupMenu>)>>> = Rc::new(Cell::new(None));
+    let live: Rc<Cell<Option<Live>>> = Rc::new(Cell::new(None));
     let (n2, live2) = (n.clone(), live.clone());
     Timer::every(LIVE_MS, move || {
         if let Some((w, popup)) = live2.take() {
