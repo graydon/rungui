@@ -18,9 +18,9 @@ impl Table {
     pub fn new(parent: impl Into<WidgetId>) -> Table {
         make(Table::from_id, Kind::Table, parent, |_| {})
     }
-    /// Replace the columns (rows and selection are kept).
+    /// Replace the columns (rows and selection are kept). At most [`MAX_COLUMNS`] are kept.
     pub fn set_columns(&self, cols: &[Column]) {
-        let v = cols.to_vec();
+        let v = cols[..cols.len().min(MAX_COLUMNS)].to_vec();
         core::data_update(self.id(), core::Data::TableAll, |n| {
             if let Some(t) = n.table_mut() {
                 t.columns = v;
@@ -32,7 +32,7 @@ impl Table {
     }
     pub fn add_column(&self, col: Column) {
         core::data_update(self.id(), core::Data::TableAll, |n| {
-            if let Some(t) = n.table_mut() {
+            if let Some(t) = n.table_mut().filter(|t| t.columns.len() < MAX_COLUMNS) {
                 t.columns.push(col);
             }
         });
@@ -105,7 +105,7 @@ impl Table {
     pub fn set_cell(&self, row: usize, col: usize, text: &str) {
         core::data_update(self.id(), core::Data::TableRows, |n| {
             if let Some(r) = n.table_mut().and_then(|t| t.rows.get_mut(row)) {
-                if col >= MAX_CELL * 64 {
+                if col >= MAX_COLUMNS {
                     return; // absurd column index: would allocate gigabytes
                 }
                 if r.len() <= col {

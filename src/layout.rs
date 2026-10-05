@@ -141,6 +141,11 @@ fn is_horizontal(k: Kind) -> bool {
     k == Kind::HBox
 }
 
+/// Total spacing between `n` children.
+fn gaps(spacing: i32, n: usize) -> i32 {
+    spacing.saturating_mul(n.saturating_sub(1).min(i32::MAX as usize) as i32)
+}
+
 /// Size needed by the children (no padding, no chrome).
 fn measure_children(r: &Registry, id: WidgetId, n: &Node) -> Size {
     let sp = n.lay.spacing;
@@ -185,7 +190,7 @@ fn measure_children(r: &Registry, id: WidgetId, n: &Node) -> Size {
         return Size::new(tot(&size[0]), tot(&size[1]));
     }
     let kids = visible_children(r, id);
-    let (mut main, mut cross) = (0, 0);
+    let (mut main, mut cross) = (0i32, 0i32);
     for c in &kids {
         let m = measure(r, *c);
         let (a, b) = if is_horizontal(n.kind) {
@@ -193,10 +198,10 @@ fn measure_children(r: &Registry, id: WidgetId, n: &Node) -> Size {
         } else {
             (m.h, m.w)
         };
-        main += a;
+        main = main.saturating_add(a);
         cross = cross.max(b);
     }
-    main += sp * (kids.len() as i32 - 1).max(0);
+    main = main.saturating_add(gaps(sp, kids.len()));
     if is_horizontal(n.kind) {
         Size::new(main, cross)
     } else {
@@ -238,7 +243,10 @@ fn measure_uncached(r: &Registry, id: WidgetId) -> Size {
             } else {
                 Size::default()
             };
-            Size::new(c.w + pad + ch.w, c.h + pad + ch.h)
+            Size::new(
+                c.w.saturating_add(pad).saturating_add(ch.w),
+                c.h.saturating_add(pad).saturating_add(ch.h),
+            )
         }
         Kind::Tabs => {
             let ch = B::chrome(id);
@@ -256,10 +264,24 @@ fn measure_uncached(r: &Registry, id: WidgetId) -> Size {
     if let Some(f) = n.lay.fixed {
         s = f;
     }
-    Size::new(s.w.max(n.lay.min.w), s.h.max(n.lay.min.h))
+    Size::new(
+        s.w.max(n.lay.min.w).clamp(0, MAX_PX),
+        s.h.max(n.lay.min.h).clamp(0, MAX_PX),
+    )
+}
+
+/// Keep a rectangle within what toolkits accept (see [`MAX_PX`]).
+fn clamp_rect(r: Rect) -> Rect {
+    Rect::new(
+        r.x.clamp(-MAX_PX, MAX_PX),
+        r.y.clamp(-MAX_PX, MAX_PX),
+        r.w.clamp(0, MAX_PX),
+        r.h.clamp(0, MAX_PX),
+    )
 }
 
 fn place(r: &mut Registry, id: WidgetId, rect: Rect, out: &mut Out) {
+    let rect = clamp_rect(rect);
     let Some(n) = r.nodes.get_mut(&id) else {
         return;
     };
@@ -356,7 +378,9 @@ fn arrange_children(r: &mut Registry, id: WidgetId, area: Rect, out: &mut Out) {
         let ms: Vec<Size> = kids.iter().map(|c| measure(r, *c)).collect();
         let mut main: Vec<i32> = ms.iter().map(|m| if horiz { m.w } else { m.h }).collect();
         let weights: Vec<f32> = kids.iter().map(|c| r.nodes[c].lay.expand).collect();
-        let total: i32 = main.iter().sum::<i32>() + sp * (kids.len() as i32 - 1).max(0);
+        let total: i32 = main
+            .iter()
+            .fold(gaps(sp, kids.len()), |t, m| t.saturating_add(*m));
         distribute(
             &mut main,
             &weights,
@@ -374,12 +398,14 @@ fn arrange_children(r: &mut Registry, id: WidgetId, area: Rect, out: &mut Out) {
                 Rect::new(inner.x + off, pos, cs, main[i])
             };
             jobs.push((*c, rect));
-            pos += main[i] + sp;
+            pos = pos.saturating_add(main[i]).saturating_add(sp);
         }
     }
     if rtl() {
         for (_, rc) in jobs.iter_mut() {
-            rc.x = inner.x + (inner.x + inner.w - (rc.x + rc.w));
+            // mirror inside `inner`: new_x = 2 * inner.x + inner.w - (x + w)
+            let mirrored = 2 * i64::from(inner.x) + i64::from(inner.w) - i64::from(rc.x) - i64::from(rc.w);
+            rc.x = mirrored.clamp(-i64::from(MAX_PX), i64::from(MAX_PX)) as i32;
         }
     }
     for (c, rect) in jobs {
@@ -486,7 +512,11 @@ pub fn compute(r: &mut Registry, w: WidgetId) -> Out {
         win.client = m;
     }
     // a window is never laid out below its minimum size (backends may not enforce Prop::MinSize)
-    win.client = Size::new(win.client.w.max(min.w), win.client.h.max(min.h));
+    // nor beyond what a display can show
+    win.client = Size::new(
+        win.client.w.max(min.w).clamp(0, MAX_WINDOW_PX),
+        win.client.h.max(min.h).clamp(0, MAX_WINDOW_PX),
+    );
     let rect = Rect::new(0, 0, win.client.w, win.client.h);
     place(r, w, rect, &mut out);
     out

@@ -34,8 +34,10 @@ const OPS_PER_CALLBACK: u32 = 3;
 const POOL_MAX: usize = 192;
 /// Live top-level windows at once.
 const MAX_WINDOWS: usize = 4;
-/// Longest generated string, in bytes.
+/// Longest generated string, in bytes. Native toolkits get less: GTK3 text views warn about native
+/// windows wider than 32767 pixels once a single unwrapped line is a few thousand characters long.
 const MAX_STR: usize = 20_000;
+const MAX_STR_NATIVE: usize = 2_000;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Tag {
@@ -221,7 +223,8 @@ impl Fuzz {
         match b % 8 {
             0 => {
                 // long
-                let n = (usize::from(self.u8()) * 80).min(MAX_STR);
+                let cap = if self.mode == Mode::Mock { MAX_STR } else { MAX_STR_NATIVE };
+                let n = (usize::from(self.u8()) * 80).min(cap);
                 "x".repeat(n)
             }
             1 => {

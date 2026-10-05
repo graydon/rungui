@@ -154,6 +154,12 @@ impl Backend for Mock {
             let Some(w) = s.widgets.get_mut(&id) else {
                 return;
             };
+            if let Some(kind) = w.kind {
+                assert!(
+                    prop.applies_to(kind),
+                    "core sent {prop:?} to a {kind:?}, which does not take it"
+                );
+            }
             match prop {
                 Prop::Text(t) => w.text = t.to_string(),
                 Prop::Tooltip(t) => w.tooltip = t.to_string(),

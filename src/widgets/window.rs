@@ -18,7 +18,7 @@ impl Window {
     pub fn set_size(&self, w: i32, h: i32) {
         if core::update(self.id(), true, |n| {
             if let Some(win) = n.window_mut() {
-                win.client = Size::new(w.clamp(1, MAX_PX), h.clamp(1, MAX_PX));
+                win.client = Size::new(w.clamp(1, MAX_WINDOW_PX), h.clamp(1, MAX_WINDOW_PX));
                 win.explicit_size = true;
             }
         })

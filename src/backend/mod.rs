@@ -247,6 +247,51 @@ pub enum Prop<'a> {
     MinSize(Size),
 }
 
+impl Prop<'_> {
+    /// Does a widget of `kind` take this property at all? The core never sends a property to a kind
+    /// that does not (a public handle method aimed at the wrong kind of widget is dropped), so
+    /// backends may assume `self.applies_to(kind)` and need not defend against, say, an
+    /// accelerator on a combo box. Props not listed here apply to every native kind.
+    pub fn applies_to(&self, kind: Kind) -> bool {
+        use Kind::*;
+        let text_input = matches!(kind, TextInput | PasswordInput | TextArea);
+        let range = matches!(kind, Slider | SpinBox | ProgressBar);
+        match self {
+            Prop::Text(_) => {
+                text_input
+                    || matches!(
+                        kind,
+                        Window
+                            | Label
+                            | Button
+                            | CheckBox
+                            | RadioButton
+                            | Page
+                            | GroupBox
+                            | MenuItem
+                            | CheckMenuItem
+                            | Menu
+                    )
+            }
+            Prop::Placeholder(_) => matches!(kind, TextInput | PasswordInput),
+            Prop::Checked(_) => matches!(kind, CheckBox | RadioButton | CheckMenuItem),
+            Prop::Value(_) | Prop::Range { .. } => range,
+            Prop::Items(_) => matches!(kind, ComboBox | ListBox),
+            Prop::Selected(_) => matches!(kind, ComboBox | ListBox | Tabs | Table),
+            Prop::Image(_) => kind == Image,
+            Prop::Accel(_) => matches!(kind, MenuItem | CheckMenuItem),
+            Prop::ReadOnly(_) | Prop::Monospace(_) => text_input,
+            Prop::Indeterminate(_) => kind == ProgressBar,
+            Prop::Resizable(_) | Prop::Position { .. } | Prop::MinSize(_) => kind == Window,
+            Prop::Columns(_) | Prop::Rows(_) | Prop::SortIndicator(_) => kind == Table,
+            Prop::TreeRows(_) | Prop::TreeSelected(_) => kind == Tree,
+            Prop::Orientation(_) => kind == Sash,
+            Prop::Wrap(_) => kind == TextArea,
+            _ => true,
+        }
+    }
+}
+
 /// Keyboard commands for a focused sash. `Prev`/`Next` are the arrow keys along the sash's
 /// movement axis in SCREEN directions (Left/Up = `Prev`, Right/Down = `Next`; the backend does not
 /// mirror them for right-to-left layouts, the core does), with Shift for the `Large` variants.

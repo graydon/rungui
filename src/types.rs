@@ -13,6 +13,14 @@ impl WidgetId {
     pub const DEAD: WidgetId = WidgetId(0);
 }
 
+/// Largest widget extent or coordinate pushed to a backend, in logical pixels. X11 and Win32 keep
+/// window-system coordinates in 16 bits, so anything beyond this could not be shown anyway; larger
+/// requests are clamped instead of overflowing layout arithmetic or tripping toolkit warnings.
+pub(crate) const MAX_PX: i32 = i16::MAX as i32;
+/// Largest window client size. Toolkits allocate a backing store for a window, so this is kept to
+/// what a real display can have rather than the coordinate limit.
+pub(crate) const MAX_WINDOW_PX: i32 = 1 << 14;
+
 /// Rectangle in logical (DPI-independent) pixels; origin top-left, y grows downward.
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 pub struct Rect {

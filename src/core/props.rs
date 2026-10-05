@@ -26,7 +26,7 @@ pub fn update(id: WidgetId, relayout: bool, f: impl FnOnce(&mut Node)) -> Option
 /// `update` + push `prop` to the backend when the widget is native.
 pub fn set(id: WidgetId, relayout: bool, f: impl FnOnce(&mut Node), prop: Prop) {
     if let Some(k) = update(id, relayout, f) {
-        if k.is_native() {
+        if k.is_native() && prop.applies_to(k) {
             B::set(id, &prop);
         }
     }

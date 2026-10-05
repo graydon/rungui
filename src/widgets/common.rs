@@ -51,7 +51,10 @@ impl Widget {
     pub fn set_min_size(&self, w: i32, h: i32) {
         let min = Size::new(px(w), px(h));
         if core::update(self.0, true, |n| n.lay.min = min) == Some(Kind::Window) {
-            B::set(self.0, &Prop::MinSize(min));
+            B::set(
+                self.0,
+                &Prop::MinSize(Size::new(min.w.min(MAX_WINDOW_PX), min.h.min(MAX_WINDOW_PX))),
+            );
         }
     }
     /// Force the natural size (overrides the toolkit's preferred size).

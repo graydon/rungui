@@ -93,11 +93,10 @@ fn on(id: WidgetId, ev: Ev, mut f: impl FnMut(&Event) + 'static) {
 
 // ------------------------------------------------------------------ common
 
-/// Largest pixel value accepted for sizes, spacing, padding and splitter positions; larger
-/// (or negative, where nonsensical) inputs are clamped so layout arithmetic cannot overflow.
-const MAX_PX: i32 = 1 << 16;
 /// Largest grid cell index / span (keeps the track tables small).
 const MAX_CELL: usize = 1 << 10;
+/// Most columns a table keeps; backends index columns with 16 bits and nobody needs more.
+pub const MAX_COLUMNS: usize = 1 << 12;
 
 fn px(v: i32) -> i32 {
     v.clamp(0, MAX_PX)

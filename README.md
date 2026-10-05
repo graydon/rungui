@@ -12,8 +12,8 @@ require much maintenance. It's just fussy code no human bothered to write.
 
 ## Overview
 
-Rungui is a portable wrapper over 3 desktop GUI toolkits: linux/GTK, macOS/cocoa
-and win32. It is intended as a simple 80/20 option in the sprawling landscape of
+Rungui is a portable wrapper over 3 desktop GUI toolkits: Linux/GTK, macOS/AppKit
+and Win32. It is intended as a simple 80/20 option in the sprawling landscape of
 "GUIs for Rust".
 
 Benefits:

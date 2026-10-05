@@ -675,6 +675,36 @@ fn digits_for(step: f64) -> c_uint {
     d
 }
 
+/// Natural-size floors for widgets whose GTK natural size is too small to use.
+const MIN_TEXT_AREA: Size = Size::new(240, 100);
+const MIN_LIST_BOX: Size = Size::new(160, 100);
+const MIN_TABLE: Size = Size::new(240, 140);
+const MIN_RANGE_WIDTH: i32 = 160;
+/// Narrowest table column. The header button needs room for its own border and padding, and GTK
+/// warns when it is allocated less than that.
+const MIN_COLUMN_WIDTH: i32 = 24;
+/// Allocations under this many pixels are checked against the widget's real minimum size.
+const TINY_ALLOC: i32 = 32;
+
+/// (minimum, natural) size of `widget`, ignoring any size request pushed earlier through Bounds.
+unsafe fn request_sizes(widget: P) -> (Req, Req) {
+    unsafe {
+        let (mut rw, mut rh) = (-1, -1);
+        gtk_widget_get_size_request(widget, &mut rw, &mut rh);
+        gtk_widget_set_size_request(widget, -1, -1);
+        let (mut min, mut nat) = (Req::default(), Req::default());
+        gtk_widget_get_preferred_size(widget, &mut min, &mut nat);
+        gtk_widget_set_size_request(widget, rw, rh);
+        (min, nat)
+    }
+}
+
+/// The smallest size `widget` can be allocated without GTK complaining.
+unsafe fn min_request(widget: P) -> (i32, i32) {
+    let (min, _) = unsafe { request_sizes(widget) };
+    (min.w, min.h)
+}
+
 /// Border/header size of a GroupBox (key 0) or Tabs (key 1): allocate a real, unmapped toplevel
 /// once and compare outer and inner allocations (CSS-dependent, so measured, not guessed).
 fn measure_chrome(key: u8) -> Size {
@@ -852,24 +882,18 @@ impl Backend for Gtk {
         if is_container(w.kind) || w.kind == Kind::Tabs {
             return Size::default();
         }
-        unsafe {
-            // Ignore any size request we pushed earlier through Bounds.
-            let (mut rw, mut rh) = (-1, -1);
-            gtk_widget_get_size_request(w.w, &mut rw, &mut rh);
-            gtk_widget_set_size_request(w.w, -1, -1);
-            let (mut min, mut nat) = (Req::default(), Req::default());
-            gtk_widget_get_preferred_size(w.w, &mut min, &mut nat);
-            gtk_widget_set_size_request(w.w, rw, rh);
-            let mut s = Size::new(nat.w, nat.h);
-            match w.kind {
-                Kind::TextArea => s = Size::new(s.w.max(240), s.h.max(100)),
-                Kind::ListBox => s = Size::new(s.w.max(160), s.h.max(100)),
-                Kind::Table | Kind::Tree => s = Size::new(s.w.max(240), s.h.max(140)),
-                Kind::Slider | Kind::ProgressBar => s.w = s.w.max(160),
-                _ => {}
-            }
-            s
+        let (_, nat) = unsafe { request_sizes(w.w) };
+        let mut s = Size::new(nat.w, nat.h);
+        // scrolled and range widgets report a tiny natural size; give them a usable one
+        let at_least = |s: Size, floor: Size| Size::new(s.w.max(floor.w), s.h.max(floor.h));
+        match w.kind {
+            Kind::TextArea => s = at_least(s, MIN_TEXT_AREA),
+            Kind::ListBox => s = at_least(s, MIN_LIST_BOX),
+            Kind::Table | Kind::Tree => s = at_least(s, MIN_TABLE),
+            Kind::Slider | Kind::ProgressBar => s.w = s.w.max(MIN_RANGE_WIDTH),
+            _ => {}
         }
+        s
     }
 
     fn chrome(id: WidgetId) -> Size {
@@ -1537,7 +1561,15 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                     if !parent.is_null() {
                         gtk_fixed_move(parent, w.w, r.x, r.y);
                     }
-                    gtk_widget_set_size_request(w.w, r.w.max(0), r.h.max(0));
+                    let (mut want_w, mut want_h) = (r.w.max(0), r.h.max(0));
+                    if want_w < TINY_ALLOC || want_h < TINY_ALLOC {
+                        // GTK warns (and draws garbage) when a widget is allocated less than its
+                        // own border and padding; never go below the widget's real minimum
+                        let (min_w, min_h) = min_request(w.w);
+                        want_w = want_w.max(min_w);
+                        want_h = want_h.max(min_h);
+                    }
+                    gtk_widget_set_size_request(w.w, want_w, want_h);
                     if w.kind == Kind::Sash {
                         upd(id, |x| x.sash_pos = if x.sash_v { r.y } else { r.x });
                     }
@@ -1715,7 +1747,7 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                     gtk_tree_view_column_set_alignment(col, xalign);
                     gtk_tree_view_column_set_resizable(col, 1);
                     gtk_tree_view_column_set_sizing(col, 2);
-                    gtk_tree_view_column_set_fixed_width(col, c.width.max(1));
+                    gtk_tree_view_column_set_fixed_width(col, c.width.max(MIN_COLUMN_WIDTH));
                     gtk_tree_view_column_set_clickable(col, 1);
                     let tok = ((id.0 << 16) | (i as u64 & 0xffff)) as usize as P;
                     connect_raw(col, b"clicked\0", h_col_clicked as *const (), tok);

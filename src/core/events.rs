@@ -135,7 +135,7 @@ pub fn event(id: WidgetId, ev: Event) {
                 }
                 Event::Resized { w, h } => {
                     // a misbehaving backend must not feed layout negative or absurd sizes
-                    let sz = Size::new((*w).clamp(0, 1 << 16), (*h).clamp(0, 1 << 16));
+                    let sz = Size::new((*w).clamp(0, MAX_WINDOW_PX), (*h).clamp(0, MAX_WINDOW_PX));
                     let win = n.window_mut()?;
                     let same = win.client == sz;
                     win.client = sz;
