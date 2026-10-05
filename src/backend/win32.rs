@@ -895,282 +895,27 @@ fn subclass(h: HWND) {
 fn create_impl(id: WidgetId, kind: Kind, parent: Option<WidgetId>) -> Result<()> {
     let (inst, fns) = st(|s| (s.inst, s.fns)).ok_or(Error::NotInitialized)?;
     if kind == Kind::Window {
-        let style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
-        let h = unsafe {
-            CreateWindowExW(
-                0,
-                wide(CLS_WINDOW).as_ptr(),
-                wide("").as_ptr(),
-                style,
-                CW_USEDEFAULT,
-                CW_USEDEFAULT,
-                NEW_WINDOW_SIZE.0,
-                NEW_WINDOW_SIZE.1,
-                0,
-                0,
-                inst,
-                null_mut(),
-            )
-        };
-        if h == 0 {
-            return Err(last_err("CreateWindowEx"));
-        }
-        let dpi = match fns.dpi_for_window {
-            Some(f) => unsafe { f(h) },
-            None => system_dpi() as u32,
-        }
-        .max(48);
-        let mut w = W::new(kind, id, None);
-        w.hwnd = h;
-        w.dpi = dpi;
-        w.vis = false;
-        st(|s| {
-            s.widgets.insert(id, w);
-            s.by_hwnd.insert(h, id);
-        });
-        return Ok(());
+        return create_window(id, inst, fns);
     }
-
     if kind == Kind::PopupMenu {
-        let m = unsafe { CreatePopupMenu() };
-        if m == 0 {
-            return Err(last_err("CreatePopupMenu"));
-        }
-        let mut w = W::new(kind, id, None);
-        w.hmenu = m;
-        st(|s| s.widgets.insert(id, w));
-        return Ok(());
+        return create_popup_menu(id);
     }
-
     let p = parent.ok_or(Error::InvalidHandle)?;
-    let (phwnd, pkind, pwin, pmenu) =
-        get(p, |w| (w.hwnd, w.kind, w.win, w.hmenu)).ok_or(Error::InvalidHandle)?;
+    let (phwnd, pwin, pmenu) = get(p, |w| (w.hwnd, w.win, w.hmenu)).ok_or(Error::InvalidHandle)?;
 
-    // ---- menus ----
     if matches!(
         kind,
         Kind::MenuBar | Kind::Menu | Kind::MenuItem | Kind::CheckMenuItem | Kind::MenuSeparator
     ) {
-        let mut w = W::new(kind, pwin, Some(p));
-        let empty = wide("");
-        match kind {
-            Kind::MenuBar => {
-                let m = unsafe { CreateMenu() };
-                if m == 0 {
-                    return Err(last_err("CreateMenu"));
-                }
-                w.hmenu = m;
-                w.win = p;
-                unsafe {
-                    SetMenu(phwnd, m);
-                }
-            }
-            Kind::Menu => {
-                let m = unsafe { CreatePopupMenu() };
-                if m == 0 {
-                    return Err(last_err("CreatePopupMenu"));
-                }
-                w.hmenu = m;
-                unsafe {
-                    AppendMenuW(pmenu, MF_POPUP | MF_STRING, m as usize, empty.as_ptr());
-                }
-            }
-            Kind::MenuSeparator => unsafe {
-                AppendMenuW(pmenu, MF_SEPARATOR, 0, null());
-            },
-            _ => {
-                let cmd = st(|s| {
-                    // command ids are 16 bits: at most CMD_LAST - CMD_FIRST + 1 live items
-                    for _ in CMD_FIRST..=CMD_LAST {
-                        let c = s.next_cmd;
-                        s.next_cmd = if c >= CMD_LAST { CMD_FIRST } else { c + 1 };
-                        if let std::collections::hash_map::Entry::Vacant(e) = s.by_cmd.entry(c) {
-                            e.insert(id);
-                            return Some(c);
-                        }
-                    }
-                    None
-                })
-                .ok_or(Error::NotInitialized)?
-                .ok_or(Error::LimitExceeded)?;
-                w.cmd = cmd;
-                unsafe {
-                    AppendMenuW(pmenu, MF_STRING, cmd as usize, empty.as_ptr());
-                }
-            }
-        }
-        st(|s| {
-            s.widgets.insert(id, w);
-            if let Some(pw) = s.widgets.get_mut(&p) {
-                pw.children.push(id);
-            }
-        });
-        let win = if kind == Kind::MenuBar { p } else { pwin };
-        menu_changed(win);
-        return Ok(());
+        return create_menu_part(id, kind, p, phwnd, pwin, pmenu);
     }
-
-    // ---- containers ----
     if matches!(kind, Kind::Page | Kind::GroupBox) {
-        // Pages are siblings stacked above the tab control (not its children): the tab control would
-        // otherwise paint over them.
-        let chost = if kind == Kind::Page {
-            parent_hwnd(p).unwrap_or(phwnd)
-        } else {
-            phwnd
-        };
-        let h = create_window_raw(
-            WS_EX_CONTROLPARENT,
-            CLS_CONTAINER,
-            WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
-            chost,
-            inst,
-        );
-        if h == 0 {
-            return Err(last_err("CreateWindowEx(container)"));
-        }
-        let mut w = W::new(kind, pwin, Some(p));
-        w.hwnd = h;
-        let dpi = dpi_of(pwin);
-        if kind == Kind::GroupBox {
-            let f = create_window_raw(0, "BUTTON", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, h, inst);
-            if f == 0 {
-                unsafe {
-                    DestroyWindow(h);
-                }
-                return Err(last_err("CreateWindowEx(groupbox)"));
-            }
-            send(f, WM_SETFONT, font(dpi) as usize, 1);
-            w.aux = f;
-        }
-        if kind == Kind::Page {
-            let tab_index = get(p, |t| t.children.len()).unwrap_or(0);
-            w.vis = tab_index == 0;
-            let mut empty = wide("");
-            let item = TCITEMW {
-                mask: TCIF_TEXT,
-                dwState: 0,
-                dwStateMask: 0,
-                pszText: empty.as_mut_ptr(),
-                cchTextMax: 0,
-                iImage: -1,
-                lParam: 0,
-            };
-            send(
-                phwnd,
-                TCM_INSERTITEMW,
-                tab_index,
-                &item as *const _ as isize,
-            );
-            if tab_index > 0 {
-                unsafe {
-                    ShowWindow(h, SW_HIDE);
-                }
-            }
-        }
-        let aux = w.aux;
-        st(|s| {
-            s.widgets.insert(id, w);
-            s.by_hwnd.insert(h, id);
-            if aux != 0 {
-                s.by_hwnd.insert(aux, id);
-            }
-            if let Some(pw) = s.widgets.get_mut(&p) {
-                pw.children.push(id);
-                if kind == Kind::Page && pw.selected.is_none() {
-                    pw.selected = Some(0);
-                }
-            }
-        });
-        if kind == Kind::Page {
-            position_pages(p);
-        }
-        return Ok(());
+        return create_container(id, kind, inst, p, phwnd, pwin);
     }
-
-    // ---- splitter sash ----
     if kind == Kind::Sash {
-        // WS_TABSTOP: keyboard-operable (arrows / Home / End, see `sash_msg`)
-        let h = create_window_raw(
-            0,
-            CLS_SASH,
-            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP,
-            phwnd,
-            inst,
-        );
-        if h == 0 {
-            return Err(last_err("CreateWindowEx(sash)"));
-        }
-        let mut w = W::new(kind, pwin, Some(p));
-        w.hwnd = h;
-        st(|s| {
-            s.widgets.insert(id, w);
-            s.by_hwnd.insert(h, id);
-        });
-        return Ok(());
+        return create_sash_window(id, inst, p, phwnd, pwin);
     }
-
-    // ---- ordinary controls ----
-    let (class, style, ex) = ctl_spec(kind).ok_or(Error::Unsupported)?;
-    let h = create_window_raw(ex, class, WS_CHILD | WS_VISIBLE | style, phwnd, inst);
-    if h == 0 {
-        return Err(last_err("CreateWindowEx(control)"));
-    }
-    let _ = pkind;
-    let dpi = dpi_of(pwin);
-    let f = font(dpi) as usize;
-    send(h, WM_SETFONT, f, 1);
-    let mut w = W::new(kind, pwin, Some(p));
-    w.hwnd = h;
-    match kind {
-        Kind::Slider => {
-            send(h, TBM_SETRANGE, 1, (slider_steps(w.range) as isize) << 16);
-        }
-        Kind::ProgressBar => {
-            send(h, PBM_SETRANGE32, 0, PROGRESS_STEPS as isize);
-        }
-        Kind::ComboBox => {
-            send(h, CB_SETMINVISIBLE, 10, 0);
-        }
-        Kind::TextInput | Kind::PasswordInput | Kind::TextArea => {
-            send(h, EM_SETLIMITTEXT, 0, 0); // 0 = as much as the control supports
-        }
-        Kind::Table => {
-            send(
-                h,
-                LVM_SETEXTENDEDLISTVIEWSTYLE,
-                0,
-                (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP) as isize,
-            );
-        }
-        Kind::Tree => {
-            send(h, TVM_SETEXTENDEDSTYLE, 0, TVS_EX_DOUBLEBUFFER as isize);
-        }
-        Kind::SpinBox => {
-            let u = create_window_raw(0, "msctls_updown32", WS_CHILD | WS_VISIBLE, phwnd, inst);
-            if u != 0 {
-                send(u, UDM_SETRANGE32, 0, 100);
-                w.aux = u;
-            }
-        }
-        _ => {}
-    }
-    if !matches!(kind, Kind::Label | Kind::Image | Kind::ProgressBar) {
-        subclass(h);
-    }
-    let aux = w.aux;
-    st(|s| {
-        s.widgets.insert(id, w);
-        s.by_hwnd.insert(h, id);
-        if aux != 0 {
-            s.by_hwnd.insert(aux, id);
-        }
-    });
-    if kind == Kind::SpinBox {
-        let (v, r) = (0.0, (0.0, 100.0, 1.0));
-        set_text(h, &fmt_value(v, r.2));
-    }
-    Ok(())
+    create_control(id, kind, inst, p, phwnd, pwin)
 }
 
 fn destroy_impl(id: WidgetId) {
@@ -3849,4 +3594,305 @@ fn set_focus(tg: &Target) {
             SetFocus(h);
         }
     }
+}
+
+/// Create a top-level window.
+fn create_window(id: WidgetId, inst: isize, fns: Fns) -> Result<()> {
+    let style = WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN;
+    let h = unsafe {
+        CreateWindowExW(
+            0,
+            wide(CLS_WINDOW).as_ptr(),
+            wide("").as_ptr(),
+            style,
+            CW_USEDEFAULT,
+            CW_USEDEFAULT,
+            NEW_WINDOW_SIZE.0,
+            NEW_WINDOW_SIZE.1,
+            0,
+            0,
+            inst,
+            null_mut(),
+        )
+    };
+    if h == 0 {
+        return Err(last_err("CreateWindowEx"));
+    }
+    let dpi = match fns.dpi_for_window {
+        Some(f) => unsafe { f(h) },
+        None => system_dpi() as u32,
+    }
+    .max(48);
+    let mut w = W::new(Kind::Window, id, None);
+    w.hwnd = h;
+    w.dpi = dpi;
+    w.vis = false;
+    st(|s| {
+        s.widgets.insert(id, w);
+        s.by_hwnd.insert(h, id);
+    });
+    Ok(())
+}
+
+/// Create a context menu (a menu handle without a window).
+fn create_popup_menu(id: WidgetId) -> Result<()> {
+    let m = unsafe { CreatePopupMenu() };
+    if m == 0 {
+        return Err(last_err("CreatePopupMenu"));
+    }
+    let mut w = W::new(Kind::PopupMenu, id, None);
+    w.hmenu = m;
+    st(|s| s.widgets.insert(id, w));
+    Ok(())
+}
+
+/// Create a menu, menu item or separator under menu `p`.
+fn create_menu_part(
+    id: WidgetId,
+    kind: Kind,
+    p: WidgetId,
+    phwnd: HWND,
+    pwin: WidgetId,
+    pmenu: isize,
+) -> Result<()> {
+    let mut w = W::new(kind, pwin, Some(p));
+    let empty = wide("");
+    match kind {
+        Kind::MenuBar => {
+            let m = unsafe { CreateMenu() };
+            if m == 0 {
+                return Err(last_err("CreateMenu"));
+            }
+            w.hmenu = m;
+            w.win = p;
+            unsafe {
+                SetMenu(phwnd, m);
+            }
+        }
+        Kind::Menu => {
+            let m = unsafe { CreatePopupMenu() };
+            if m == 0 {
+                return Err(last_err("CreatePopupMenu"));
+            }
+            w.hmenu = m;
+            unsafe {
+                AppendMenuW(pmenu, MF_POPUP | MF_STRING, m as usize, empty.as_ptr());
+            }
+        }
+        Kind::MenuSeparator => unsafe {
+            AppendMenuW(pmenu, MF_SEPARATOR, 0, null());
+        },
+        _ => {
+            let cmd = st(|s| {
+                // command ids are 16 bits: at most CMD_LAST - CMD_FIRST + 1 live items
+                for _ in CMD_FIRST..=CMD_LAST {
+                    let c = s.next_cmd;
+                    s.next_cmd = if c >= CMD_LAST { CMD_FIRST } else { c + 1 };
+                    if let std::collections::hash_map::Entry::Vacant(e) = s.by_cmd.entry(c) {
+                        e.insert(id);
+                        return Some(c);
+                    }
+                }
+                None
+            })
+            .ok_or(Error::NotInitialized)?
+            .ok_or(Error::LimitExceeded)?;
+            w.cmd = cmd;
+            unsafe {
+                AppendMenuW(pmenu, MF_STRING, cmd as usize, empty.as_ptr());
+            }
+        }
+    }
+    st(|s| {
+        s.widgets.insert(id, w);
+        if let Some(pw) = s.widgets.get_mut(&p) {
+            pw.children.push(id);
+        }
+    });
+    let win = if kind == Kind::MenuBar { p } else { pwin };
+    menu_changed(win);
+    Ok(())
+}
+
+/// Create a page or group box container.
+fn create_container(
+    id: WidgetId,
+    kind: Kind,
+    inst: isize,
+    p: WidgetId,
+    phwnd: HWND,
+    pwin: WidgetId,
+) -> Result<()> {
+    // Pages are siblings stacked above the tab control (not its children): the tab control would
+    // otherwise paint over them.
+    let chost = if kind == Kind::Page {
+        parent_hwnd(p).unwrap_or(phwnd)
+    } else {
+        phwnd
+    };
+    let h = create_window_raw(
+        WS_EX_CONTROLPARENT,
+        CLS_CONTAINER,
+        WS_CHILD | WS_VISIBLE | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+        chost,
+        inst,
+    );
+    if h == 0 {
+        return Err(last_err("CreateWindowEx(container)"));
+    }
+    let mut w = W::new(kind, pwin, Some(p));
+    w.hwnd = h;
+    let dpi = dpi_of(pwin);
+    if kind == Kind::GroupBox {
+        let f = create_window_raw(0, "BUTTON", WS_CHILD | WS_VISIBLE | BS_GROUPBOX, h, inst);
+        if f == 0 {
+            unsafe {
+                DestroyWindow(h);
+            }
+            return Err(last_err("CreateWindowEx(groupbox)"));
+        }
+        send(f, WM_SETFONT, font(dpi) as usize, 1);
+        w.aux = f;
+    }
+    if kind == Kind::Page {
+        let tab_index = get(p, |t| t.children.len()).unwrap_or(0);
+        w.vis = tab_index == 0;
+        let mut empty = wide("");
+        let item = TCITEMW {
+            mask: TCIF_TEXT,
+            dwState: 0,
+            dwStateMask: 0,
+            pszText: empty.as_mut_ptr(),
+            cchTextMax: 0,
+            iImage: -1,
+            lParam: 0,
+        };
+        send(
+            phwnd,
+            TCM_INSERTITEMW,
+            tab_index,
+            &item as *const _ as isize,
+        );
+        if tab_index > 0 {
+            unsafe {
+                ShowWindow(h, SW_HIDE);
+            }
+        }
+    }
+    let aux = w.aux;
+    st(|s| {
+        s.widgets.insert(id, w);
+        s.by_hwnd.insert(h, id);
+        if aux != 0 {
+            s.by_hwnd.insert(aux, id);
+        }
+        if let Some(pw) = s.widgets.get_mut(&p) {
+            pw.children.push(id);
+            if kind == Kind::Page && pw.selected.is_none() {
+                pw.selected = Some(0);
+            }
+        }
+    });
+    if kind == Kind::Page {
+        position_pages(p);
+    }
+    Ok(())
+}
+
+/// Create a splitter sash.
+fn create_sash_window(
+    id: WidgetId,
+    inst: isize,
+    p: WidgetId,
+    phwnd: HWND,
+    pwin: WidgetId,
+) -> Result<()> {
+    // WS_TABSTOP: keyboard-operable (arrows / Home / End, see `sash_msg`)
+    let h = create_window_raw(
+        0,
+        CLS_SASH,
+        WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | WS_TABSTOP,
+        phwnd,
+        inst,
+    );
+    if h == 0 {
+        return Err(last_err("CreateWindowEx(sash)"));
+    }
+    let mut w = W::new(Kind::Sash, pwin, Some(p));
+    w.hwnd = h;
+    st(|s| {
+        s.widgets.insert(id, w);
+        s.by_hwnd.insert(h, id);
+    });
+    Ok(())
+}
+
+/// Create an ordinary native control under `p`.
+fn create_control(
+    id: WidgetId,
+    kind: Kind,
+    inst: isize,
+    p: WidgetId,
+    phwnd: HWND,
+    pwin: WidgetId,
+) -> Result<()> {
+    let (class, style, ex) = ctl_spec(kind).ok_or(Error::Unsupported)?;
+    let h = create_window_raw(ex, class, WS_CHILD | WS_VISIBLE | style, phwnd, inst);
+    if h == 0 {
+        return Err(last_err("CreateWindowEx(control)"));
+    }
+    let dpi = dpi_of(pwin);
+    let f = font(dpi) as usize;
+    send(h, WM_SETFONT, f, 1);
+    let mut w = W::new(kind, pwin, Some(p));
+    w.hwnd = h;
+    match kind {
+        Kind::Slider => {
+            send(h, TBM_SETRANGE, 1, (slider_steps(w.range) as isize) << 16);
+        }
+        Kind::ProgressBar => {
+            send(h, PBM_SETRANGE32, 0, PROGRESS_STEPS as isize);
+        }
+        Kind::ComboBox => {
+            send(h, CB_SETMINVISIBLE, 10, 0);
+        }
+        Kind::TextInput | Kind::PasswordInput | Kind::TextArea => {
+            send(h, EM_SETLIMITTEXT, 0, 0); // 0 = as much as the control supports
+        }
+        Kind::Table => {
+            send(
+                h,
+                LVM_SETEXTENDEDLISTVIEWSTYLE,
+                0,
+                (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP) as isize,
+            );
+        }
+        Kind::Tree => {
+            send(h, TVM_SETEXTENDEDSTYLE, 0, TVS_EX_DOUBLEBUFFER as isize);
+        }
+        Kind::SpinBox => {
+            let u = create_window_raw(0, "msctls_updown32", WS_CHILD | WS_VISIBLE, phwnd, inst);
+            if u != 0 {
+                send(u, UDM_SETRANGE32, 0, 100);
+                w.aux = u;
+            }
+        }
+        _ => {}
+    }
+    if !matches!(kind, Kind::Label | Kind::Image | Kind::ProgressBar) {
+        subclass(h);
+    }
+    let aux = w.aux;
+    st(|s| {
+        s.widgets.insert(id, w);
+        s.by_hwnd.insert(h, id);
+        if aux != 0 {
+            s.by_hwnd.insert(aux, id);
+        }
+    });
+    if kind == Kind::SpinBox {
+        let (v, r) = (0.0, (0.0, 100.0, 1.0));
+        set_text(h, &fmt_value(v, r.2));
+    }
+    Ok(())
 }
