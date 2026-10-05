@@ -77,6 +77,7 @@ struct State {
     last_message: Option<MessageSpec>,
     last_file_spec: Option<FileSpec>,
     fail_create: bool,
+    fail_timer: bool,
     /// Kinds `create` refuses with `Unsupported` (to test optional-widget fallbacks).
     unsupported: Vec<Kind>,
     popups: Vec<PopupRecord>,
@@ -86,7 +87,11 @@ struct State {
     popup_choices: VecDeque<Option<WidgetId>>,
 }
 
-thread_local! { static S: RefCell<State> = RefCell::new(State::default()); }
+thread_local! {
+    static S: RefCell<State> = RefCell::new(State::default());
+    /// `Backend::wake` calls made on this thread since `init` (see [`wake_count`]).
+    static WAKES: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
 static WOKEN: AtomicBool = AtomicBool::new(false);
 
 fn st<R>(f: impl FnOnce(&mut State) -> R) -> R {
@@ -106,10 +111,17 @@ impl Backend for Mock {
     fn quit() {}
     fn wake() {
         WOKEN.store(true, Ordering::SeqCst);
+        let _ = WAKES.try_with(|w| w.set(w.get() + 1));
     }
     fn timer_start(token: u64, millis: u32, repeat: bool) -> Result<()> {
-        st(|s| s.timers.insert(token, (millis, repeat, 0)));
-        Ok(())
+        st(|s| {
+            if s.fail_timer {
+                s.fail_timer = false;
+                return Err(Error::Backend("mock: timer failed".into()));
+            }
+            s.timers.insert(token, (millis, repeat, 0));
+            Ok(())
+        })
     }
     fn timer_stop(token: u64) {
         st(|s| s.timers.remove(&token));
@@ -317,6 +329,15 @@ pub fn widget(id: WidgetId) -> Option<MockWidget> {
 pub fn a11y(window: WidgetId) -> Option<Vec<A11yRecord>> {
     core::flush_models();
     st(|s| s.a11y.get(&window).cloned())
+}
+/// How many times the core asked the backend to wake the loop on this thread. The core collapses a
+/// burst of changes into one wake-up until the loop has run ([`pump`]).
+pub fn wake_count() -> u32 {
+    WAKES.with(|w| w.get())
+}
+/// Make the next `timer_start` fail.
+pub fn fail_next_timer() {
+    st(|s| s.fail_timer = true);
 }
 pub fn widget_count() -> usize {
     st(|s| s.widgets.len())
