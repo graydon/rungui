@@ -35,7 +35,7 @@ impl Tree {
     pub fn clear(&self) {
         core::data_update(self.id(), core::Data::TreeRows, |n| {
             if let Some(t) = n.tree_mut() {
-                *t = Default::default();
+                t.clear();
             }
         });
     }

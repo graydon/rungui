@@ -1557,11 +1557,7 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                     return;
                 }
                 match img {
-                    Some(d)
-                        if d.w > 0
-                            && d.h > 0
-                            && d.rgba.len() == d.w as usize * d.h as usize * 4 =>
-                    {
+                    Some(d) if d.is_valid() => {
                         let pb = gdk_pixbuf_new(0, 1, 8, d.w as c_int, d.h as c_int);
                         if pb.is_null() {
                             return;

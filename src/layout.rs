@@ -10,11 +10,32 @@
 use crate::backend::{Backend, Kind, Native as B, Prop};
 use crate::core::{Node, Registry, panes_of};
 use crate::types::*;
+use std::collections::HashMap;
 
 /// What layout pushes: `Prop::Bounds`, plus `Prop::Visible` for splitter sashes.
 type Out = Vec<(WidgetId, Prop<'static>)>;
 
-thread_local! { static RTL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
+thread_local! {
+    static RTL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Natural sizes measured during the current `compute` pass. Arranging a container re-measures
+    /// its children, so without this a deep tree costs O(nodes x depth) backend queries. Nothing
+    /// `measure` reads changes while a pass runs, so a node is measured once per pass.
+    static MEASURED: std::cell::RefCell<Option<HashMap<WidgetId, Size>>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Enables the measure cache for its lifetime (one layout pass).
+struct MeasurePass;
+impl MeasurePass {
+    fn begin() -> MeasurePass {
+        MEASURED.with(|m| *m.borrow_mut() = Some(HashMap::new()));
+        MeasurePass
+    }
+}
+impl Drop for MeasurePass {
+    fn drop(&mut self) {
+        MEASURED.with(|m| *m.borrow_mut() = None);
+    }
+}
 
 /// Mirror horizontal placement (right-to-left locales). The caller must relayout.
 pub fn set_rtl(v: bool) {
@@ -183,8 +204,22 @@ fn measure_children(r: &Registry, id: WidgetId, n: &Node) -> Size {
     }
 }
 
-/// Natural size of a widget (honouring min/fixed size).
-pub fn measure(r: &Registry, id: WidgetId) -> Size {
+/// Natural size of a widget (honouring min/fixed size); cached for the duration of a pass.
+fn measure(r: &Registry, id: WidgetId) -> Size {
+    let cached = MEASURED.with(|m| m.borrow().as_ref().and_then(|m| m.get(&id).copied()));
+    if let Some(s) = cached {
+        return s;
+    }
+    let s = measure_uncached(r, id);
+    MEASURED.with(|m| {
+        if let Some(m) = m.borrow_mut().as_mut() {
+            m.insert(id, s);
+        }
+    });
+    s
+}
+
+fn measure_uncached(r: &Registry, id: WidgetId) -> Size {
     let Some(n) = r.nodes.get(&id) else {
         return Size::default();
     };
@@ -438,6 +473,7 @@ pub fn compute(r: &mut Registry, w: WidgetId) -> Out {
     if n.kind != Kind::Window {
         return out;
     }
+    let _pass = MeasurePass::begin();
     let m = measure(r, w);
     let Some(n) = r.nodes.get_mut(&w) else {
         return out;

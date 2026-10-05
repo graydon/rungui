@@ -141,6 +141,12 @@ impl TreeData {
         }
         true
     }
+    /// Remove every node (and the selection); the batch state is kept.
+    pub fn clear(&mut self) {
+        self.nodes.clear();
+        self.roots.clear();
+        self.selected = None;
+    }
     pub fn children_of(&self, parent: Option<u64>) -> &[u64] {
         match parent {
             Some(p) => self.nodes.get(&p).map_or(&[], |n| &n.children[..]),

@@ -6,7 +6,7 @@
 use super::*;
 use crate::core;
 use std::cell::RefCell;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(Clone, Debug, Default)]
@@ -60,8 +60,8 @@ pub struct PopupRecord {
 
 #[derive(Default)]
 struct State {
-    widgets: HashMap<WidgetId, MockWidget>,
-    order: Vec<WidgetId>,
+    /// Ordered by id, which is creation order (ids are monotonic).
+    widgets: BTreeMap<WidgetId, MockWidget>,
     timers: HashMap<u64, (u32, bool, u32)>, // token -> (period, repeat, elapsed)
     answers: VecDeque<Answer>,
     files: VecDeque<Vec<String>>,
@@ -129,14 +129,12 @@ impl Backend for Mock {
                     ..Default::default()
                 },
             );
-            s.order.push(id);
             Ok(())
         })
     }
     fn destroy(id: WidgetId) {
         st(|s| {
             s.widgets.remove(&id);
-            s.order.retain(|i| *i != id);
         });
     }
     fn set(id: WidgetId, prop: &Prop) {
@@ -230,9 +228,8 @@ impl Backend for Mock {
     fn popup_menu(menu: WidgetId, parent_window: Option<WidgetId>, at: Option<(i32, i32)>) {
         let choice = st(|s| {
             let items = s
-                .order
-                .iter()
-                .filter_map(|c| s.widgets.get(c))
+                .widgets
+                .values()
                 .filter(|w| w.parent == Some(menu))
                 .map(|w| (w.kind.unwrap_or(Kind::Spacer), w.text.clone(), w.enabled))
                 .collect();
@@ -279,6 +276,7 @@ impl Backend for Mock {
 
 /// Snapshot of the mock's view of a widget.
 pub fn widget(id: WidgetId) -> Option<MockWidget> {
+    core::flush_models(); // table/tree models reach the backend at the next loop turn
     st(|s| s.widgets.get(&id).cloned())
 }
 pub fn widget_count() -> usize {
@@ -472,16 +470,12 @@ pub fn dump() -> String {
                 if w.visible { "" } else { " hidden" },
                 if w.enabled { "" } else { " disabled" },
             ));
-            for c in s
-                .order
-                .iter()
-                .filter(|c| s.widgets.get(c).and_then(|x| x.parent) == Some(id))
-            {
+            for (c, _) in s.widgets.iter().filter(|(_, x)| x.parent == Some(id)) {
                 rec(s, *c, depth + 1, out);
             }
         }
         let mut out = String::new();
-        for id in s.order.iter().filter(|i| s.widgets[i].parent.is_none()) {
+        for (id, _) in s.widgets.iter().filter(|(_, w)| w.parent.is_none()) {
             rec(s, *id, 0, &mut out);
         }
         out

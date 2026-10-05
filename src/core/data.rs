@@ -2,7 +2,7 @@
 
 use super::model::{Data, Node};
 use super::props::update;
-use super::with;
+use super::{wake, with};
 use crate::backend::{Backend, Native as B, Prop};
 use crate::types::*;
 
@@ -15,24 +15,49 @@ pub fn data_update(id: WidgetId, what: Data, f: impl FnOnce(&mut Node)) {
     }
 }
 
-/// Re-send part of the model of table/tree `id` to the backend (deferred while the node is frozen).
+/// Combine two kinds of pending update into one that covers both.
+fn merge(pending: Option<Data>, what: Data) -> Data {
+    match pending {
+        None => what,
+        Some(p) if p == what => p,
+        Some(_) if matches!(what, Data::TreeRows | Data::TreeSelected) => Data::TreeRows,
+        Some(_) => Data::TableAll,
+    }
+}
+
+/// Note that part of the model of table/tree `id` changed. The backend is updated at the next
+/// loop turn (see [`flush_models`]), so any number of mutations costs one transfer of the model.
 pub fn push(id: WidgetId, what: Data) {
-    let deferred = with(|r| {
-        let n = r.nodes.get_mut(&id)?;
-        let b = n.batch_mut()?;
-        if b.freeze > 0 {
-            b.pending = Some(match b.pending {
-                None => what,
-                Some(p) if p == what => p,
-                Some(_) if matches!(what, Data::TreeRows | Data::TreeSelected) => Data::TreeRows,
-                Some(_) => Data::TableAll,
-            });
-            return Some(true);
-        }
-        Some(false)
+    let need_wake = with(|r| {
+        let b = r.nodes.get_mut(&id)?.batch_mut()?;
+        b.pending = Some(merge(b.pending, what));
+        r.dirty_models.insert(id);
+        Some(r.schedule())
     })
     .flatten();
-    if deferred == Some(false) {
+    if need_wake == Some(true) {
+        wake();
+    }
+}
+
+/// Send every changed table/tree model to the backend, except those inside a `batch` (they are
+/// sent when the batch ends).
+pub fn flush_models() {
+    let ready: Vec<(WidgetId, Data)> = with(|r| {
+        let dirty = std::mem::take(&mut r.dirty_models);
+        dirty
+            .into_iter()
+            .filter_map(|id| {
+                let b = r.nodes.get_mut(&id)?.batch_mut()?;
+                if b.freeze > 0 {
+                    return None;
+                }
+                Some((id, b.pending.take()?))
+            })
+            .collect()
+    })
+    .unwrap_or_default();
+    for (id, what) in ready {
         send(id, what);
     }
 }

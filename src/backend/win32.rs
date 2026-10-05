@@ -1711,7 +1711,7 @@ fn update_tooltip(id: WidgetId, text: &str) {
 }
 
 fn build_bitmap(img: &ImageData) -> isize {
-    if img.w == 0 || img.h == 0 || img.rgba.len() < (img.w as usize * img.h as usize * 4) {
+    if !img.is_valid() {
         return 0;
     }
     unsafe {

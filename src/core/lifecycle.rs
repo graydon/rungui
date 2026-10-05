@@ -1,7 +1,6 @@
 //! Widget creation, initial native sync and destruction.
 
-use super::data::push;
-use super::model::{Data, Node, NodeData, RangeData};
+use super::model::{Node, NodeData, RangeData};
 use super::props::read;
 use super::splitter::panes_of;
 use super::{post, set_error, wake, with};
@@ -10,6 +9,9 @@ use crate::types::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
+
+/// See [`crate::MAX_NESTING`].
+pub const MAX_NESTING: usize = 128;
 
 // ---------------------------------------------------------------- creation / destruction
 
@@ -49,6 +51,9 @@ pub fn create(kind: Kind, parent: Option<WidgetId>, setup: impl FnOnce(&mut Node
             if !ok {
                 return Err(Error::InvalidHandle);
             }
+            if r.depth_of(p) > MAX_NESTING {
+                return Err(Error::LimitExceeded);
+            }
             native_parent = r.native_of(p);
         } else if kind != Kind::Window && kind != Kind::PopupMenu {
             return Err(Error::InvalidHandle);
@@ -63,6 +68,9 @@ pub fn create(kind: Kind, parent: Option<WidgetId>, setup: impl FnOnce(&mut Node
                     *sel = Some(0);
                 }
             }
+        }
+        if let Some(c) = n.check().filter(|c| c.group != 0) {
+            r.radio_groups.entry(c.group).or_default().push(id);
         }
         r.nodes.insert(id, n);
         if let Some(p) = parent.and_then(|p| r.nodes.get_mut(&p)) {
@@ -123,7 +131,7 @@ fn sync_initial(id: WidgetId) {
         },
         Image(Option<ImageData>),
     }
-    let Some((text, tooltip, enabled, kind, init)) = with(|r| {
+    let Some((text, tooltip, enabled, init)) = with(|r| {
         let n = r.nodes.get(&id)?;
         let init = match &n.data {
             NodeData::Text(t) => Init::Text {
@@ -143,7 +151,7 @@ fn sync_initial(id: WidgetId) {
             NodeData::Image(i) => Init::Image(i.clone()),
             _ => Init::Nothing,
         };
-        Some((n.text.clone(), n.tooltip.clone(), n.enabled, n.kind, init))
+        Some((n.text.clone(), n.tooltip.clone(), n.enabled, init))
     })
     .flatten() else {
         return;
@@ -210,11 +218,6 @@ fn sync_initial(id: WidgetId) {
     if let Init::Image(Some(img)) = &init {
         B::set(id, &Prop::Image(Some(img)));
     }
-    match kind {
-        Kind::Table => push(id, Data::TableAll),
-        Kind::Tree => push(id, Data::TreeRows),
-        _ => {}
-    }
 }
 
 /// Remove `id` and descendants from the registry; returns native ids, deepest first.
@@ -229,6 +232,7 @@ fn remove_nodes(id: WidgetId) -> Vec<WidgetId> {
             }
         }
         let win = r.window_of(id);
+        let is_window = r.nodes.get(&id).is_some_and(|n| n.kind == Kind::Window);
         if let Some(p) = r.nodes.get(&id).and_then(|n| n.parent) {
             if let Some(pn) = r.nodes.get_mut(&p) {
                 pn.children.retain(|c| *c != id);
@@ -245,12 +249,22 @@ fn remove_nodes(id: WidgetId) -> Vec<WidgetId> {
                 if n.kind.is_native() {
                     natives.push(*i);
                 }
+                if let Some(g) = n.check().map(|c| c.group).filter(|g| *g != 0) {
+                    if let Some(members) = r.radio_groups.get_mut(&g) {
+                        members.retain(|m| m != i);
+                        if members.is_empty() {
+                            r.radio_groups.remove(&g);
+                        }
+                    }
+                }
             }
             if r.focus == Some(*i) {
                 r.focus = None;
             }
         }
-        r.windows.retain(|w| !order.contains(w));
+        if is_window {
+            r.windows.retain(|w| *w != id); // windows are never nested: only the root can be one
+        }
         r.dirty_layout.retain(|w| r.nodes.contains_key(w));
         r.dirty_a11y.retain(|w| r.nodes.contains_key(w));
         natives

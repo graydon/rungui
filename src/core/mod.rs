@@ -45,8 +45,12 @@ pub struct Registry {
     pub focus: Option<WidgetId>,
     dirty_layout: BTreeSet<WidgetId>,
     dirty_a11y: BTreeSet<WidgetId>,
+    /// Tables and trees whose model changed since it was last sent to the backend.
+    dirty_models: BTreeSet<WidgetId>,
     scheduled: bool,
     timers: HashMap<u64, TimerEntry>,
+    /// Members of each radio group (`CheckData::group`), so toggling one needs no scan of all nodes.
+    radio_groups: HashMap<u32, Vec<WidgetId>>,
     next_group: u32,
     pub quit_on_last_close: bool,
 }
@@ -61,6 +65,15 @@ impl Registry {
             id = n.parent?;
         }
     }
+    /// Number of ancestors above `id` plus one (a window has depth 1).
+    pub fn depth_of(&self, mut id: WidgetId) -> usize {
+        let mut depth = 1;
+        while let Some(p) = self.nodes.get(&id).and_then(|n| n.parent) {
+            depth += 1;
+            id = p;
+        }
+        depth
+    }
     /// Nearest native ancestor-or-self.
     pub fn native_of(&self, mut id: WidgetId) -> Option<WidgetId> {
         loop {
@@ -71,6 +84,15 @@ impl Registry {
             id = n.parent?;
         }
     }
+    /// The checked members of radio group `group`, other than `except`.
+    pub fn checked_in_group(&self, group: u32, except: WidgetId) -> Vec<WidgetId> {
+        let members = self.radio_groups.get(&group).map_or(&[][..], Vec::as_slice);
+        members
+            .iter()
+            .copied()
+            .filter(|m| *m != except && self.nodes.get(m).is_some_and(Node::checked))
+            .collect()
+    }
     /// Mark dirty; returns true when the caller must call `B::wake()` (outside the borrow).
     fn touch(&mut self, id: WidgetId, relayout: bool) -> bool {
         if let Some(w) = self.window_of(id) {
@@ -79,6 +101,11 @@ impl Registry {
             }
             self.dirty_a11y.insert(w);
         }
+        self.schedule()
+    }
+    /// Note that the next loop turn has work to do; returns true when the caller must call
+    /// `B::wake()` (outside the borrow).
+    fn schedule(&mut self) -> bool {
         !std::mem::replace(&mut self.scheduled, true)
     }
     /// Effective (own && all ancestors) value of visible/enabled for every native node in the subtree.
@@ -148,8 +175,10 @@ pub fn init(app_name: &str) -> Result<()> {
                 focus: None,
                 dirty_layout: BTreeSet::new(),
                 dirty_a11y: BTreeSet::new(),
+                dirty_models: BTreeSet::new(),
                 scheduled: false,
                 timers: HashMap::new(),
+                radio_groups: HashMap::new(),
                 next_group: 1,
                 quit_on_last_close: true,
             });

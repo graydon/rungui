@@ -1,6 +1,6 @@
 //! Cross-thread post queue and the idle flush (layout + accessibility).
 
-use super::{REG, guarded, wake, with};
+use super::{REG, flush_models, guarded, wake, with};
 use crate::backend::{Backend, Native as B};
 use crate::layout;
 use crate::types::WidgetId;
@@ -64,6 +64,7 @@ pub fn drain_posted() {
 
 /// Apply pending layout and notify the backend of accessibility changes. Also available as `App::update()`.
 pub fn flush() {
+    flush_models();
     for _ in 0..4 {
         let (lay, a11y) = match with(|r| {
             r.scheduled = false;

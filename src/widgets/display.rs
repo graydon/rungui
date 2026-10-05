@@ -20,7 +20,9 @@ impl Image {
     pub fn new(parent: impl Into<WidgetId>) -> Image {
         make(Image::from_id, Kind::Image, parent, |_| {})
     }
+    /// Show `img`, or nothing for `None` or an image that is not [`ImageData::is_valid`].
     pub fn set_image(&self, img: Option<&ImageData>) {
+        let img = img.filter(|i| i.is_valid());
         core::set(
             self.id(),
             true,

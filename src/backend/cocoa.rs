@@ -2565,9 +2565,7 @@ fn set_image(id: WidgetId, e: &Entry, img: Option<&ImageData>) {
     if e.kind != Kind::Image {
         return;
     }
-    let Some(img) =
-        img.filter(|i| i.w > 0 && i.h > 0 && i.rgba.len() == (i.w as usize) * (i.h as usize) * 4)
-    else {
+    let Some(img) = img.filter(|i| i.is_valid()) else {
         vm!(e.obj, "setImage:", Id: NIL);
         st(|s| s.imgsz.remove(&id));
         return;

@@ -30,3 +30,8 @@ mock = []
 name = "file_manager"
 path = "examples/file_manager/main.rs"
 test = true
+
+# Scaling benchmark of the core on the mock backend: `cargo run --release --features mock --example bench_mock`.
+[[example]]
+name = "bench_mock"
+required-features = ["mock"]

@@ -97,15 +97,7 @@ impl RadioButton {
         }
         let others = core::with(|r| {
             let g = r.nodes.get(&self.id())?.check()?.group;
-            let ids: Vec<_> = r
-                .nodes
-                .iter()
-                .filter(|(k, n)| {
-                    **k != self.id() && n.check().is_some_and(|c| c.group == g && c.checked)
-                })
-                .map(|(k, _)| *k)
-                .collect();
-            Some(ids)
+            Some(r.checked_in_group(g, self.id()))
         })
         .flatten()
         .unwrap_or_default();

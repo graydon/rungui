@@ -44,6 +44,7 @@ impl Size {
 /// Errors. Constructors never return these (they yield a dead handle and record the error,
 /// see [`crate::last_error`]); fallible entry points such as `App::new` do.
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[non_exhaustive]
 pub enum Error {
     /// The platform backend does not implement this (or is a stub).
     Unsupported,
@@ -53,6 +54,8 @@ pub enum Error {
     NotInitialized,
     /// Stale or wrongly-typed id / parent.
     InvalidHandle,
+    /// A built-in limit was hit, e.g. widgets nested deeper than [`crate::MAX_NESTING`].
+    LimitExceeded,
     /// Backend-specific failure message.
     Backend(String),
 }
@@ -64,6 +67,7 @@ impl fmt::Display for Error {
             Error::AlreadyInitialized => write!(f, "rungui already initialized on this thread"),
             Error::NotInitialized => write!(f, "rungui not initialized on this thread"),
             Error::InvalidHandle => write!(f, "invalid or stale widget handle"),
+            Error::LimitExceeded => write!(f, "widget nesting limit exceeded"),
             Error::Backend(s) => write!(f, "backend error: {s}"),
         }
     }
@@ -104,6 +108,20 @@ pub struct ImageData {
     pub w: u32,
     pub h: u32,
     pub rgba: Vec<u8>,
+}
+
+/// Largest image edge accepted, in pixels. Keeps `w * h * 4` far from overflow on every target and
+/// well inside what the toolkits can allocate.
+pub const MAX_IMAGE_EDGE: u32 = 1 << 15;
+
+impl ImageData {
+    /// Is the pixel buffer exactly `w * h * 4` bytes, with both edges in `1..=MAX_IMAGE_EDGE`?
+    /// Invalid images are shown as "no image" by every backend.
+    pub fn is_valid(&self) -> bool {
+        (1..=MAX_IMAGE_EDGE).contains(&self.w)
+            && (1..=MAX_IMAGE_EDGE).contains(&self.h)
+            && self.rgba.len() as u64 == u64::from(self.w) * u64::from(self.h) * 4
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]

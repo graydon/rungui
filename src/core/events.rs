@@ -153,13 +153,10 @@ pub fn event(id: WidgetId, ev: Event) {
             Event::Focus(true) => r.focus = Some(id),
             Event::Focus(false) if r.focus == Some(id) => r.focus = None,
             Event::Toggled(true) if kind == Kind::RadioButton && group != 0 => {
-                for (k, n) in r.nodes.iter_mut() {
-                    if let Some(c) = n
-                        .check_mut()
-                        .filter(|c| *k != id && c.group == group && c.checked)
-                    {
+                unchecked = r.checked_in_group(group, id);
+                for k in &unchecked {
+                    if let Some(c) = r.nodes.get_mut(k).and_then(|n| n.check_mut()) {
                         c.checked = false;
-                        unchecked.push(*k);
                     }
                 }
             }

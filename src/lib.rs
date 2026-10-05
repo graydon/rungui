@@ -121,6 +121,11 @@ pub fn last_error() -> Option<Error> {
 
 pub use types::Accel;
 
+/// Deepest allowed nesting of widgets (a window's children are at depth 1). Layout, accessibility
+/// and the toolkits recurse over the widget tree, so creating a widget below this depth fails with
+/// [`Error::LimitExceeded`] and returns a dead handle instead of risking a stack overflow.
+pub const MAX_NESTING: usize = core::MAX_NESTING;
+
 /// Mirror horizontal layout (HBox order, Grid columns, VBox cross-axis alignment) for
 /// right-to-left locales. Process-wide; relayouts all windows. Default off.
 pub fn set_rtl_layout(rtl: bool) {
