@@ -1512,14 +1512,14 @@ impl Backend for Cocoa {
         }
         // Make it fire while menus/modals/live resizes run too. On Apple platforms the common-modes
         // pseudo mode covers default + event tracking + modal panel; GNUstep lacks it.
-        let rl = idm!(cls("NSRunLoop"), "currentRunLoop");
         #[cfg(not(rungui_gnustep))]
-        vm!(rl, "addTimer:forMode:", Id: t, Id: ns("kCFRunLoopCommonModes")); // == NSRunLoopCommonModes
-        #[cfg(rungui_gnustep)]
         {
-            vm!(rl, "addTimer:forMode:", Id: t, Id: ns("NSEventTrackingRunLoopMode"));
-            vm!(rl, "addTimer:forMode:", Id: t, Id: ns("NSModalPanelRunLoopMode"));
+            let rl = idm!(cls("NSRunLoop"), "currentRunLoop");
+            vm!(rl, "addTimer:forMode:", Id: t, Id: ns("kCFRunLoopCommonModes")); // == NSRunLoopCommonModes
         }
+        // GNUstep has no common-modes pseudo mode, and a timer added to the tracking and modal
+        // modes it never runs our loop in is only dropped when invalidated once the loop runs in
+        // them: thousands would pile up. Its timers therefore pause during menus and dialogs.
         idm!(t, "retain");
         st(|s| {
             s.trev.insert(t as usize, token);
@@ -1536,8 +1536,6 @@ impl Backend for Cocoa {
         }) {
             vm!(t, "invalidate");
             autorelease(t);
-            #[cfg(rungui_gnustep)]
-            purge_invalid_timers();
         }
     }
 
@@ -2387,27 +2385,6 @@ fn release_stale_page_view(tv: Id) {
     }
 }
 
-/// GNUstep drops an invalidated timer from a run-loop mode only when the loop next runs in that
-/// mode, and our event loop never runs in the tracking and modal modes the timers are also added
-/// to (so they fire during menus and dialogs): they would pile up. Asking each mode for its next
-/// limit date does the housekeeping. Done every few stops, not each one.
-#[cfg(rungui_gnustep)]
-fn purge_invalid_timers() {
-    thread_local! { static STOPS: Cell<u32> = const { Cell::new(0) }; }
-    const PURGE_EVERY: u32 = 32;
-    let n = STOPS.with(|c| {
-        c.set(c.get().wrapping_add(1));
-        c.get()
-    });
-    if n % PURGE_EVERY != 0 {
-        return;
-    }
-    let rl = idm!(cls("NSRunLoop"), "currentRunLoop");
-    for mode in ["NSEventTrackingRunLoopMode", "NSModalPanelRunLoopMode"] {
-        idm!(rl, "limitDateForMode:", Id: ns(mode));
-    }
-}
-
 fn kind_has_delegate(k: Kind) -> bool {
     matches!(
         k,
@@ -2640,11 +2617,13 @@ fn set_wrap(e: &Entry, wrap: bool) {
     if wrap {
         vm!(sv, "setHasHorizontalScroller:", u8: 0);
         vm!(tv, "setHorizontallyResizable:", u8: 0);
+        // a scroll view smaller than its scroller reports a negative content width
         let cs = send!(NSSize, sv, "contentSize");
+        let w = cs.w.max(0.0);
         let f = rect_of!(tv, "frame");
-        vm!(tv, "setFrame:", NSRect: rect(f.x, f.y, cs.w, f.h));
+        vm!(tv, "setFrame:", NSRect: rect(f.x, f.y, w, f.h.max(0.0)));
         vm!(tc, "setWidthTracksTextView:", u8: 1);
-        vm!(tc, "setContainerSize:", NSSize: NSSize { w: cs.w, h: huge });
+        vm!(tc, "setContainerSize:", NSSize: NSSize { w, h: huge });
     } else {
         vm!(tc, "setWidthTracksTextView:", u8: 0);
         vm!(tc, "setContainerSize:", NSSize: NSSize { w: huge, h: huge });
