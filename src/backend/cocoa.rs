@@ -282,6 +282,10 @@ struct State {
     drag: Option<(WidgetId, f64, i32)>,
     /// windows the app positioned explicitly: not centered on first show
     placed: HashSet<WidgetId>,
+    /// GNUstep only: windows made non-resizable by pinning their min and max size together
+    /// (its `setStyleMask:` raises on a live window), and the minimum size each was given.
+    fixed: HashSet<WidgetId>,
+    min_size: HashMap<WidgetId, NSSize>,
     target: Id,
     tclass: Id,
     app: Id,
@@ -1845,6 +1849,8 @@ impl Backend for Cocoa {
             s.disabled.remove(&id);
             s.shown.remove(&id);
             s.placed.remove(&id);
+            s.fixed.remove(&id);
+            s.min_size.remove(&id);
             s.sash_orient.remove(&id);
             if s.drag.is_some_and(|d| d.0 == id) {
                 s.drag = None;
@@ -1973,16 +1979,21 @@ impl Backend for Cocoa {
                     }
                 }
                 Kind::ListBox | Kind::Table => match sel {
-                    Some(i) => {
+                    // GNUstep raises for a table without columns, and AppKit for a row its view
+                    // does not (yet) have; the core re-sends the selection with the columns
+                    Some(i)
+                        if send!(isize, e.aux, "numberOfColumns") > 0
+                            && (*i as isize) < send!(isize, e.aux, "numberOfRows") =>
+                    {
                         let set = idm!(cls("NSIndexSet"), "indexSetWithIndex:", usize: *i);
                         vm!(e.aux, "selectRowIndexes:byExtendingSelection:", Id: set, u8: 0);
                         vm!(e.aux, "scrollRowToVisible:", isize: *i as isize);
                     }
-                    None => vm!(e.aux, "deselectAll:", Id: NIL),
+                    _ => vm!(e.aux, "deselectAll:", Id: NIL),
                 },
                 _ => {}
             },
-            Prop::Bounds(r) => set_bounds(&e, *r),
+            Prop::Bounds(r) => set_bounds(&e, id, *r),
             Prop::Image(img) => set_image(id, &e, *img),
             Prop::Accel(a) => {
                 if matches!(e.kind, Kind::MenuItem | Kind::CheckMenuItem) {
@@ -2021,7 +2032,7 @@ impl Backend for Cocoa {
             }
             Prop::Resizable(r) => {
                 if e.kind == Kind::Window {
-                    vm!(e.obj, "setStyleMask:", usize: if *r { 15 } else { 7 });
+                    set_resizable(id, &e, *r);
                 }
             }
             Prop::Columns(cols) => set_columns(&e, cols),
@@ -2079,7 +2090,10 @@ impl Backend for Cocoa {
             Prop::MinSize(sz) => {
                 if e.kind == Kind::Window {
                     let (mw, mh) = (sz.w.max(0) as f64, sz.h.max(0) as f64);
-                    vm!(e.obj, "setContentMinSize:", NSSize: NSSize { w: mw, h: mh });
+                    st(|s| s.min_size.insert(id, NSSize { w: mw, h: mh }));
+                    if !st(|s| s.fixed.contains(&id)) {
+                        vm!(e.obj, "setContentMinSize:", NSSize: NSSize { w: mw, h: mh });
+                    }
                     // AppKit only enforces the minimum on the next resize: grow right away, as
                     // the core never lays out below it (and GNUstep would otherwise move the window).
                     let cur = client_size(&e);
@@ -2474,9 +2488,58 @@ fn resize_window(win: Id, w: f64, h: f64) {
     vm!(win, "setFrameTopLeftPoint:", NSPoint: NSPoint { x: f.x, y: f.y + f.h });
 }
 
-fn set_bounds(e: &Entry, r: Rect) {
+/// Largest content size a resizable window may take (AppKit's default maximum is about this).
+#[cfg(rungui_gnustep)]
+const MAX_CONTENT: f64 = 1e7;
+
+/// Make a window user-resizable or not. AppKit toggles the resizable style-mask bit; GNUstep raises
+/// an exception for `setStyleMask:` on a live window, so there a fixed window has its minimum and
+/// maximum content size pinned to its current size instead (see `pin_size`).
+fn set_resizable(id: WidgetId, e: &Entry, resizable: bool) {
+    #[cfg(not(rungui_gnustep))]
+    {
+        let _ = id;
+        vm!(e.obj, "setStyleMask:", usize: if resizable { 15 } else { 7 });
+    }
+    #[cfg(rungui_gnustep)]
+    {
+        st(|s| {
+            if resizable {
+                s.fixed.remove(&id)
+            } else {
+                s.fixed.insert(id)
+            }
+        });
+        if resizable {
+            let min = st(|s| s.min_size.get(&id).copied()).unwrap_or_default();
+            vm!(e.obj, "setContentMinSize:", NSSize: min);
+            vm!(e.obj, "setContentMaxSize:", NSSize: NSSize { w: MAX_CONTENT, h: MAX_CONTENT });
+        } else {
+            let cur = client_size(e);
+            pin_size(e.obj, cur.w, cur.h);
+        }
+    }
+}
+
+/// Pin a window's content size (min = max = `w` x `h`).
+#[cfg(rungui_gnustep)]
+fn pin_size(win: Id, w: f64, h: f64) {
+    let size = NSSize { w, h };
+    vm!(win, "setContentMinSize:", NSSize: size);
+    vm!(win, "setContentMaxSize:", NSSize: size);
+}
+
+fn set_bounds(e: &Entry, id: WidgetId, r: Rect) {
     match e.kind {
-        Kind::Window => resize_window(e.obj, r.w.max(1) as f64, r.h.max(1) as f64),
+        Kind::Window => {
+            let (w, h) = (r.w.max(1) as f64, r.h.max(1) as f64);
+            #[cfg(rungui_gnustep)]
+            if st(|s| s.fixed.contains(&id)) {
+                pin_size(e.obj, w, h); // the core resizes it; the user cannot
+            }
+            let _ = id;
+            resize_window(e.obj, w, h)
+        }
         k if is_view_kind(k) => {
             vm!(e.obj, "setFrame:", NSRect: rect_from(r));
             match k {

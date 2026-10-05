@@ -135,7 +135,9 @@ fn main() {
     let seeds: u64 = args.next().and_then(|a| a.parse().ok()).unwrap_or(200);
     let first: u64 = args.next().and_then(|a| a.parse().ok()).unwrap_or(1);
     // contained panics are part of the test; keep their messages out of the log
-    std::panic::set_hook(Box::new(|_| {}));
+    if std::env::var_os("RUNGUI_FUZZ_VERBOSE").is_none() {
+        std::panic::set_hook(Box::new(|_| {}));
+    }
     let app = App::new("rungui-fuzz-native").expect("toolkit init");
     glib_log::install();
     App::set_quit_on_last_close(false);
@@ -155,7 +157,10 @@ fn main() {
                 println!("resources at seed {seed}: rss {rss} KiB, {fds} fds");
             }
             eprintln!("seed {seed}");
-            s.1 = Some(Fuzz::new(&bytes(seed, PROGRAM_LEN), Mode::Native, true));
+            // RUNGUI_FUZZ_NO_PANICS=1: no deliberate panics (so a debugger can stop on the first real
+            // unwind or foreign exception)
+            let panics = std::env::var_os("RUNGUI_FUZZ_NO_PANICS").is_none();
+            s.1 = Some(Fuzz::new(&bytes(seed, PROGRAM_LEN), Mode::Native, panics));
         }
         let fz = s.1.clone().expect("set above");
         drop(s);

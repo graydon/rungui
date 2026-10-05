@@ -3,10 +3,10 @@
 # trace of the last few operations.   Usage: scripts/fuzz-bisect.sh <seed> [max_ops=4000] [pattern]
 # Needs a built driver: cargo build --manifest-path fuzz/Cargo.toml --bin native
 set -u
-seed="$1"; hi="${2:-4000}"; pat="${3:-CRITICAL|WARNING|BUG|Trace/breakpoint|Segmentation|panicked|stack overflow}"
+seed="$1"; hi="${2:-4000}"; pat="${3:-CRITICAL|WARNING|BUG|Trace/breakpoint|Segmentation|panicked|stack overflow|foreign exception|Aborted}"
 exe="${CARGO_TARGET_DIR:-fuzz/target}/debug/native"
 run() {
-  timeout 120 xvfb-run -a env RUNGUI_FUZZ_LIMIT="$1" ${TRACE:+RUNGUI_FUZZ_TRACE=1} \
+  timeout 40 xvfb-run -a env RUNGUI_FUZZ_LIMIT="$1" ${TRACE:+RUNGUI_FUZZ_TRACE=1} \
     G_DEBUG=fatal-warnings NO_AT_BRIDGE=1 LANG=C.UTF-8 "$exe" 1 "$seed" 2>&1
 }
 lo=1
