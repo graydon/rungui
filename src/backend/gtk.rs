@@ -48,8 +48,6 @@ struct W {
     sash_v: bool,
     sash_pos: i32,
     drag: Option<(f64, i32)>,
-    /// Page: whether the app wants it shown (see `show_pages`).
-    page_shown: bool,
 }
 
 thread_local! {
@@ -572,7 +570,6 @@ fn blank(kind: Kind, w: P, parent: Option<WidgetId>, win: Option<WidgetId>) -> W
         sash_v: false,
         sash_pos: 0,
         drag: None,
-        page_shown: true,
     }
 }
 
@@ -740,23 +737,13 @@ const RESP_CANCEL: c_int = 2;
 const RESP_YES: c_int = 3;
 const RESP_NO: c_int = 4;
 
-/// Show the pages of a notebook that was hidden when they were added (see `Kind::Page` creation)
-/// and are wanted visible.
+/// Show the pages of a notebook that was hidden when they were added (see `Kind::Page` creation).
 unsafe fn show_pages(notebook: P) {
     unsafe {
         let list = gtk_container_get_children(notebook);
         let mut l = list;
         while !l.is_null() {
-            let page = (*l).data;
-            let wanted = WIDGETS.with(|m| {
-                m.borrow()
-                    .values()
-                    .find(|w| w.w == page && w.kind == Kind::Page)
-                    .is_none_or(|w| w.page_shown)
-            });
-            if wanted {
-                gtk_widget_show(page);
-            }
+            gtk_widget_show((*l).data);
             l = (*l).next;
         }
         g_list_free(list);
@@ -1326,7 +1313,7 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
             Prop::Tooltip(t) => set_tooltip(w, t),
             Prop::Placeholder(t) => set_placeholder(w, t),
             Prop::Enabled(e) => gtk_widget_set_sensitive(w.w, *e as c_int),
-            Prop::Visible(v) => set_visible(id, w, *v),
+            Prop::Visible(v) => set_visible(w, *v),
             Prop::Checked(c) => set_checked(w, *c),
             Prop::Value(v) => set_value(w, *v),
             Prop::Range { min, max, step } => set_range(w, *min, *max, *step),
@@ -1425,18 +1412,18 @@ unsafe fn set_placeholder(w: &W, t: &&str) {
 }
 
 /// `Prop::Visible`.
-unsafe fn set_visible(id: WidgetId, w: &W, v: bool) {
+unsafe fn set_visible(w: &W, v: bool) {
     unsafe {
-        if w.kind == Kind::Page {
-            upd(id, |x| x.page_shown = v);
-        }
-        if v {
-            gtk_widget_show(w.w);
-            if w.kind == Kind::Tabs {
+        match (w.kind, v) {
+            // A page is shown or hidden by its notebook (hiding the child would also remove the
+            // tab, which no other backend does); `show_pages` handles a notebook shown late.
+            (Kind::Page, _) => {}
+            (Kind::Tabs, true) => {
+                gtk_widget_show(w.w);
                 show_pages(w.w);
             }
-        } else {
-            gtk_widget_hide(w.w)
+            (_, true) => gtk_widget_show(w.w),
+            (_, false) => gtk_widget_hide(w.w),
         }
     }
 }
