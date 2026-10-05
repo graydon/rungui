@@ -404,7 +404,8 @@ fn arrange_children(r: &mut Registry, id: WidgetId, area: Rect, out: &mut Out) {
     if rtl() {
         for (_, rc) in jobs.iter_mut() {
             // mirror inside `inner`: new_x = 2 * inner.x + inner.w - (x + w)
-            let mirrored = 2 * i64::from(inner.x) + i64::from(inner.w) - i64::from(rc.x) - i64::from(rc.w);
+            let mirrored =
+                2 * i64::from(inner.x) + i64::from(inner.w) - i64::from(rc.x) - i64::from(rc.w);
             rc.x = mirrored.clamp(-i64::from(MAX_PX), i64::from(MAX_PX)) as i32;
         }
     }

@@ -921,7 +921,10 @@ extern "C" fn sash_mouse_dragged(this: Id, _c: Sel, ev: Id) {
             return;
         }
         let delta = sash_pointer(ev, sash_axis(id)) - p0;
-        core::event(id, Event::SashDragged(pos0 + delta.round() as i32));
+        core::event(
+            id,
+            Event::SashDragged(pos0.saturating_add(delta.round() as i32)),
+        );
     });
 }
 

@@ -293,10 +293,8 @@ unsafe extern "C" fn h_tv_activated(tv: P, path: P, _col: P, d: P) {
                     emit(id, Event::TreeActivated(n));
                 }
             }
-        } else {
-            if let Some(i) = first_index(path) {
-                emit(id, Event::Activated(i));
-            }
+        } else if let Some(i) = first_index(path) {
+            emit(id, Event::Activated(i));
         }
     }
 }
@@ -972,10 +970,17 @@ impl Backend for Gtk {
             // (label, response) in button order, and the answer a closed dialog counts as
             let (buttons, closed_as): (&[(&CStr, c_int)], Answer) = match spec.buttons {
                 Buttons::Ok => (&[(c"OK", RESP_OK)], Answer::Ok),
-                Buttons::OkCancel => (&[(c"Cancel", RESP_CANCEL), (c"OK", RESP_OK)], Answer::Cancel),
+                Buttons::OkCancel => (
+                    &[(c"Cancel", RESP_CANCEL), (c"OK", RESP_OK)],
+                    Answer::Cancel,
+                ),
                 Buttons::YesNo => (&[(c"No", RESP_NO), (c"Yes", RESP_YES)], Answer::No),
                 Buttons::YesNoCancel => (
-                    &[(c"Cancel", RESP_CANCEL), (c"No", RESP_NO), (c"Yes", RESP_YES)],
+                    &[
+                        (c"Cancel", RESP_CANCEL),
+                        (c"No", RESP_NO),
+                        (c"Yes", RESP_YES),
+                    ],
                     Answer::Cancel,
                 ),
             };
@@ -1472,7 +1477,14 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
             Prop::Tooltip(t) => {
                 // the CString must outlive the call: a temporary in an `else` block tail would not
                 let c = cs(t);
-                gtk_widget_set_tooltip_text(w.w, if t.is_empty() { std::ptr::null() } else { c.as_ptr() });
+                gtk_widget_set_tooltip_text(
+                    w.w,
+                    if t.is_empty() {
+                        std::ptr::null()
+                    } else {
+                        c.as_ptr()
+                    },
+                );
             }
             Prop::Placeholder(t) => {
                 if matches!(w.kind, Kind::TextInput | Kind::PasswordInput) {

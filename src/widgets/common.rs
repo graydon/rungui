@@ -53,7 +53,10 @@ impl Widget {
         if core::update(self.0, true, |n| n.lay.min = min) == Some(Kind::Window) {
             B::set(
                 self.0,
-                &Prop::MinSize(Size::new(min.w.min(MAX_WINDOW_PX), min.h.min(MAX_WINDOW_PX))),
+                &Prop::MinSize(Size::new(
+                    min.w.min(MAX_WINDOW_PX),
+                    min.h.min(MAX_WINDOW_PX),
+                )),
             );
         }
     }

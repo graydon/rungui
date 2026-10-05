@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::{null, null_mut};
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicIsize, Ordering};
 
 mod sys;
 use sys::*;
@@ -46,8 +46,11 @@ const WM_SELCHECK: u32 = WM_APP + 2;
 /// Posted to the message window: deliver queued tree expand/collapse events outside the notification.
 const WM_TREEEXP: u32 = WM_APP + 3;
 
+/// Range of the WM_COMMAND ids handed to menu items (below it are control ids, above system ones).
+const CMD_FIRST: u16 = 1000;
+const CMD_LAST: u16 = 0xEFFF;
+
 static MSG_HWND: AtomicIsize = AtomicIsize::new(0);
-static WAKE_PENDING: AtomicBool = AtomicBool::new(false);
 
 // ------------------------------------------------------------------ state
 
@@ -601,7 +604,7 @@ impl Backend for Win32 {
             st(|s| {
                 s.inst = inst;
                 s.fns = fns;
-                s.next_cmd = 1000;
+                s.next_cmd = CMD_FIRST;
             });
         }
         Ok(())
@@ -648,8 +651,10 @@ impl Backend for Win32 {
     }
 
     fn wake() {
+        // the core already collapses bursts of wake-ups into one, so a posted message per call
+        // cannot flood the (10,000 message) queue
         let h = MSG_HWND.load(Ordering::SeqCst);
-        if h != 0 && !WAKE_PENDING.swap(true, Ordering::SeqCst) {
+        if h != 0 {
             unsafe {
                 PostMessageW(h, WM_WAKE, 0, 0);
             }
@@ -758,7 +763,6 @@ impl Backend for Win32 {
 unsafe extern "system" fn msg_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     match m {
         WM_WAKE => {
-            WAKE_PENDING.store(false, Ordering::SeqCst);
             let _ = catch_unwind(core::drain_posted);
             0
         }
@@ -966,16 +970,19 @@ fn create_impl(id: WidgetId, kind: Kind, parent: Option<WidgetId>) -> Result<()>
             },
             _ => {
                 let cmd = st(|s| {
-                    loop {
+                    // command ids are 16 bits: at most CMD_LAST - CMD_FIRST + 1 live items
+                    for _ in CMD_FIRST..=CMD_LAST {
                         let c = s.next_cmd;
-                        s.next_cmd = if c >= 0xEFFF { 1000 } else { c + 1 };
+                        s.next_cmd = if c >= CMD_LAST { CMD_FIRST } else { c + 1 };
                         if let std::collections::hash_map::Entry::Vacant(e) = s.by_cmd.entry(c) {
                             e.insert(id);
-                            return c;
+                            return Some(c);
                         }
                     }
+                    None
                 })
-                .ok_or(Error::NotInitialized)?;
+                .ok_or(Error::NotInitialized)?
+                .ok_or(Error::LimitExceeded)?;
                 w.cmd = cmd;
                 unsafe {
                     AppendMenuW(pmenu, MF_STRING, cmd as usize, empty.as_ptr());
@@ -1166,10 +1173,10 @@ fn destroy_impl(id: WidgetId) {
         if w.cmd != 0 {
             s.by_cmd.remove(&w.cmd);
         }
-        let mut pos = 0;
+        let mut pos = None;
         if let Some(p) = w.parent {
             if let Some(pw) = s.widgets.get_mut(&p) {
-                pos = pw.children.iter().position(|c| *c == id).unwrap_or(0);
+                pos = pw.children.iter().position(|c| *c == id);
                 pw.children.retain(|c| *c != id);
             }
         }
@@ -1192,7 +1199,7 @@ fn destroy_impl(id: WidgetId) {
                 DestroyWindow(w.hwnd);
             }
             Kind::Page => {
-                if let Some(t) = w.parent.and_then(|p| get(p, |t| t.hwnd)) {
+                if let (Some(t), Some(pos)) = (w.parent.and_then(|p| get(p, |t| t.hwnd)), pos) {
                     send(t, TCM_DELETEITEM, pos, 0);
                 }
                 DestroyWindow(w.hwnd);
@@ -1213,12 +1220,15 @@ fn destroy_impl(id: WidgetId) {
                 }
             }
             Kind::Menu | Kind::MenuItem | Kind::CheckMenuItem | Kind::MenuSeparator => {
-                if let Some(pm) = w.parent.and_then(|p| get(p, |x| x.hmenu)) {
+                if let (Some(pm), Some(pos)) = (w.parent.and_then(|p| get(p, |x| x.hmenu)), pos) {
                     DeleteMenu(pm, pos as u32, MF_BYPOSITION);
                 }
                 menu_changed(w.win);
             }
             _ => {
+                if w.has_tip {
+                    remove_tooltip(w.win, w.hwnd);
+                }
                 if w.hbmp != 0 {
                     DeleteObject(w.hbmp);
                 }
@@ -1232,6 +1242,29 @@ fn destroy_impl(id: WidgetId) {
     if w.accel.is_some() {
         rebuild_accel(w.win);
     }
+}
+
+/// Take the tool of control `h` out of its window's tooltip control. The tool refers to a text
+/// buffer owned by the widget record, which is about to go away.
+fn remove_tooltip(win: WidgetId, h: HWND) {
+    let Some((owner, tip)) = get(win, |w| (w.hwnd, w.tip_hwnd)) else {
+        return;
+    };
+    if tip == 0 {
+        return;
+    }
+    let ti = TOOLINFOW {
+        cbSize: std::mem::size_of::<TOOLINFOW>() as u32,
+        uFlags: TTF_IDISHWND | TTF_SUBCLASS,
+        hwnd: owner,
+        uId: h as usize,
+        rect: RECT::default(),
+        hinst: 0,
+        lpszText: null_mut(),
+        lParam: 0,
+        lpReserved: null_mut(),
+    };
+    send(tip, TTM_DELTOOLW, 0, &ti as *const _ as isize);
 }
 
 // ------------------------------------------------------------------ menus
@@ -3272,7 +3305,7 @@ fn sash_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                     GetCursorPos(&mut p);
                     emit(
                         id,
-                        Event::SashDragged(pos0 + lp(axis(p) - start, dpi_of(id))),
+                        Event::SashDragged(pos0.saturating_add(lp(axis(p) - start, dpi_of(id)))),
                     );
                 }
             }
@@ -3484,6 +3517,29 @@ static IID_SHELL_ITEM: GUID = guid(
 
 type Obj = *mut c_void;
 
+// IUnknown / IFileDialog / IFileOpenDialog / IShellItem / IShellItemArray vtable slots.
+const COM_RELEASE: usize = 2;
+const FD_SHOW: usize = 3;
+const FD_SET_FILE_TYPES: usize = 4;
+const FD_SET_OPTIONS: usize = 9;
+const FD_GET_OPTIONS: usize = 10;
+const FD_SET_FOLDER: usize = 12;
+const FD_SET_FILE_NAME: usize = 15;
+const FD_SET_TITLE: usize = 17;
+const FD_GET_RESULT: usize = 20;
+const FOD_GET_RESULTS: usize = 27;
+const SI_GET_DISPLAY_NAME: usize = 5;
+const SIA_GET_COUNT: usize = 7;
+const SIA_GET_ITEM_AT: usize = 8;
+/// FILEOPENDIALOGOPTIONS bits.
+const FOS_PICKFOLDERS: u32 = 0x20;
+const FOS_FORCEFILESYSTEM: u32 = 0x40;
+const FOS_ALLOWMULTISELECT: u32 = 0x200;
+/// SIGDN_FILESYSPATH: ask a shell item for its path.
+const SIGDN_FILESYSPATH: u32 = 0x8005_8000;
+/// CLSCTX_INPROC_SERVER.
+const CLSCTX_INPROC_SERVER: u32 = 1;
+
 /// Pointer to slot `idx` of the COM vtable of `o`, as a function pointer type `F`.
 unsafe fn vt<F: Copy>(o: Obj, idx: usize) -> F {
     unsafe {
@@ -3493,15 +3549,16 @@ unsafe fn vt<F: Copy>(o: Obj, idx: usize) -> F {
 }
 unsafe fn release(o: Obj) {
     if !o.is_null() {
-        unsafe { vt::<unsafe extern "system" fn(Obj) -> u32>(o, 2)(o) };
+        unsafe { vt::<unsafe extern "system" fn(Obj) -> u32>(o, COM_RELEASE)(o) };
     }
 }
 unsafe fn item_path(item: Obj) -> Option<String> {
     unsafe {
         let mut p: *mut u16 = null_mut();
-        let hr = vt::<unsafe extern "system" fn(Obj, u32, *mut *mut u16) -> i32>(item, 5)(
-            item, 0x80058000, &mut p,
-        );
+        let hr = vt::<unsafe extern "system" fn(Obj, u32, *mut *mut u16) -> i32>(
+            item,
+            SI_GET_DISPLAY_NAME,
+        )(item, SIGDN_FILESYSPATH, &mut p);
         if hr < 0 || p.is_null() {
             return None;
         }
@@ -3525,22 +3582,22 @@ fn file_dialog_impl(owner: HWND, spec: &FileSpec) -> Vec<String> {
     let mut out = vec![];
     unsafe {
         let mut dlg: Obj = null_mut();
-        if CoCreateInstance(clsid, null_mut(), 1, iid, &mut dlg) < 0 || dlg.is_null() {
+        if CoCreateInstance(clsid, null_mut(), CLSCTX_INPROC_SERVER, iid, &mut dlg) < 0
+            || dlg.is_null()
+        {
             return out;
         }
-        // IFileDialog slots: Show 3, SetFileTypes 4, SetOptions 9, GetOptions 10, SetFolder 12,
-        // SetFileName 15, SetTitle 17, GetResult 20; IFileOpenDialog::GetResults 27.
         let mut opts = 0u32;
-        vt::<unsafe extern "system" fn(Obj, *mut u32) -> i32>(dlg, 10)(dlg, &mut opts);
-        opts |= 0x40; // FOS_FORCEFILESYSTEM
+        vt::<unsafe extern "system" fn(Obj, *mut u32) -> i32>(dlg, FD_GET_OPTIONS)(dlg, &mut opts);
+        opts |= FOS_FORCEFILESYSTEM;
         match spec.mode {
-            FileMode::PickFolder => opts |= 0x20,
-            FileMode::OpenMany => opts |= 0x200,
+            FileMode::PickFolder => opts |= FOS_PICKFOLDERS,
+            FileMode::OpenMany => opts |= FOS_ALLOWMULTISELECT,
             _ => {}
         }
-        vt::<unsafe extern "system" fn(Obj, u32) -> i32>(dlg, 9)(dlg, opts);
+        vt::<unsafe extern "system" fn(Obj, u32) -> i32>(dlg, FD_SET_OPTIONS)(dlg, opts);
         if !spec.title.is_empty() {
-            vt::<unsafe extern "system" fn(Obj, *const u16) -> i32>(dlg, 17)(
+            vt::<unsafe extern "system" fn(Obj, *const u16) -> i32>(dlg, FD_SET_TITLE)(
                 dlg,
                 wide(&spec.title).as_ptr(),
             );
@@ -3576,11 +3633,10 @@ fn file_dialog_impl(owner: HWND, spec: &FileSpec) -> Vec<String> {
                     spec: p.as_ptr(),
                 })
                 .collect();
-            vt::<unsafe extern "system" fn(Obj, u32, *const COMDLG_FILTERSPEC) -> i32>(dlg, 4)(
+            vt::<unsafe extern "system" fn(Obj, u32, *const COMDLG_FILTERSPEC) -> i32>(
                 dlg,
-                specs.len() as u32,
-                specs.as_ptr(),
-            );
+                FD_SET_FILE_TYPES,
+            )(dlg, specs.len() as u32, specs.as_ptr());
         }
         if let Some(dir) = &spec.initial_dir {
             let mut item: Obj = null_mut();
@@ -3592,31 +3648,36 @@ fn file_dialog_impl(owner: HWND, spec: &FileSpec) -> Vec<String> {
             ) >= 0
                 && !item.is_null()
             {
-                vt::<unsafe extern "system" fn(Obj, Obj) -> i32>(dlg, 12)(dlg, item);
+                vt::<unsafe extern "system" fn(Obj, Obj) -> i32>(dlg, FD_SET_FOLDER)(dlg, item);
                 release(item);
             }
         }
         if let Some(name) = &spec.initial_name {
-            vt::<unsafe extern "system" fn(Obj, *const u16) -> i32>(dlg, 15)(
+            vt::<unsafe extern "system" fn(Obj, *const u16) -> i32>(dlg, FD_SET_FILE_NAME)(
                 dlg,
                 wide(name).as_ptr(),
             );
         }
-        let hr = vt::<unsafe extern "system" fn(Obj, HWND) -> i32>(dlg, 3)(dlg, owner);
+        let hr = vt::<unsafe extern "system" fn(Obj, HWND) -> i32>(dlg, FD_SHOW)(dlg, owner);
         if hr >= 0 {
             if spec.mode == FileMode::OpenMany {
                 let mut arr: Obj = null_mut();
-                if vt::<unsafe extern "system" fn(Obj, *mut Obj) -> i32>(dlg, 27)(dlg, &mut arr)
-                    >= 0
+                if vt::<unsafe extern "system" fn(Obj, *mut Obj) -> i32>(dlg, FOD_GET_RESULTS)(
+                    dlg, &mut arr,
+                ) >= 0
                     && !arr.is_null()
                 {
                     let mut n = 0u32;
-                    vt::<unsafe extern "system" fn(Obj, *mut u32) -> i32>(arr, 7)(arr, &mut n);
+                    vt::<unsafe extern "system" fn(Obj, *mut u32) -> i32>(arr, SIA_GET_COUNT)(
+                        arr, &mut n,
+                    );
                     for i in 0..n {
                         let mut item: Obj = null_mut();
-                        if vt::<unsafe extern "system" fn(Obj, u32, *mut Obj) -> i32>(arr, 8)(
-                            arr, i, &mut item,
-                        ) >= 0
+                        if vt::<unsafe extern "system" fn(Obj, u32, *mut Obj) -> i32>(
+                            arr,
+                            SIA_GET_ITEM_AT,
+                        )(arr, i, &mut item)
+                            >= 0
                             && !item.is_null()
                         {
                             out.extend(item_path(item));
@@ -3627,8 +3688,9 @@ fn file_dialog_impl(owner: HWND, spec: &FileSpec) -> Vec<String> {
                 }
             } else {
                 let mut item: Obj = null_mut();
-                if vt::<unsafe extern "system" fn(Obj, *mut Obj) -> i32>(dlg, 20)(dlg, &mut item)
-                    >= 0
+                if vt::<unsafe extern "system" fn(Obj, *mut Obj) -> i32>(dlg, FD_GET_RESULT)(
+                    dlg, &mut item,
+                ) >= 0
                     && !item.is_null()
                 {
                     out.extend(item_path(item));

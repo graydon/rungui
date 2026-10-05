@@ -165,7 +165,16 @@ const STRS: [&str; 16] = [
     "C:\\path\\to/some file.txt",
 ];
 const ACCELS: [&str; 10] = [
-    "Ctrl+S", "Alt+F4", "F5", "Ctrl+Shift+Z", "", "+", "Cmd+Q", "Ctrl+Left", "Esc", "ctrl+alt+;",
+    "Ctrl+S",
+    "Alt+F4",
+    "F5",
+    "Ctrl+Shift+Z",
+    "",
+    "+",
+    "Cmd+Q",
+    "Ctrl+Left",
+    "Esc",
+    "ctrl+alt+;",
 ];
 
 impl Fuzz {
@@ -218,7 +227,14 @@ impl Fuzz {
         if b < 220 {
             usize::from(b) % 40
         } else {
-            [usize::MAX, usize::MAX - 1, 1 << 40, 1 << 20, 1 << 16, 1 << 31][usize::from(b) % 6]
+            [
+                usize::MAX,
+                usize::MAX - 1,
+                1 << 40,
+                1 << 20,
+                1 << 16,
+                1 << 31,
+            ][usize::from(b) % 6]
         }
     }
     fn float(&self) -> f64 {
@@ -234,7 +250,11 @@ impl Fuzz {
         match b % 8 {
             0 => {
                 // long
-                let cap = if self.mode == Mode::Mock { MAX_STR } else { MAX_STR_NATIVE };
+                let cap = if self.mode == Mode::Mock {
+                    MAX_STR
+                } else {
+                    MAX_STR_NATIVE
+                };
                 let n = (usize::from(self.u8()) * 80).min(cap);
                 "x".repeat(n)
             }
@@ -419,12 +439,20 @@ impl Fuzz {
         for e in self.pool.borrow().iter() {
             let w = Widget(e.id);
             let b = w.bounds();
-            assert!(b.w >= 0 && b.h >= 0, "negative bounds {b:?} for {:?}", e.tag);
+            assert!(
+                b.w >= 0 && b.h >= 0,
+                "negative bounds {b:?} for {:?}",
+                e.tag
+            );
             #[cfg(feature = "mock")]
             if self.mode == Mode::Mock {
                 let native = rungui::backend::mock::widget(e.id).is_some();
                 if !w.is_alive() {
-                    assert!(!native, "{:?} destroyed in the core but not the backend", e.tag);
+                    assert!(
+                        !native,
+                        "{:?} destroyed in the core but not the backend",
+                        e.tag
+                    );
                 } else if native {
                     // alive and native: fine; virtual kinds legitimately have no backend object
                 } else {
@@ -450,7 +478,11 @@ impl Fuzz {
         let op = self.u8() % 128;
         self.executed.set(self.executed.get() + 1);
         if self.trace {
-            eprintln!("op #{} code {op} (depth {})", self.executed.get(), self.depth.get());
+            eprintln!(
+                "op #{} code {op} (depth {})",
+                self.executed.get(),
+                self.depth.get()
+            );
         }
         match op {
             0..=29 => self.create(op),
@@ -519,7 +551,10 @@ impl Fuzz {
             22 => (MenuBar::new(p).id(), Tag::MenuBar),
             23 => (Menu::new(p, &self.string()).id(), Tag::Menu),
             24 => (MenuItem::new(p, &self.string()).id(), Tag::MenuItem),
-            25 => (CheckMenuItem::new(p, &self.string()).id(), Tag::CheckMenuItem),
+            25 => (
+                CheckMenuItem::new(p, &self.string()).id(),
+                Tag::CheckMenuItem,
+            ),
             26 => (MenuSeparator::new(p).id(), Tag::MenuSeparator),
             27 => (Table::new(p).id(), Tag::Table),
             28 => (Tree::new(p).id(), Tag::Tree),
@@ -540,7 +575,11 @@ impl Fuzz {
                     HBox::new(cur).id()
                 };
                 if n == WidgetId::DEAD {
-                    assert_eq!(last_error(), Some(Error::LimitExceeded), "chain stopped at {i}");
+                    assert_eq!(
+                        last_error(),
+                        Some(Error::LimitExceeded),
+                        "chain stopped at {i}"
+                    );
                     break;
                 }
                 cur = n;
@@ -954,7 +993,11 @@ impl Fuzz {
                 self.remember_tree_node(id);
             }
             12 => {
-                let p = if self.coin(2) { None } else { self.tree_node(tr) };
+                let p = if self.coin(2) {
+                    None
+                } else {
+                    self.tree_node(tr)
+                };
                 let id = tr.add(p, &self.string());
                 self.remember_tree_node(id);
             }
@@ -1058,7 +1101,9 @@ impl Fuzz {
     #[cfg(feature = "mock")]
     fn mock_message(&self) {
         use rungui::backend::mock;
-        mock::queue_answer([Answer::Ok, Answer::Yes, Answer::No, Answer::Cancel][usize::from(self.u8() % 4)]);
+        mock::queue_answer(
+            [Answer::Ok, Answer::Yes, Answer::No, Answer::Cancel][usize::from(self.u8() % 4)],
+        );
         let win = Window::from_id(self.window());
         let kinds = [
             MessageKind::Info,
@@ -1066,7 +1111,12 @@ impl Fuzz {
             MessageKind::Error,
             MessageKind::Question,
         ];
-        let buttons = [Buttons::Ok, Buttons::OkCancel, Buttons::YesNo, Buttons::YesNoCancel];
+        let buttons = [
+            Buttons::Ok,
+            Buttons::OkCancel,
+            Buttons::YesNo,
+            Buttons::YesNoCancel,
+        ];
         let _ = message_box(
             Some(win),
             kinds[usize::from(self.u8() % 4)],
@@ -1080,15 +1130,20 @@ impl Fuzz {
             .filter(&self.string(), &["txt", "*"])
             .directory(&self.string())
             .file_name(&self.string());
-        let _ = (fd.open(Some(win)), fd.open_many(None), fd.save(Some(win)), fd.pick_folder(None));
+        let _ = (
+            fd.open(Some(win)),
+            fd.open_many(None),
+            fd.save(Some(win)),
+            fd.pick_folder(None),
+        );
     }
     #[cfg(not(feature = "mock"))]
     fn mock_message(&self) {}
 
     #[cfg(feature = "mock")]
     fn mock_event(&self, op: u8) {
-        use rungui::backend::mock;
         use Tag as T;
+        use rungui::backend::mock;
         let sk = [
             SashKey::Prev,
             SashKey::Next,
@@ -1100,7 +1155,10 @@ impl Fuzz {
         // events are aimed at the kind of widget that emits them most of the time
         match op % 26 {
             0 => mock::user_click(self.of(&[T::Button, T::MenuItem])),
-            1 => mock::user_text(self.of(&[T::TextInput, T::Password, T::TextArea]), &self.string()),
+            1 => mock::user_text(
+                self.of(&[T::TextInput, T::Password, T::TextArea]),
+                &self.string(),
+            ),
             2 => mock::user(
                 self.of(&[T::CheckBox, T::Radio, T::CheckMenuItem]),
                 Event::Toggled(self.coin(2)),
@@ -1109,7 +1167,10 @@ impl Fuzz {
                 self.of(&[T::ComboBox, T::ListBox, T::Tabs]),
                 Event::Selected(self.opt_index()),
             ),
-            4 => mock::user(self.of(&[T::Slider, T::SpinBox]), Event::Value(self.float())),
+            4 => mock::user(
+                self.of(&[T::Slider, T::SpinBox]),
+                Event::Value(self.float()),
+            ),
             5 => mock::user(self.of(&[T::ListBox]), Event::Activated(self.uint())),
             6 => mock::user(self.any_id(), Event::Focus(self.coin(2))),
             7 => mock::user_click_column(self.of(&[T::Table]), self.uint()),
@@ -1133,7 +1194,10 @@ impl Fuzz {
             13 => mock::user_context_menu(self.any_id(), self.int(), self.int()),
             14 => mock::user_drag_sash(self.of(&[T::Splitter]), self.int()),
             15 => mock::user_drag_sash_by(self.of(&[T::Splitter]), self.int()),
-            16 => mock::user_sash_key(self.of(&[T::Splitter]), sk[usize::from(self.u8()) % sk.len()]),
+            16 => mock::user_sash_key(
+                self.of(&[T::Splitter]),
+                sk[usize::from(self.u8()) % sk.len()],
+            ),
             17 => mock::user_move_window(self.window(), self.int(), self.int()),
             18 => mock::resize_window(self.window(), self.int(), self.int()),
             19 => {
@@ -1161,7 +1225,10 @@ impl Fuzz {
                     Event::ColumnClicked(self.uint()),
                     Event::TreeSelected(Some(self.uint() as u64)),
                 ];
-                mock::user(self.any_id(), evs[usize::from(self.u8()) % evs.len()].clone());
+                mock::user(
+                    self.any_id(),
+                    evs[usize::from(self.u8()) % evs.len()].clone(),
+                );
             }
             24 => {
                 mock::fail_next_create();
