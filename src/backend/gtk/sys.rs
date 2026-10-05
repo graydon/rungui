@@ -411,6 +411,15 @@ unsafe extern "C" {
     pub fn gtk_tree_path_free(p: P);
 
     // ---- popup menus / misc
+    pub fn gtk_get_current_event() -> P;
+    pub fn gdk_event_new(ty: c_int) -> P;
+    pub fn gdk_event_free(ev: P);
+    pub fn gdk_event_set_device(ev: P, device: P);
+    pub fn gdk_display_get_default() -> P;
+    pub fn gdk_display_get_default_seat(display: P) -> P;
+    pub fn gdk_seat_get_pointer(seat: P) -> P;
+    pub fn gdk_screen_get_default() -> P;
+    pub fn gdk_screen_get_root_window(screen: P) -> P;
     pub fn gtk_menu_popup_at_pointer(menu: P, ev: P);
     pub fn gtk_menu_popup_at_rect(
         menu: P,

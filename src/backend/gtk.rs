@@ -688,6 +688,48 @@ fn digits_for(step: f64) -> c_uint {
     d
 }
 
+/// The event a popup menu is opened with. Inside an event handler that is the current event;
+/// otherwise (a timer, a posted closure) GTK has none, warns "no trigger event for menu popup" and
+/// has no device to grab with, so a button press is made up.
+struct Trigger(P);
+
+impl Trigger {
+    /// `window`: the GdkWindow the press happened in (None: the root window).
+    unsafe fn new(window: Option<P>) -> Trigger {
+        unsafe {
+            let current = gtk_get_current_event();
+            if !current.is_null() {
+                return Trigger(current);
+            }
+            let ev = gdk_event_new(EV_TYPE_BUTTON_PRESS);
+            if ev.is_null() {
+                return Trigger(NULL);
+            }
+            let win =
+                window.unwrap_or_else(|| gdk_screen_get_root_window(gdk_screen_get_default()));
+            let e = ev as *mut EventButton;
+            (*e).window = g_object_ref(win); // gdk_event_free drops this reference
+            (*e).send_event = 1;
+            (*e).button = POPUP_BUTTON;
+            let seat = gdk_display_get_default_seat(gdk_display_get_default());
+            gdk_event_set_device(ev, gdk_seat_get_pointer(seat));
+            Trigger(ev)
+        }
+    }
+}
+
+impl Drop for Trigger {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { gdk_event_free(self.0) };
+        }
+    }
+}
+
+/// GDK_BUTTON_PRESS, and the right button a context menu is conventionally opened with.
+const EV_TYPE_BUTTON_PRESS: c_int = 4;
+const POPUP_BUTTON: c_uint = 3;
+
 /// Response codes of the buttons of a message box (any distinct, non-GTK-reserved values).
 const RESP_OK: c_int = 1;
 const RESP_CANCEL: c_int = 2;
@@ -1079,8 +1121,14 @@ impl Backend for Gtk {
         }
         unsafe {
             gtk_widget_show_all(m.w);
-            match (at, parent_window.and_then(get)) {
-                (Some((x, y)), Some(win)) => {
+            let parent = parent_window.and_then(get);
+            // an unrealized window has no GdkWindow to anchor the menu to
+            let anchor = parent
+                .map(|w| gtk_widget_get_window(w.w))
+                .filter(|w| !w.is_null());
+            let trigger = Trigger::new(anchor);
+            match (at, parent.zip(anchor)) {
+                (Some((x, y)), Some((win, gdk_win))) => {
                     let (mut tx, mut ty) = (0, 0);
                     gtk_widget_translate_coordinates(win.inner, win.w, x, y, &mut tx, &mut ty);
                     let r = Rectangle {
@@ -1089,9 +1137,9 @@ impl Backend for Gtk {
                         w: 1,
                         h: 1,
                     };
-                    gtk_menu_popup_at_rect(m.w, gtk_widget_get_window(win.w), &r, 1, 1, NULL);
+                    gtk_menu_popup_at_rect(m.w, gdk_win, &r, 1, 1, trigger.0);
                 }
-                _ => gtk_menu_popup_at_pointer(m.w, NULL),
+                _ => gtk_menu_popup_at_pointer(m.w, trigger.0),
             }
             if gtk_widget_get_visible(m.w) == 0 {
                 return;

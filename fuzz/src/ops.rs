@@ -109,6 +109,12 @@ pub struct Fuzz {
     /// Debugging aids from the environment: `RUNGUI_FUZZ_TRACE=1` logs every operation to stderr,
     /// `RUNGUI_FUZZ_LIMIT=n` stops after `n` operations (bisect a failure by moving `n`).
     trace: bool,
+    /// `RUNGUI_FUZZ_MODAL=messages|files|all` (native mode): run message boxes (`messages`), file
+    /// dialogs too (`files`), popup menus too (`all`). They block the toolkit's loop until dismissed,
+    /// so something outside (scripts/fuzz-native.sh presses Escape on a timer) must close them.
+    modal_messages: bool,
+    modal_files: bool,
+    modal_popups: bool,
     limit: Cell<u32>,
     executed: Cell<u32>,
     me: RefCell<Option<std::rc::Weak<Fuzz>>>,
@@ -194,6 +200,15 @@ impl Fuzz {
             mode,
             panics,
             trace: std::env::var_os("RUNGUI_FUZZ_TRACE").is_some(),
+            modal_messages: matches!(
+                std::env::var("RUNGUI_FUZZ_MODAL").as_deref(),
+                Ok("messages" | "files" | "all")
+            ),
+            modal_files: matches!(
+                std::env::var("RUNGUI_FUZZ_MODAL").as_deref(),
+                Ok("files" | "all")
+            ),
+            modal_popups: std::env::var("RUNGUI_FUZZ_MODAL").as_deref() == Ok("all"),
             // `RUNGUI_FUZZ_LIMIT_SEED` names the one seed the limit is for (see `native.rs`)
             limit: Cell::new(
                 std::env::var("RUNGUI_FUZZ_LIMIT")
@@ -889,7 +904,7 @@ impl Fuzz {
                 );
             }
             23 => {
-                if self.mode == Mode::Mock {
+                if self.mode == Mode::Mock || self.modal_popups {
                     let p = PopupMenu::from_id(self.of(&[Tag::Popup]));
                     p.show_at(self.window(), self.int(), self.int());
                     p.show(self.window());
@@ -1097,6 +1112,8 @@ impl Fuzz {
             5 => {
                 if self.mode == Mode::Mock {
                     self.mock_message();
+                } else if self.modal_messages {
+                    self.dialogs();
                 }
             }
             _ => {
@@ -1107,12 +1124,8 @@ impl Fuzz {
         }
     }
 
-    #[cfg(feature = "mock")]
-    fn mock_message(&self) {
-        use rungui::backend::mock;
-        mock::queue_answer(
-            [Answer::Ok, Answer::Yes, Answer::No, Answer::Cancel][usize::from(self.u8() % 4)],
-        );
+    /// A message box and the four kinds of file dialog, with hostile titles, filters and paths.
+    fn dialogs(&self) {
         let win = Window::from_id(self.window());
         let kinds = [
             MessageKind::Info,
@@ -1126,25 +1139,45 @@ impl Fuzz {
             Buttons::YesNo,
             Buttons::YesNoCancel,
         ];
-        let _ = message_box(
-            Some(win),
-            kinds[usize::from(self.u8() % 4)],
-            buttons[usize::from(self.u8() % 4)],
-            &self.string(),
-            &self.string(),
+        // one dialog per call: each blocks until dismissed
+        let which = self.u8() % 5;
+        match which {
+            k if k > 0 && !(self.mode == Mode::Mock || self.modal_files) => {
+                let _ = k; // file dialogs are not asked for
+            }
+            0 => {
+                let _ = message_box(
+                    Some(win),
+                    kinds[usize::from(self.u8() % 4)],
+                    buttons[usize::from(self.u8() % 4)],
+                    &self.string(),
+                    &self.string(),
+                );
+            }
+            k => {
+                let fd = FileDialog::new()
+                    .title(&self.string())
+                    .filter(&self.string(), &["txt", "*", "", ".tar.gz", "*.rs"])
+                    .directory(&self.string())
+                    .file_name(&self.string());
+                match k {
+                    1 => drop(fd.open(Some(win))),
+                    2 => drop(fd.open_many(None)),
+                    3 => drop(fd.save(Some(win))),
+                    _ => drop(fd.pick_folder(None)),
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "mock")]
+    fn mock_message(&self) {
+        use rungui::backend::mock;
+        mock::queue_answer(
+            [Answer::Ok, Answer::Yes, Answer::No, Answer::Cancel][usize::from(self.u8() % 4)],
         );
         mock::queue_files(&["/tmp/a", "b"]);
-        let fd = FileDialog::new()
-            .title(&self.string())
-            .filter(&self.string(), &["txt", "*"])
-            .directory(&self.string())
-            .file_name(&self.string());
-        let _ = (
-            fd.open(Some(win)),
-            fd.open_many(None),
-            fd.save(Some(win)),
-            fd.pick_folder(None),
-        );
+        self.dialogs();
     }
     #[cfg(not(feature = "mock"))]
     fn mock_message(&self) {}
