@@ -1561,9 +1561,9 @@ unsafe fn set_bounds(id: WidgetId, w: &W, r: &Rect) {
                     gtk_fixed_move(parent, w.w, r.x, r.y);
                 }
                 let (mut want_w, mut want_h) = (r.w.max(0), r.h.max(0));
-                if want_w < TINY_ALLOC || want_h < TINY_ALLOC {
+                if want_w < TINY_ALLOC || want_h < TINY_ALLOC || w.kind == Kind::Tabs {
                     // GTK warns (and draws garbage) when a widget is allocated less than its
-                    // own border and padding; never go below the widget's real minimum
+                    // own border and padding (a notebook: its tabs); never go below the widget's real minimum
                     let (min_w, min_h) = min_request(w.w);
                     want_w = want_w.max(min_w);
                     want_h = want_h.max(min_h);
