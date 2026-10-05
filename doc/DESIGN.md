@@ -43,6 +43,24 @@ user code ──► widgets/     Copy handles (Button, Label, ...) deref to Widg
   thread-safe `Backend::wake`; the loop calls `core::drain_posted` on the UI thread.
 * Layout and a11y updates are debounced: mutators mark the owning window dirty and wake the loop;
   `drain_posted`/`App::update()` run them. `show()` and resize events lay out synchronously.
+* Table and tree models are debounced the same way: a mutation updates the core's copy at once
+  and marks the model dirty; the next loop turn sends it to the backend (one transfer however many
+  rows were pushed). `batch` still holds the transfer back until the closure ends.
+* Wake-ups are coalesced in `core::wake`: after one `Backend::wake`, further ones are dropped until
+  the loop has answered (`drain_posted`), so a burst of mutations queues one native wake-up.
+
+## Limits that keep the core total
+
+* Widgets nest at most `MAX_NESTING` (128) deep: layout, accessibility and the toolkits recurse
+  over the tree. `create` fails with `Error::LimitExceeded` past it.
+* Sizes, spacing and coordinates are clamped (`types::MAX_PX` = 32767, windows `MAX_WINDOW_PX` =
+  16384) and layout arithmetic saturates, so no input overflows or trips a toolkit limit; tables
+  keep at most `MAX_COLUMNS` columns; images must satisfy `ImageData::is_valid`.
+* Numbers reaching a backend are finite and inside their range (`set_value`, `set_range`); a
+  selection index the backend reports that is out of range never becomes state.
+* `Prop::applies_to(kind)` filters properties by widget kind in the core: a method called on a
+  handle of the wrong kind (`MenuItem::from_id(combo).set_accel(..)`) never reaches a backend, which
+  may therefore assume each property is meant for its widget. The mock backend asserts it.
 
 ## Layout decision
 
@@ -52,6 +70,9 @@ parent to the nearest *native* container (Window, Page, GroupBox), which is a du
 (GtkFixed / child HWND / flipped NSView). Why: identical on three platforms, ~250 lines, testable
 with the mock, no per-toolkit layout semantics to reconcile. Cost: no native baseline alignment or
 height-for-width; accepted.
+
+Natural sizes are measured once per layout pass (a cache keyed by widget, so arranging a container
+does not re-measure its subtree: O(nodes), not O(nodes x depth)).
 
 Model: natural size along the stack axis + share of spare space by `expand` weight; cross axis follows
 `Align` (default Fill); hidden widgets take no space; never shrinks below natural size. Window,
@@ -84,6 +105,15 @@ technology operates the native controls, which report ordinary user events to th
 
 Public API is UTF-8 `&str`/`String`. Backends convert at the edge (UTF-16 for Win32, NSString for
 Cocoa, C strings for GTK). Paths use `PathBuf` publicly and `String` (lossy) at the backend boundary.
+
+## Public API
+
+The crate root exports the widget handles, `App`, the plain data types and `A11yRole`/`A11yProps`
+and nothing else: the registry (`core`), the backend contract (`Backend`, `Prop`, `Kind`, `Event`,
+`SashKey`) and the specs it passes (`MessageSpec`, `FileSpec`, `Accel`, `TreeRow`) are crate-private,
+and become public together with `rungui::backend::mock` only under the `mock` feature (which is
+for testing an application's UI headlessly). Enums a platform could extend (`Error`,
+`NativeHandle`, `MessageKind`, `Buttons`, `Answer`, `A11yRole`) are `#[non_exhaustive]`.
 
 ## Backend selection
 

@@ -4,7 +4,7 @@
 and links here; `doc/DESIGN.md` describes the architecture and `doc/BUILDING.md` the build
 modes, neither tracks progress. Update this file whenever a backend, test count or gap changes.
 
-Last updated: 2026-10-03, after merging the GTK, tests/CI, file-manager, Cocoa/GNUstep and Win32 work.
+Last updated: 2026-10-05, after the quality pass (fuzzing, soak, coverage, API narrowing).
 
 ## Against INITIAL_PROMPT.md
 
@@ -47,10 +47,20 @@ R = run-tested, C = compiles and links only, T = type-checked only, N = not impl
 
 ## How things are verified
 
-- `cargo test` (also `--features mock`): 116 core tests against the mock backend, 11 file-manager
-  unit tests, 15 file-manager integration tests on the mock backend (needs `--features mock`),
-  2 doctests. Includes seeded random-layout fuzzing, Table/Tree reference-model tests, text
-  property tests, a11y metadata consistency and a re-entrancy matrix (every event kind x hostile callback).
+- `cargo test` (also `--features mock`): 118 core tests against the mock backend (seeded random-layout
+  fuzzing, Table/Tree reference models, a11y metadata, a re-entrancy matrix of every event kind
+  against hostile callbacks, API-surface and limit tests), 11 file-manager unit tests, 15
+  file-manager integration tests and 4 seeded random-operation tests on the mock backend (need
+  `--features mock`), 2 doctests. Line coverage of the shared code is about 97% (`cargo +nightly
+  llvm-cov --features mock`); the backends are covered by the scripts below (GTK about 88% of regions).
+- `fuzz/` (see doc/BUILDING.md, "Quality tooling"): one byte-driven interpreter over the whole public
+  API (hostile arguments, wrong-kind and dead handles, re-entrant and panicking callbacks) used by a
+  libFuzzer target under AddressSanitizer (`cargo +nightly fuzz run api_mock --features mock`, 600k+
+  executions clean), by the seeded `tests/random_ops.rs`, and by a native driver that runs it inside
+  the real toolkit's loop (`scripts/fuzz-native.sh`: GTK with fatal GLib warnings, Cocoa on GNUstep).
+  `SOAK=1 scripts/fuzz-native.sh` is a create/destroy leak soak that reports RSS and open fds.
+- `examples/bench_mock.rs`: growth exponent of every hot path of the core (all linear or better
+  except destroying siblings one at a time, which is O(siblings) per call).
 - `scripts/smoke-gtk.sh`, `scripts/smoke-gtk-soak.sh`, `scripts/smoke-filemanager.sh`: GTK under Xvfb
   with xdotool and `G_DEBUG=fatal-warnings`; they check results on disk and via trace output.
 - `scripts/smoke-win32.sh`: the Win32 backend under wine + Xvfb (skips if wine is missing); the same
@@ -59,9 +69,10 @@ R = run-tested, C = compiles and links only, T = type-checked only, N = not impl
 - `scripts/smoke-gnustep.sh`: the Cocoa backend on GNUstep under Xvfb, 35 checks (sash
   drags and keys, typing incl. unicode, table sort, tree expand, popup menu, accelerators, move/resize, quit).
 - `scripts/check-all.sh` builds every mode (GTK, mock, emulate-mac, Windows GNU, both Apple
-  targets, release, clippy) and runs the smoke scripts.
+  targets, release), runs clippy with `-D warnings` in every mode, the benchmark bound, the smoke
+  scripts and the fuzz/soak drivers.
 - `.github/workflows/ci.yml` runs Linux (full check), Windows and macOS (build, test, brief launch)
-  jobs. 
+  jobs.
 
 ## Known gaps
 
@@ -80,15 +91,22 @@ R = run-tested, C = compiles and links only, T = type-checked only, N = not impl
 - **GTK:** label mnemonics not applied (the core has no label-to-target link); ATK role overrides
   compile and run but were not checked with an AT client; the sash is a plain 6px line with no grip;
   window content is clipped when shrunk below the layout minimum.
-- **Core:** very deep layout nesting (thousands of levels) can overflow the stack; panes in a splitter can overlap when an explicit position
-  or minimum is below a pane's natural size (documented).
+- **Core:** panes in a splitter can overlap when an explicit position or minimum is below a pane's
+  natural size (documented). Widgets nest at most `MAX_NESTING` (128) deep.
+- **GNUstep (emulation):** ObjC exceptions raised during event dispatch by GNUstep's own assertions
+  (negative view sizes) abort the process under `NSZombieEnabled`, because our hand-rolled event loop
+  has no `NS_DURING`; timers pause while menus and dialogs run (GNUstep has no common-modes mode).
+- **GTK:** GTK 3's file chooser trips an internal assertion now and then under Xvfb without a WM
+  (excluded from the default fuzz run, `MODAL=files`), `GtkMenu` leaks a few KiB per
+  create/destroy (also in plain C), and a popup menu holding a submenu can warn about negative sizes.
+- **Not verified here:** the Win32 backend could not be run on this aarch64 host (no wine); it
+  got the shared-code hardening, a code audit and compile/clippy checks only.
 - **API gaps found by the file manager:** no key-event or focus callbacks on tables, no
   `on_activate` (Enter) on `TextInput`, no modal windows or input dialog, no multi-select, no
   right-clicked-row query for context menus, no column-resize or scroll-to-row control.
 - **All platforms:** no custom drawing, rich text, caret/selection accessibility; RTL is a global
   opt-in; `Window::set_position` is a request that Wayland and some WMs ignore.
-- **Lint:** `cargo clippy --all-targets -D warnings` is not clean project-wide (older lints in
-  `gtk.rs`, `core.rs`, `mock.rs`, older tests and `kitchen_sink`); plain `cargo clippy` is.
+- **Lint:** `cargo clippy --all-targets -- -D warnings` is clean in every mode.
 
 Release binary sizes, direct/transitive dependencies and file-manager screenshots for each backend
 are in the README ("Binary size and linkage")
@@ -98,7 +116,8 @@ are in the README ("Binary size and linkage")
 1. Run the Win32 backend on real Windows (CI job exists, unrun); verify move/min-size/DPI and the
    MSAA overrides with Narrator/NVDA.
 2. Close the API gaps above, then a canvas/custom-draw widget and virtualised tables/trees.
-3. Clean clippy with `--all-targets -D warnings`.
+3. Run the fuzz/soak drivers against wine on an x86_64 host and add `scripts/fuzz-native.sh` support
+   for `BACKEND=wine`.
 
 ## Workflow notes
 

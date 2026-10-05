@@ -235,7 +235,9 @@ fn remove_nodes(id: WidgetId) -> Vec<WidgetId> {
         let is_window = r.nodes.get(&id).is_some_and(|n| n.kind == Kind::Window);
         if let Some(p) = r.nodes.get(&id).and_then(|n| n.parent) {
             if let Some(pn) = r.nodes.get_mut(&p) {
-                pn.children.retain(|c| *c != id);
+                if let Some(i) = pn.children.iter().position(|c| *c == id) {
+                    pn.children.remove(i); // a memmove, cheaper than retain's compare-and-compact
+                }
             }
             if let Some(w) = win {
                 if w != id {

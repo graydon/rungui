@@ -14,7 +14,8 @@ Exactly one of `rungui_gtk` / `rungui_win32` / `rungui_cocoa` is set. Use these 
 `target_os`) in backend code, e.g. `#[cfg(rungui_gtk)] mod gtk;`. Use `#[cfg(rungui_gnustep)]`
 for the few places where GNUstep differs from Apple's runtime.
 
-Cargo features: `emulate-mac` (only one).
+Cargo features: `emulate-mac` (Cocoa backend on GNUstep) and `mock` (headless backend; makes `rungui::backend::mock`
+and the contract types public so applications can test their UI without a display).
 
 ## Setup
 
@@ -25,6 +26,48 @@ gobjc/libobjc, wine64 (x86_64 hosts only), and the rustup targets
 
 `scripts/check-all.sh` builds/checks every mode below. Set a private `CARGO_TARGET_DIR`
 if other builds run concurrently.
+
+## Quality tooling (tests, benchmark, coverage, fuzzing)
+
+Needs a nightly toolchain with `llvm-tools-preview` for coverage and AddressSanitizer
+(`rustup toolchain install nightly -c llvm-tools-preview -c rust-src`), plus
+`cargo install cargo-llvm-cov cargo-fuzz --locked`.
+
+| what | how |
+|---|---|
+| unit/behaviour tests on the mock backend | `cargo test --features mock` (also plain `cargo test`) |
+| line coverage of the shared code | `cargo +nightly llvm-cov --features mock --summary-only` (about 97%) |
+| scaling of the core | `cargo run --release --features mock --example bench_mock -- --max-exponent 1.75` prints the measured growth exponent of every hot path at doubling sizes and fails above the bound |
+| random API fuzzing, mock backend, AddressSanitizer | `cargo +nightly fuzz run api_mock --features mock` (libFuzzer; corpus in `fuzz/corpus`) |
+| the same random programs as a fixed-seed test | `tests/random_ops.rs` (part of `cargo test --features mock`) |
+| random API fuzzing of a real toolkit | `scripts/fuzz-native.sh [seeds] [first_seed]`, `BACKEND=gnustep` for Cocoa-on-GNUstep, `ASAN=1` for AddressSanitizer, `MODAL=files` or `MODAL=all` to let the driver open file dialogs and popup menus as well |
+| leak soak of a real toolkit (create/destroy loop, prints RSS and open fds) | `SOAK=1 scripts/fuzz-native.sh [iterations]` |
+| narrowing a failing seed | `scripts/fuzz-bisect.sh <seed>` (operation count), `RUNGUI_FUZZ_TRACE=1`, `cargo run --manifest-path fuzz/Cargo.toml --features mock --bin replay_mock -- <seed> [ops]` dumps the widget tree a seed builds |
+
+`fuzz/src/ops.rs` is the byte-driven interpreter all of these share: it creates every widget kind,
+calls every public method with hostile arguments (NaN, `i32::MIN`, NUL and invalid UTF-8, huge
+strings, wrong-kind and dead handles) and registers callbacks that run more random operations
+and panic now and then. The native driver runs it inside the toolkit's event loop under Xvfb;
+for GTK it turns every GLib warning/critical into an abort that prints the Rust stack and the
+GTK widget tree. Coverage of a real backend: build with `RUSTFLAGS="-C instrument-coverage"`
+(nightly), run the scripts with `LLVM_PROFILE_FILE` set, merge with `llvm-profdata` and report
+with `llvm-cov` (GTK backend: about 88% of regions from the smoke scripts plus the fuzz and
+soak drivers; the rest is user-interaction handlers that only xdotool can reach).
+
+Things this tooling found that are worth knowing when touching a backend:
+
+* Edition 2024 drops temporaries at the end of a block's tail expression: `if c { null() } else
+  { cs(t).as_ptr() }` hands the toolkit a dangling pointer (the GTK tooltip bug). Bind the
+  `CString` first.
+* GTK 3: never allocate a widget less than its real minimum, window sizes above 32767 warn, a
+  hidden `GtkNotebook` that gets a visible page crashes when shown later, a popup menu needs a
+  trigger event (the backend makes one up when there is none), and `GtkMenu` itself leaks a few
+  KiB per create/destroy in plain C.
+* GNUstep: ObjC exceptions raised by *our* calls abort the process (Rust cannot catch them), and
+  its own run loop is bypassed by our hand-rolled one so internal assertions do too. Known
+  triggers that the backend now avoids: `setStyleMask:` on a live window, any selection change
+  or `setDataSource:` on a table without columns, a negative frame. `NSZombieEnabled=YES` found
+  NSTabView keeping a dangling pointer to the last removed page's view.
 
 ## Mode 1: native hosted
 

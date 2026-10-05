@@ -90,6 +90,7 @@ const BENCHES: &[Bench] = &[
             for i in 0..n / 4 {
                 t.push_row(&[i.to_string(), "x".to_string()]);
             }
+            App::update(); // the one transfer of the whole model
         })
     }),
     ("table push_row (batched)", |n| {
@@ -124,6 +125,7 @@ const BENCHES: &[Bench] = &[
             for i in 0..n / 4 {
                 t.add(Some(root), &i.to_string());
             }
+            App::update();
         })
     }),
     ("tree add (batched)", |n| {

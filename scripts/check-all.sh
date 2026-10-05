@@ -18,10 +18,26 @@ run cargo build --target x86_64-pc-windows-gnu --examples "$@"  # win32 via ming
 run cargo check --target aarch64-apple-darwin "$@"              # real cocoa cfg, type-check only
 run cargo check --target x86_64-apple-darwin "$@"
 run cargo build --release "$@"
-if cargo clippy --version >/dev/null 2>&1; then run cargo clippy "$@"; fi
+if cargo clippy --version >/dev/null 2>&1; then
+  # warnings are errors in every mode (the real backends are separate code per target)
+  run cargo clippy --all-targets "$@" -- -D warnings
+  run cargo clippy --all-targets --features mock "$@" -- -D warnings
+  run cargo clippy --all-targets --features emulate-mac "$@" -- -D warnings
+  run cargo clippy --all-targets --target x86_64-pc-windows-gnu "$@" -- -D warnings
+  run cargo clippy --all-targets --target aarch64-apple-darwin "$@" -- -D warnings
+  run cargo clippy --all-targets --target x86_64-apple-darwin "$@" -- -D warnings
+  run cargo clippy --manifest-path fuzz/Cargo.toml --all-targets --features mock "$@" -- -D warnings
+fi
+# the core's own bookkeeping must scale (no operation quadratic in what the app holds)
+run cargo run --release --features mock --example bench_mock "$@" -- --max-exponent 1.75
 [ "${SKIP_SMOKE:-0}" = 1 ] || run scripts/smoke-gtk.sh          # GTK backend under Xvfb + xdotool
 [ "${SKIP_SMOKE:-0}" = 1 ] || run scripts/smoke-gtk-soak.sh          # kitchen_sink soak: unicode, resize, dialogs, fatal GLib warnings
 [ "${SKIP_SMOKE:-0}" = 1 ] || run scripts/smoke-filemanager.sh      # file manager example: navigate, preview, copy, rename, delete
 [ "${SKIP_SMOKE:-0}" = 1 ] || run scripts/smoke-gnustep.sh      # Cocoa backend on GNUstep: sash drags, clicks, menus, move/resize
 [ "${SKIP_SMOKE:-0}" = 1 ] || ! command -v wine >/dev/null || run scripts/smoke-win32.sh   # Win32 backend under wine + Xvfb
+# random-operation fuzzing and leak soaks of the real toolkits (fuzz/, see doc/BUILDING.md)
+[ "${SKIP_SMOKE:-0}" = 1 ] || run scripts/fuzz-native.sh 150
+[ "${SKIP_SMOKE:-0}" = 1 ] || SOAK=1 run scripts/fuzz-native.sh 400
+[ "${SKIP_SMOKE:-0}" = 1 ] || BACKEND=gnustep run scripts/fuzz-native.sh 60
+[ "${SKIP_SMOKE:-0}" = 1 ] || BACKEND=gnustep SOAK=1 run scripts/fuzz-native.sh 200
 exit $fail

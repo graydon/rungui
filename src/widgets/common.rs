@@ -10,7 +10,8 @@ impl Widget {
     pub fn is_alive(&self) -> bool {
         core::is_alive(self.0)
     }
-    /// Destroy this widget and all its children.
+    /// Destroy this widget and all its children. (Destroying many siblings one at a time costs time
+    /// proportional to how many are left each; to clear a container, destroy the container.)
     pub fn destroy(&self) {
         core::destroy(self.0)
     }
