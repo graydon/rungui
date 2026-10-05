@@ -1211,125 +1211,15 @@ unsafe fn create_inner(
     unsafe {
         let mut w = blank(kind, NULL, parent, win);
         match kind {
-            Kind::Window => {
-                let win = gtk_window_new(WINDOW_TOPLEVEL);
-                let vbox = gtk_box_new(ORIENT_V, 0);
-                let fixed = gtk_fixed_new();
-                // The fixed's min size is the union of the children's size requests; behind an
-                // EXTERNAL-policy scrolled window it no longer stops the user from shrinking the window.
-                let sw = gtk_scrolled_window_new(NULL, NULL);
-                gtk_scrolled_window_set_policy(sw, POLICY_EXTERNAL, POLICY_EXTERNAL);
-                gtk_scrolled_window_set_shadow_type(sw, SHADOW_NONE);
-                gtk_container_add(sw, fixed);
-                let vp = gtk_bin_get_child(sw);
-                if !vp.is_null() {
-                    gtk_viewport_set_shadow_type(vp, SHADOW_NONE);
-                }
-                gtk_box_pack_start(vbox, sw, 1, 1, 0);
-                gtk_container_add(win, vbox);
-                gtk_widget_show(vbox);
-                gtk_widget_show(sw);
-                gtk_widget_show(fixed);
-                let ag = gtk_accel_group_new();
-                gtk_window_add_accel_group(win, ag);
-                // the window now holds its own reference; ours would leak the group (and every
-                // accelerator closure in it) with each window
-                g_object_unref(ag);
-                connect(win, b"delete-event\0", h_delete as *const (), id);
-                ctx_hooks(win, id);
-                connect(sw, b"size-allocate\0", h_size_allocate as *const (), id);
-                connect(win, b"configure-event\0", h_configure as *const (), id);
-                w.view = sw;
-                w.w = win;
-                w.inner = fixed;
-                w.outer = vbox;
-                w.accel_group = ag;
-            }
-            Kind::Label => {
-                let l = gtk_label_new(c"".as_ptr());
-                gtk_label_set_xalign(l, 0.0);
-                w.w = l;
-                w.inner = l;
-            }
-            Kind::Button => {
-                w.w = gtk_button_new();
-                connect(w.w, b"clicked\0", h_clicked as *const (), id);
-                focus_hooks(w.w, id);
-                ctx_hooks(w.w, id);
-            }
-            Kind::CheckBox | Kind::RadioButton => {
-                w.w = if kind == Kind::CheckBox {
-                    gtk_check_button_new()
-                } else {
-                    // The core owns exclusivity; the hidden sentinel keeps "no radio active" possible.
-                    let dummy = gtk_radio_button_new(NULL);
-                    g_object_ref_sink(dummy);
-                    w.extra = dummy;
-                    gtk_radio_button_new_from_widget(dummy)
-                };
-                connect(w.w, b"toggled\0", h_toggled as *const (), id);
-                focus_hooks(w.w, id);
-                ctx_hooks(w.w, id);
-            }
-            Kind::TextInput | Kind::PasswordInput => {
-                let e = gtk_entry_new();
-                if kind == Kind::PasswordInput {
-                    gtk_entry_set_visibility(e, 0);
-                }
-                connect(e, b"changed\0", h_entry_changed as *const (), id);
-                focus_hooks(e, id);
-                w.w = e;
-            }
-            Kind::TextArea => {
-                let tv = gtk_text_view_new();
-                gtk_text_view_set_wrap_mode(tv, WRAP_WORD_CHAR); // backend contract: wrap by default
-                let buf = gtk_text_view_get_buffer(tv);
-                connect(buf, b"changed\0", h_buffer_changed as *const (), id);
-                focus_hooks(tv, id);
-                w.w = scrolled(tv);
-                w.inner = tv;
-            }
-            Kind::ComboBox => {
-                let c = gtk_combo_box_text_new();
-                connect(c, b"changed\0", h_combo_changed as *const (), id);
-                ctx_hooks(c, id);
-                focus_hooks(c, id);
-                w.w = c;
-            }
-            Kind::ListBox => {
-                let lb = gtk_list_box_new();
-                gtk_list_box_set_activate_on_single_click(lb, 0);
-                connect(lb, b"row-selected\0", h_row_selected as *const (), id);
-                connect(lb, b"row-activated\0", h_row_activated as *const (), id);
-                ctx_hooks(lb, id);
-                focus_hooks(lb, id);
-                w.w = scrolled(lb);
-                w.inner = lb;
-            }
-            Kind::Table | Kind::Tree => {
-                let tv = gtk_tree_view_new();
-                let sel = gtk_tree_view_get_selection(tv);
-                gtk_tree_selection_set_mode(sel, 1);
-                connect(sel, b"changed\0", h_sel_changed as *const (), id);
-                connect(tv, b"row-activated\0", h_tv_activated as *const (), id);
-                focus_hooks(tv, id);
-                if kind == Kind::Tree {
-                    gtk_tree_view_set_headers_visible(tv, 0);
-                    let mut types = [G_TYPE_STRING, G_TYPE_UINT64];
-                    let store = gtk_tree_store_newv(2, types.as_mut_ptr());
-                    gtk_tree_view_set_model(tv, store);
-                    g_object_unref(store);
-                    let col = gtk_tree_view_column_new();
-                    let r = gtk_cell_renderer_text_new();
-                    gtk_tree_view_column_pack_start(col, r, 1);
-                    gtk_tree_view_column_add_attribute(col, r, c"text".as_ptr(), 0);
-                    gtk_tree_view_append_column(tv, col);
-                    connect(tv, b"row-expanded\0", h_row_expanded as *const (), id);
-                    connect(tv, b"row-collapsed\0", h_row_collapsed as *const (), id);
-                }
-                w.w = scrolled(tv);
-                w.inner = tv;
-            }
+            Kind::Window => build_window(id, &mut w),
+            Kind::Label => build_label(&mut w),
+            Kind::Button => build_button(id, &mut w),
+            Kind::CheckBox | Kind::RadioButton => build_check(id, kind, &mut w),
+            Kind::TextInput | Kind::PasswordInput => build_entry(id, kind, &mut w),
+            Kind::TextArea => build_text_area(id, &mut w),
+            Kind::ComboBox => build_combo(id, &mut w),
+            Kind::ListBox => build_list(id, &mut w),
+            Kind::Table | Kind::Tree => build_tree_view(id, kind, &mut w),
             Kind::PopupMenu => {
                 let m = gtk_menu_new();
                 w.w = m;
@@ -1337,26 +1227,10 @@ unsafe fn create_inner(
                 WIDGETS.with(|m| m.borrow_mut().insert(id, w));
                 return Ok(());
             }
-            Kind::Slider => {
-                let s = gtk_scale_new_with_range(ORIENT_H, 0.0, 100.0, 1.0);
-                gtk_scale_set_draw_value(s, 0);
-                connect(s, b"value-changed\0", h_value_changed as *const (), id);
-                focus_hooks(s, id);
-                w.w = s;
-            }
+            Kind::Slider => build_slider(id, &mut w),
             Kind::ProgressBar => w.w = gtk_progress_bar_new(),
-            Kind::SpinBox => {
-                let s = gtk_spin_button_new_with_range(0.0, 100.0, 1.0);
-                connect(s, b"value-changed\0", h_value_changed as *const (), id);
-                focus_hooks(s, id);
-                w.w = s;
-            }
-            Kind::Tabs => {
-                let nb = gtk_notebook_new();
-                ctx_hooks(nb, id);
-                connect(nb, b"switch-page\0", h_switch_page as *const (), id);
-                w.w = nb;
-            }
+            Kind::SpinBox => build_spin(id, &mut w),
+            Kind::Tabs => build_tabs(id, &mut w),
             Kind::Page => {
                 let page = gtk_fixed_new();
                 let nb = pw.map_or(NULL, |p| p.w);
@@ -1372,48 +1246,9 @@ unsafe fn create_inner(
                 WIDGETS.with(|m| m.borrow_mut().insert(id, w));
                 return Ok(());
             }
-            Kind::GroupBox => {
-                let f = gtk_frame_new(c"".as_ptr());
-                let fixed = gtk_fixed_new();
-                gtk_container_add(f, fixed);
-                gtk_widget_show(fixed);
-                w.w = f;
-                w.inner = fixed;
-            }
+            Kind::GroupBox => build_group(&mut w),
             Kind::Image => w.w = gtk_image_new(),
-            Kind::Sash => {
-                // a draggable strip; the core owns its position, we only report the pointer
-                let eb = gtk_event_box_new();
-                let sep = gtk_separator_new(ORIENT_V);
-                gtk_container_add(eb, sep);
-                gtk_widget_show(sep);
-                // keyboard-operable: Tab reaches it, a click focuses it, arrows/Home/End move it
-                gtk_widget_set_can_focus(eb, 1);
-                gtk_widget_add_events(
-                    eb,
-                    EV_BUTTON_PRESS
-                        | EV_BUTTON_RELEASE
-                        | EV_BUTTON_MOTION
-                        | EV_POINTER_MOTION
-                        | EV_ENTER_NOTIFY
-                        | EV_KEY_PRESS,
-                );
-                focus_hooks(eb, id);
-                connect(eb, b"focus-in-event\0", h_sash_focus as *const (), id);
-                connect(eb, b"focus-out-event\0", h_sash_focus as *const (), id);
-                connect(eb, b"key-press-event\0", h_sash_key as *const (), id);
-                connect_after(eb, b"draw\0", h_sash_draw as *const (), id);
-                connect(eb, b"button-press-event\0", h_sash_press as *const (), id);
-                connect(eb, b"motion-notify-event\0", h_sash_motion as *const (), id);
-                connect(
-                    eb,
-                    b"button-release-event\0",
-                    h_sash_release as *const (),
-                    id,
-                );
-                connect(eb, b"enter-notify-event\0", h_sash_enter as *const (), id);
-                w.w = eb;
-            }
+            Kind::Sash => build_sash(id, &mut w),
             Kind::MenuBar => {
                 let bar = gtk_menu_bar_new();
                 let (Some(pid), Some(p)) = (parent, pw.filter(|p| p.kind == Kind::Window)) else {
@@ -2096,5 +1931,240 @@ unsafe fn set_tree_selected(w: &W, node: &Option<u64>) {
             }
             _ => gtk_tree_selection_unselect_all(selw),
         }
+    }
+}
+
+/// Build the native widget(s) of a `Window` into `w`.
+unsafe fn build_window(id: WidgetId, w: &mut W) {
+    unsafe {
+        let win = gtk_window_new(WINDOW_TOPLEVEL);
+        let vbox = gtk_box_new(ORIENT_V, 0);
+        let fixed = gtk_fixed_new();
+        // The fixed's min size is the union of the children's size requests; behind an
+        // EXTERNAL-policy scrolled window it no longer stops the user from shrinking the window.
+        let sw = gtk_scrolled_window_new(NULL, NULL);
+        gtk_scrolled_window_set_policy(sw, POLICY_EXTERNAL, POLICY_EXTERNAL);
+        gtk_scrolled_window_set_shadow_type(sw, SHADOW_NONE);
+        gtk_container_add(sw, fixed);
+        let vp = gtk_bin_get_child(sw);
+        if !vp.is_null() {
+            gtk_viewport_set_shadow_type(vp, SHADOW_NONE);
+        }
+        gtk_box_pack_start(vbox, sw, 1, 1, 0);
+        gtk_container_add(win, vbox);
+        gtk_widget_show(vbox);
+        gtk_widget_show(sw);
+        gtk_widget_show(fixed);
+        let ag = gtk_accel_group_new();
+        gtk_window_add_accel_group(win, ag);
+        // the window now holds its own reference; ours would leak the group (and every
+        // accelerator closure in it) with each window
+        g_object_unref(ag);
+        connect(win, b"delete-event\0", h_delete as *const (), id);
+        ctx_hooks(win, id);
+        connect(sw, b"size-allocate\0", h_size_allocate as *const (), id);
+        connect(win, b"configure-event\0", h_configure as *const (), id);
+        w.view = sw;
+        w.w = win;
+        w.inner = fixed;
+        w.outer = vbox;
+        w.accel_group = ag;
+    }
+}
+
+/// Build the native widget(s) of a `Label` into `w`.
+unsafe fn build_label(w: &mut W) {
+    unsafe {
+        let l = gtk_label_new(c"".as_ptr());
+        gtk_label_set_xalign(l, 0.0);
+        w.w = l;
+        w.inner = l;
+    }
+}
+
+/// Build the native widget(s) of a `Button` into `w`.
+unsafe fn build_button(id: WidgetId, w: &mut W) {
+    unsafe {
+        w.w = gtk_button_new();
+        connect(w.w, b"clicked\0", h_clicked as *const (), id);
+        focus_hooks(w.w, id);
+        ctx_hooks(w.w, id);
+    }
+}
+
+/// Build the native widget(s) of a `CheckBox | Kind::RadioButton` into `w`.
+unsafe fn build_check(id: WidgetId, kind: Kind, w: &mut W) {
+    unsafe {
+        w.w = if kind == Kind::CheckBox {
+            gtk_check_button_new()
+        } else {
+            // The core owns exclusivity; the hidden sentinel keeps "no radio active" possible.
+            let dummy = gtk_radio_button_new(NULL);
+            g_object_ref_sink(dummy);
+            w.extra = dummy;
+            gtk_radio_button_new_from_widget(dummy)
+        };
+        connect(w.w, b"toggled\0", h_toggled as *const (), id);
+        focus_hooks(w.w, id);
+        ctx_hooks(w.w, id);
+    }
+}
+
+/// Build the native widget(s) of a `TextInput | Kind::PasswordInput` into `w`.
+unsafe fn build_entry(id: WidgetId, kind: Kind, w: &mut W) {
+    unsafe {
+        let e = gtk_entry_new();
+        if kind == Kind::PasswordInput {
+            gtk_entry_set_visibility(e, 0);
+        }
+        connect(e, b"changed\0", h_entry_changed as *const (), id);
+        focus_hooks(e, id);
+        w.w = e;
+    }
+}
+
+/// Build the native widget(s) of a `TextArea` into `w`.
+unsafe fn build_text_area(id: WidgetId, w: &mut W) {
+    unsafe {
+        let tv = gtk_text_view_new();
+        gtk_text_view_set_wrap_mode(tv, WRAP_WORD_CHAR); // backend contract: wrap by default
+        let buf = gtk_text_view_get_buffer(tv);
+        connect(buf, b"changed\0", h_buffer_changed as *const (), id);
+        focus_hooks(tv, id);
+        w.w = scrolled(tv);
+        w.inner = tv;
+    }
+}
+
+/// Build the native widget(s) of a `ComboBox` into `w`.
+unsafe fn build_combo(id: WidgetId, w: &mut W) {
+    unsafe {
+        let c = gtk_combo_box_text_new();
+        connect(c, b"changed\0", h_combo_changed as *const (), id);
+        ctx_hooks(c, id);
+        focus_hooks(c, id);
+        w.w = c;
+    }
+}
+
+/// Build the native widget(s) of a `ListBox` into `w`.
+unsafe fn build_list(id: WidgetId, w: &mut W) {
+    unsafe {
+        let lb = gtk_list_box_new();
+        gtk_list_box_set_activate_on_single_click(lb, 0);
+        connect(lb, b"row-selected\0", h_row_selected as *const (), id);
+        connect(lb, b"row-activated\0", h_row_activated as *const (), id);
+        ctx_hooks(lb, id);
+        focus_hooks(lb, id);
+        w.w = scrolled(lb);
+        w.inner = lb;
+    }
+}
+
+/// Build the native widget(s) of a `Table | Kind::Tree` into `w`.
+unsafe fn build_tree_view(id: WidgetId, kind: Kind, w: &mut W) {
+    unsafe {
+        let tv = gtk_tree_view_new();
+        let sel = gtk_tree_view_get_selection(tv);
+        gtk_tree_selection_set_mode(sel, 1);
+        connect(sel, b"changed\0", h_sel_changed as *const (), id);
+        connect(tv, b"row-activated\0", h_tv_activated as *const (), id);
+        focus_hooks(tv, id);
+        if kind == Kind::Tree {
+            gtk_tree_view_set_headers_visible(tv, 0);
+            let mut types = [G_TYPE_STRING, G_TYPE_UINT64];
+            let store = gtk_tree_store_newv(2, types.as_mut_ptr());
+            gtk_tree_view_set_model(tv, store);
+            g_object_unref(store);
+            let col = gtk_tree_view_column_new();
+            let r = gtk_cell_renderer_text_new();
+            gtk_tree_view_column_pack_start(col, r, 1);
+            gtk_tree_view_column_add_attribute(col, r, c"text".as_ptr(), 0);
+            gtk_tree_view_append_column(tv, col);
+            connect(tv, b"row-expanded\0", h_row_expanded as *const (), id);
+            connect(tv, b"row-collapsed\0", h_row_collapsed as *const (), id);
+        }
+        w.w = scrolled(tv);
+        w.inner = tv;
+    }
+}
+
+/// Build the native widget(s) of a `Slider` into `w`.
+unsafe fn build_slider(id: WidgetId, w: &mut W) {
+    unsafe {
+        let s = gtk_scale_new_with_range(ORIENT_H, 0.0, 100.0, 1.0);
+        gtk_scale_set_draw_value(s, 0);
+        connect(s, b"value-changed\0", h_value_changed as *const (), id);
+        focus_hooks(s, id);
+        w.w = s;
+    }
+}
+
+/// Build the native widget(s) of a `SpinBox` into `w`.
+unsafe fn build_spin(id: WidgetId, w: &mut W) {
+    unsafe {
+        let s = gtk_spin_button_new_with_range(0.0, 100.0, 1.0);
+        connect(s, b"value-changed\0", h_value_changed as *const (), id);
+        focus_hooks(s, id);
+        w.w = s;
+    }
+}
+
+/// Build the native widget(s) of a `Tabs` into `w`.
+unsafe fn build_tabs(id: WidgetId, w: &mut W) {
+    unsafe {
+        let nb = gtk_notebook_new();
+        ctx_hooks(nb, id);
+        connect(nb, b"switch-page\0", h_switch_page as *const (), id);
+        w.w = nb;
+    }
+}
+
+/// Build the native widget(s) of a `GroupBox` into `w`.
+unsafe fn build_group(w: &mut W) {
+    unsafe {
+        let f = gtk_frame_new(c"".as_ptr());
+        let fixed = gtk_fixed_new();
+        gtk_container_add(f, fixed);
+        gtk_widget_show(fixed);
+        w.w = f;
+        w.inner = fixed;
+    }
+}
+
+/// Build the native widget(s) of a `Sash` into `w`.
+unsafe fn build_sash(id: WidgetId, w: &mut W) {
+    unsafe {
+        // a draggable strip; the core owns its position, we only report the pointer
+        let eb = gtk_event_box_new();
+        let sep = gtk_separator_new(ORIENT_V);
+        gtk_container_add(eb, sep);
+        gtk_widget_show(sep);
+        // keyboard-operable: Tab reaches it, a click focuses it, arrows/Home/End move it
+        gtk_widget_set_can_focus(eb, 1);
+        gtk_widget_add_events(
+            eb,
+            EV_BUTTON_PRESS
+                | EV_BUTTON_RELEASE
+                | EV_BUTTON_MOTION
+                | EV_POINTER_MOTION
+                | EV_ENTER_NOTIFY
+                | EV_KEY_PRESS,
+        );
+        focus_hooks(eb, id);
+        connect(eb, b"focus-in-event\0", h_sash_focus as *const (), id);
+        connect(eb, b"focus-out-event\0", h_sash_focus as *const (), id);
+        connect(eb, b"key-press-event\0", h_sash_key as *const (), id);
+        connect_after(eb, b"draw\0", h_sash_draw as *const (), id);
+        connect(eb, b"button-press-event\0", h_sash_press as *const (), id);
+        connect(eb, b"motion-notify-event\0", h_sash_motion as *const (), id);
+        connect(
+            eb,
+            b"button-release-event\0",
+            h_sash_release as *const (),
+            id,
+        );
+        connect(eb, b"enter-notify-event\0", h_sash_enter as *const (), id);
+        w.w = eb;
     }
 }
