@@ -2,7 +2,7 @@
 
 use super::lifecycle::destroy;
 use super::post::layout_window;
-use super::props::{is_alive, read, update};
+use super::props::{is_alive, modify, read};
 use super::splitter::{sash_event, sash_key_event};
 use super::{guarded, post, wake_if_scheduled, with};
 use crate::backend::{Backend, Event, Kind, Native as B, Prop};
@@ -57,7 +57,7 @@ impl Ev {
 pub type Callback = Box<dyn FnMut(&Event)>;
 
 pub fn set_callback(id: WidgetId, ev: Ev, cb: Callback) {
-    update(id, false, |n| {
+    modify(id, |n| {
         n.cbs.insert(ev, cb);
     });
 }

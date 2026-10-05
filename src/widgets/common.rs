@@ -107,10 +107,10 @@ impl Widget {
     /// menu inherit it). Works on any widget and on windows.
     pub fn set_context_menu(&self, popup: impl Into<WidgetId>) {
         let p = popup.into();
-        core::update(self.0, false, |n| n.context_menu = Some(p));
+        core::modify(self.0, |n| n.context_menu = Some(p));
     }
     pub fn clear_context_menu(&self) {
-        core::update(self.0, false, |n| n.context_menu = None);
+        core::modify(self.0, |n| n.context_menu = None);
     }
     /// Called with window-client coordinates just before the context menu is shown (and even when no
     /// menu is attached), so the app can rebuild/enable items or attach a different menu.

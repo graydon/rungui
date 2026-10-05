@@ -1,7 +1,7 @@
 //! Table/tree model pushes to the backend (with batching via `freeze`).
 
 use super::model::{Data, Node};
-use super::props::update;
+use super::props::modify;
 use super::{wake, with};
 use crate::backend::{Backend, Native as B, Prop};
 use crate::types::*;
@@ -10,7 +10,7 @@ use crate::types::*;
 
 /// Mutate a table/tree model, then re-send `what` to the backend (deferred while frozen).
 pub fn data_update(id: WidgetId, what: Data, f: impl FnOnce(&mut Node)) {
-    if update(id, false, f).is_some() {
+    if modify(id, f).is_some() {
         push(id, what);
     }
 }

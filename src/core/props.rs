@@ -23,6 +23,13 @@ pub fn update(id: WidgetId, relayout: bool, f: impl FnOnce(&mut Node)) -> Option
     Some(r.0)
 }
 
+/// Modify a node without marking anything dirty: for state that neither layout, accessibility nor
+/// the backend shows (callbacks, the attached context menu, a table's rows before they are
+/// flushed). Returns `None` for a stale id.
+pub fn modify(id: WidgetId, f: impl FnOnce(&mut Node)) -> Option<()> {
+    with(|r| r.nodes.get_mut(&id).map(f)).flatten()
+}
+
 /// `update` + push `prop` to the backend when the widget is native.
 pub fn set(id: WidgetId, relayout: bool, f: impl FnOnce(&mut Node), prop: Prop) {
     if let Some(k) = update(id, relayout, f) {

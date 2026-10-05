@@ -52,7 +52,7 @@ impl Window {
     }
     /// Close handler: return `true` to allow closing (default), `false` to veto.
     pub fn on_close(&self, f: impl FnMut() -> bool + 'static) {
-        core::update(self.id(), false, |n| {
+        core::modify(self.id(), |n| {
             if let Some(w) = n.window_mut() {
                 w.on_close = Some(Box::new(f))
             }
