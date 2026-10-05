@@ -146,9 +146,8 @@ fn off_thread_misuse_is_an_error_not_a_panic() {
         let t = Timer::once(1, || {});
         let _ = t;
         t.stop();
-        assert_eq!(
+        assert!(
             App::new("again").is_ok(),
-            true,
             "a different thread gets its own toolkit state"
         );
     })

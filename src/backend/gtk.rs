@@ -816,8 +816,8 @@ impl Backend for Gtk {
         if !ok {
             return Err(Error::InvalidHandle);
         }
-        let r = guarded(|| unsafe { create_inner(id, kind, parent, pw, win) });
-        r
+        
+        guarded(|| unsafe { create_inner(id, kind, parent, pw, win) })
     }
 
     fn destroy(id: WidgetId) {
@@ -1409,13 +1409,8 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                 }
             }
             Prop::Tooltip(t) => {
-                let target = if matches!(w.kind, Kind::TextArea | Kind::ListBox) {
-                    w.w
-                } else {
-                    w.w
-                };
                 gtk_widget_set_tooltip_text(
-                    target,
+                    w.w,
                     if t.is_empty() {
                         std::ptr::null()
                     } else {

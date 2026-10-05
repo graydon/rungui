@@ -3,7 +3,7 @@
 use super::*;
 
 fn tree_do<R>(id: WidgetId, f: impl FnOnce(&core::TreeData) -> R) -> Option<R> {
-    core::read(id, |n| n.tree().map(|t| f(t))).flatten()
+    core::read(id, |n| n.tree().map(f)).flatten()
 }
 
 impl Tree {

@@ -53,11 +53,11 @@ fn visible_children(r: &Registry, id: WidgetId) -> Vec<WidgetId> {
     })
 }
 
-/// Resolved grid cells `(child, col, row, colspan, rowspan)` plus (ncols, nrows).
-fn grid_cells(
-    r: &Registry,
-    id: WidgetId,
-) -> (Vec<(WidgetId, usize, usize, usize, usize)>, usize, usize) {
+/// One placed child of a grid: `(child, col, row, colspan, rowspan)`.
+type GridCell = (WidgetId, usize, usize, usize, usize);
+
+/// Resolved grid cells plus (ncols, nrows).
+fn grid_cells(r: &Registry, id: WidgetId) -> (Vec<GridCell>, usize, usize) {
     let cols = r.nodes[&id].lay.cols.max(1);
     let mut next = 0usize;
     let mut cells = vec![];
@@ -82,15 +82,11 @@ fn grid_cells(
     (cells, nc, nr)
 }
 
+/// Per-axis (columns, rows) track values of a grid.
+type Tracks<T> = [Vec<T>; 2];
+
 /// Column widths / row heights and expand weights of a grid.
-fn grid_tracks(
-    r: &Registry,
-    id: WidgetId,
-) -> (
-    Vec<(WidgetId, usize, usize, usize, usize)>,
-    [Vec<i32>; 2],
-    [Vec<f32>; 2],
-) {
+fn grid_tracks(r: &Registry, id: WidgetId) -> (Vec<GridCell>, Tracks<i32>, Tracks<f32>) {
     let (cells, nc, nr) = grid_cells(r, id);
     let mut size = [vec![0; nc], vec![0; nr]];
     let mut exp = [vec![0.0f32; nc], vec![0.0f32; nr]];

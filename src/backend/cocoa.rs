@@ -354,7 +354,7 @@ extern "C" fn on_wake(_t: Id, _c: Sel, _a: Id) {
 }
 
 extern "C" fn on_quit_item(_t: Id, _c: Sel, _a: Id) {
-    let _ = catch_unwind(|| <Cocoa as Backend>::quit());
+    let _ = catch_unwind(<Cocoa as Backend>::quit);
 }
 
 extern "C" fn on_timer(_t: Id, _c: Sel, timer: Id) {

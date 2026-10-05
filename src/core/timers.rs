@@ -54,7 +54,7 @@ pub fn timer_fired(token: u64) {
     let Some((Some(mut cb), repeat)) = taken else {
         return;
     };
-    guarded(|| cb());
+    guarded(&mut cb);
     if repeat {
         with(|r| {
             if let Some(t) = r.timers.get_mut(&token) {

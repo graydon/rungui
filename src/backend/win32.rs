@@ -969,8 +969,8 @@ fn create_impl(id: WidgetId, kind: Kind, parent: Option<WidgetId>) -> Result<()>
                     loop {
                         let c = s.next_cmd;
                         s.next_cmd = if c >= 0xEFFF { 1000 } else { c + 1 };
-                        if !s.by_cmd.contains_key(&c) {
-                            s.by_cmd.insert(c, id);
+                        if let std::collections::hash_map::Entry::Vacant(e) = s.by_cmd.entry(c) {
+                            e.insert(id);
                             return c;
                         }
                     }

@@ -63,7 +63,7 @@ fn invalid_parents_and_backend_failure() {
     let l = Label::new(win, "x");
     assert!(!l.is_alive());
     assert!(matches!(last_error(), Some(Error::Backend(_))));
-    assert_eq!(widget(win.id()).is_some(), true);
+    assert!(widget(win.id()).is_some());
     // failed creation leaves no ghost children behind
     assert_eq!(core::read(win.id(), |n| n.children.len()), Some(1));
 }
@@ -507,7 +507,7 @@ fn accel_parsing() {
     let a = Accel::parse("Ctrl+Shift+s").unwrap();
     assert!(a.ctrl && a.shift && !a.alt);
     assert_eq!(a.key, "S");
-    assert_eq!(Accel::parse("Cmd+Q").unwrap().ctrl, true);
+    assert!(Accel::parse("Cmd+Q").unwrap().ctrl);
     assert_eq!(Accel::parse("F5").unwrap().key, "F5");
     assert_eq!(Accel::parse(""), None);
     assert_eq!(Accel::parse("Ctrl+"), None);

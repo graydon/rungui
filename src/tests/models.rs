@@ -231,7 +231,7 @@ struct TrModel {
     sel: Option<u64>,
 }
 
-fn find<'a>(l: &'a mut Vec<MNode>, id: u64) -> Option<&'a mut MNode> {
+fn find(l: &mut [MNode], id: u64) -> Option<&mut MNode> {
     for n in l.iter_mut() {
         if n.id == id {
             return Some(n);
@@ -273,7 +273,7 @@ fn detach(l: &mut Vec<MNode>, id: u64) -> bool {
 }
 
 /// Expand all ancestors of `id`.
-fn reveal(l: &mut Vec<MNode>, id: u64) -> bool {
+fn reveal(l: &mut [MNode], id: u64) -> bool {
     for n in l.iter_mut() {
         if n.id == id {
             return true;

@@ -129,11 +129,11 @@ fn main() {
 
     // Right-click the table for a context menu; its items are rebuilt/enabled just before display.
     let popup = PopupMenu::new();
-    let del = MenuItem::new(&popup, "Delete row");
-    MenuSeparator::new(&popup);
-    let hdr = CheckMenuItem::new(&popup, "Show sizes");
+    let del = MenuItem::new(popup, "Delete row");
+    MenuSeparator::new(popup);
+    let hdr = CheckMenuItem::new(popup, "Show sizes");
     hdr.set_checked(true);
-    table.set_context_menu(&popup);
+    table.set_context_menu(popup);
     table.on_context_menu(move |_, _| del.set_enabled(table.selected().is_some()));
     del.on_click(move || {
         if let Some(r) = table.selected() {
@@ -141,7 +141,7 @@ fn main() {
         }
     });
     hdr.on_toggle(move |on| status.set_text(&format!("show sizes: {on}")));
-    tree.set_context_menu(&popup);
+    tree.set_context_menu(popup);
 
     open.on_click(move || {
         if let Some(p) = FileDialog::new()

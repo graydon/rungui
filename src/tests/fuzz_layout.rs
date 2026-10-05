@@ -430,7 +430,7 @@ fn splitter_geometry_is_consistent_for_random_positions() {
             } else {
                 (ra.h, rb.h, rs.h, rb.y - ra.y, s.bounds().h)
             };
-            let thick = 6.min(0).max(0) + (pt - pa); // distance between pane starts minus first size
+            let thick = pt - pa; // distance between pane starts minus first size
             assert!(pa >= 0 && pb >= 0 && ps >= 0, "seed {seed}: negative size");
             assert_eq!(
                 s.position(),

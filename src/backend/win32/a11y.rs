@@ -179,12 +179,15 @@ fn desired(window: WidgetId) -> Vec<(WidgetId, HWND, Props)> {
             continue;
         }
         let custom = matches!(n.kind, Kind::Sash | Kind::Page | Kind::GroupBox);
-        let mut p = Props::default();
-        p.name = n.name.clone().filter(|_| {
-            n.name_source == NameSource::Explicit || matches!(n.kind, Kind::Page | Kind::GroupBox)
-        });
-        p.desc = n.description.clone();
-        p.role = (n.role_explicit || custom).then(|| msaa_role(n.role));
+        let mut p = Props {
+            name: n.name.clone().filter(|_| {
+                n.name_source == NameSource::Explicit
+                    || matches!(n.kind, Kind::Page | Kind::GroupBox)
+            }),
+            desc: n.description.clone(),
+            role: (n.role_explicit || custom).then(|| msaa_role(n.role)),
+            ..Props::default()
+        };
         if n.kind == Kind::Sash {
             p.value = core::with(|r| {
                 let parent = r.nodes.get(&n.id)?.parent?;

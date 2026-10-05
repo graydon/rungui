@@ -368,10 +368,10 @@ fn menu_setup() -> (Window, PopupMenu, MenuItem, CheckMenuItem, MenuItem) {
     init();
     let win = Window::new("w");
     let pm = PopupMenu::new();
-    let cut = MenuItem::new(&pm, "Cut");
-    MenuSeparator::new(&pm);
-    let chk = CheckMenuItem::new(&pm, "Wrap");
-    let sub = Menu::new(&pm, "More");
+    let cut = MenuItem::new(pm, "Cut");
+    MenuSeparator::new(pm);
+    let chk = CheckMenuItem::new(pm, "Wrap");
+    let sub = Menu::new(pm, "More");
     let deep = MenuItem::new(sub, "Deep");
     (win, pm, cut, chk, deep)
 }
@@ -397,7 +397,7 @@ fn popup_menu_builds_natively_and_is_parentless() {
 fn right_click_runs_callback_then_popup_and_item_fires() {
     let (win, pm, cut, chk, _deep) = menu_setup();
     let lst = ListBox::new(win);
-    lst.set_context_menu(&pm);
+    lst.set_context_menu(pm);
     let order = Rc::new(RefCell::new(vec![]));
     let o = order.clone();
     lst.on_context_menu(move |x, y| {
@@ -429,7 +429,7 @@ fn right_click_runs_callback_then_popup_and_item_fires() {
 #[test]
 fn popup_item_click_and_disabled_item_and_dismiss() {
     let (win, pm, cut, _chk, deep) = menu_setup();
-    win.set_context_menu(&pm);
+    win.set_context_menu(pm);
     let clicks = Rc::new(Cell::new(0));
     let c = clicks.clone();
     cut.on_click(move || c.set(c.get() + 1));
@@ -459,20 +459,20 @@ fn context_menu_bubbles_to_ancestor_and_ignores_unwanted() {
     let lbl = Label::new(col, "x");
     mock::user_context_menu(lbl.id(), 5, 6);
     assert!(mock::popup_log().is_empty(), "nobody wants it");
-    win.set_context_menu(&pm);
+    win.set_context_menu(pm);
     mock::user_context_menu(lbl.id(), 5, 6);
     assert_eq!(mock::popup_log().len(), 1);
     assert_eq!(mock::last_popup().unwrap().at, Some((5, 6)));
     // the widget's own menu wins; clearing it falls back to the window's
     let other = PopupMenu::new();
-    lbl.set_context_menu(&other);
+    lbl.set_context_menu(other);
     mock::user_context_menu(lbl.id(), 1, 1);
     assert_eq!(mock::last_popup().unwrap().menu, other.id());
     lbl.clear_context_menu();
     mock::user_context_menu(lbl.id(), 1, 1);
     assert_eq!(mock::last_popup().unwrap().menu, pm.id());
     // disabled widgets do not show menus
-    lbl.set_context_menu(&other);
+    lbl.set_context_menu(other);
     lbl.set_enabled(false);
     let n = mock::popup_log().len();
     mock::user_context_menu(lbl.id(), 1, 1);
@@ -488,7 +488,7 @@ fn callback_only_context_menu_and_menu_attached_in_callback() {
     let g = got.clone();
     b.on_context_menu(move |x, y| {
         g.set((x, y));
-        b.set_context_menu(&pm);
+        b.set_context_menu(pm);
     });
     mock::user_context_menu(b.id(), 9, 8);
     assert_eq!(got.get(), (9, 8));
@@ -512,7 +512,7 @@ fn programmatic_show_at_and_stale_menus() {
     let b = Button::new(win, "b");
     PopupMenu::from_id(b.id()).show_at(win, 1, 1);
     let n = mock::popup_log().len();
-    win.set_context_menu(&pm);
+    win.set_context_menu(pm);
     pm.destroy();
     mock::user_context_menu(win.id(), 1, 1);
     pm.show_at(win, 1, 1);
