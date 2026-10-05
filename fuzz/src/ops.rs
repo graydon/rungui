@@ -869,6 +869,7 @@ impl Fuzz {
                 let c = CheckMenuItem::from_id(self.of(&[Tag::CheckMenuItem]));
                 c.set_checked(self.coin(2));
                 let _ = c.checked();
+                #[cfg(feature = "mock")]
                 let _ = Accel::parse(&self.string());
             }
             21 => {
