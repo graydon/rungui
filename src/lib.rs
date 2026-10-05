@@ -136,7 +136,8 @@ pub fn last_error() -> Option<Error> {
 pub const MAX_NESTING: usize = core::MAX_NESTING;
 
 /// Mirror horizontal layout (HBox order, Grid columns, VBox cross-axis alignment) for
-/// right-to-left locales. Process-wide; relayouts all windows. Default off.
+/// right-to-left locales. Applies to every window of the calling (UI) thread and relayouts them.
+/// Default off.
 pub fn set_rtl_layout(rtl: bool) {
     core::set_rtl(rtl)
 }
