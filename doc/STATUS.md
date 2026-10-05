@@ -96,7 +96,10 @@ R = run-tested, C = compiles and links only, T = type-checked only, N = not impl
 - **GNUstep (emulation):** ObjC exceptions raised during event dispatch by GNUstep's own assertions
   (negative view sizes) abort the process under `NSZombieEnabled`, because our hand-rolled event loop
   has no `NS_DURING`; timers pause while menus and dialogs run (GNUstep has no common-modes mode).
-- **GTK:** GTK 3's file chooser trips an internal assertion now and then under Xvfb without a WM
+- **GTK:** a `ComboBox` with thousands of entries is slow (GTK 3 builds a menu item per entry, quadratic:
+  5000 entries take about 4.5 s; a `ListBox`, now a headerless tree view, takes 30 ms for 10000), and
+  creating thousands of `GtkEntry` widgets is quadratic inside GTK (about 0.4 s per 500 entries once
+  4000 exist). `fuzz/src/bin/bench_native.rs` times these. GTK 3's file chooser trips an internal assertion now and then under Xvfb without a WM
   (excluded from the default fuzz run, `MODAL=files`), `GtkMenu` leaks a few KiB per
   create/destroy (also in plain C), and a popup menu holding a submenu can warn about negative sizes.
 - **Not verified here:** the Win32 backend could not be run on this aarch64 host (no wine); it

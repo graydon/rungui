@@ -99,7 +99,8 @@ item_methods!(ComboBox);
 item_methods!(ListBox);
 
 impl ComboBox {
-    /// A drop-down list; fill it with `set_items`.
+    /// A drop-down list; fill it with `set_items`. Keep the list short: GTK 3 builds a menu item
+    /// per entry, which takes seconds for thousands (a [`ListBox`] scales to hundreds of thousands).
     pub fn new(parent: impl Into<WidgetId>) -> ComboBox {
         make(ComboBox::from_id, Kind::ComboBox, parent, |_| {})
     }
