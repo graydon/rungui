@@ -87,7 +87,12 @@ fn build(only: &[String]) -> (Window, Option<PopupMenu>) {
         let tabs = Tabs::new(col);
         let page = tabs.add_page("one");
         Label::new(page, "in page");
-        tabs.add_page("two");
+        let two = tabs.add_page("two");
+        // removing every page and adding another used to leave GNUstep's NSTabView pointing at
+        // a freed view (run with NSZombieEnabled=YES to see it)
+        page.destroy();
+        two.destroy();
+        tabs.add_page("three");
     }
     let split = Splitter::new(col, Orientation::Horizontal);
     if on("table") {

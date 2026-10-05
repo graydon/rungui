@@ -282,6 +282,10 @@ struct State {
     drag: Option<(WidgetId, f64, i32)>,
     /// windows the app positioned explicitly: not centered on first show
     placed: HashSet<WidgetId>,
+    /// GNUstep: the content view of the last page removed from a tab view (key: the NSTabView).
+    /// GNUstep's NSTabView still points at it after the removal and messages it when the next page
+    /// is added, so it must outlive that (see `Kind::Page` in `create` and `destroy`).
+    stale_page_views: HashMap<usize, Id>,
     /// GNUstep only: windows made non-resizable by pinning their min and max size together
     /// (its `setStyleMask:` raises on a live window), and the minimum size each was given.
     fixed: HashSet<WidgetId>,
@@ -1532,6 +1536,8 @@ impl Backend for Cocoa {
         }) {
             vm!(t, "invalidate");
             autorelease(t);
+            #[cfg(rungui_gnustep)]
+            purge_invalid_timers();
         }
     }
 
@@ -1758,6 +1764,7 @@ impl Backend for Cocoa {
                     vm!(pview, "addTabViewItem:", Id: item);
                 }
                 release(item);
+                release_stale_page_view(pview);
                 e.obj = pv;
                 e.cont = pv;
                 e.aux = item;
@@ -1897,7 +1904,17 @@ impl Backend for Cocoa {
             Kind::Page => {
                 let tv = idm!(e.aux, "tabView");
                 if !tv.is_null() {
+                    // GNUstep keeps a dangling pointer to the view of the last page it loses
+                    #[cfg(rungui_gnustep)]
+                    idm!(e.obj, "retain");
                     vm!(tv, "removeTabViewItem:", Id: e.aux);
+                    #[cfg(rungui_gnustep)]
+                    if send!(isize, tv, "numberOfTabViewItems") == 0 {
+                        release_stale_page_view(tv);
+                        st(|s| s.stale_page_views.insert(tv as usize, e.obj));
+                    } else {
+                        release(e.obj);
+                    }
                 }
             }
             _ => {
@@ -1915,6 +1932,9 @@ impl Backend for Cocoa {
                             m.nodes.iter().for_each(|n| autorelease(n.obj));
                         }
                     }
+                }
+                if e.kind == Kind::Tabs {
+                    release_stale_page_view(e.obj);
                 }
                 autorelease(idm!(e.obj, "retain"));
                 vm!(e.obj, "removeFromSuperview");
@@ -2357,6 +2377,34 @@ impl Backend for Cocoa {
                 }
             }
         }
+    }
+}
+
+/// Release the page view `create` or `destroy` kept alive for tab view `tv` (GNUstep only).
+fn release_stale_page_view(tv: Id) {
+    if let Some(v) = st(|s| s.stale_page_views.remove(&(tv as usize))) {
+        release(v);
+    }
+}
+
+/// GNUstep drops an invalidated timer from a run-loop mode only when the loop next runs in that
+/// mode, and our event loop never runs in the tracking and modal modes the timers are also added
+/// to (so they fire during menus and dialogs): they would pile up. Asking each mode for its next
+/// limit date does the housekeeping. Done every few stops, not each one.
+#[cfg(rungui_gnustep)]
+fn purge_invalid_timers() {
+    thread_local! { static STOPS: Cell<u32> = const { Cell::new(0) }; }
+    const PURGE_EVERY: u32 = 32;
+    let n = STOPS.with(|c| {
+        c.set(c.get().wrapping_add(1));
+        c.get()
+    });
+    if n % PURGE_EVERY != 0 {
+        return;
+    }
+    let rl = idm!(cls("NSRunLoop"), "currentRunLoop");
+    for mode in ["NSEventTrackingRunLoopMode", "NSModalPanelRunLoopMode"] {
+        idm!(rl, "limitDateForMode:", Id: ns(mode));
     }
 }
 
