@@ -20,7 +20,7 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-3-dev xvfb xdotool imagemagick mingw-w64 \
+          sudo apt-get install -y libgtk-3-dev xvfb xdotool x11-utils imagemagick mingw-w64 \
             clang gobjc libgnustep-gui-dev libgnustep-base-dev gnustep-devel
       # Builds every host mode (GTK, mock, GNUstep emulation, mingw, apple type-check), clippy and
       # the Xvfb smoke scripts.
