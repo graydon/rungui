@@ -119,7 +119,8 @@ impl App {
     pub fn set_quit_on_last_close(v: bool) {
         core::set_quit_on_last_close(v)
     }
-    /// Apply pending layout/accessibility updates immediately (normally done when the loop is idle).
+    /// Apply pending updates immediately: layout, accessibility metadata and table/tree contents
+    /// (all normally sent to the toolkit when the loop is idle, so a thousand changes cost one).
     pub fn update() {
         core::drain_posted()
     }
