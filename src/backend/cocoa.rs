@@ -1922,7 +1922,11 @@ impl Backend for Cocoa {
                             vm!(o, "setDelegate:", Id: NIL);
                         }
                     }
-                    if matches!(e.kind, Kind::ListBox | Kind::Table | Kind::Tree) {
+                    // (GNUstep raises when a table without columns reloads: the data source
+                    // is a process-lifetime object that answers 0 rows for a dead id anyway)
+                    if matches!(e.kind, Kind::ListBox | Kind::Table | Kind::Tree)
+                        && send!(isize, e.aux, "numberOfColumns") > 0
+                    {
                         vm!(e.aux, "setDataSource:", Id: NIL);
                     }
                     if e.kind == Kind::Tree {
@@ -1999,19 +2003,21 @@ impl Backend for Cocoa {
                         vm!(e.obj, "selectTabViewItemAtIndex:", isize: *i as isize);
                     }
                 }
-                Kind::ListBox | Kind::Table => match sel {
-                    // GNUstep raises for a table without columns, and AppKit for a row its view
-                    // does not (yet) have; the core re-sends the selection with the columns
-                    Some(i)
-                        if send!(isize, e.aux, "numberOfColumns") > 0
-                            && (*i as isize) < send!(isize, e.aux, "numberOfRows") =>
-                    {
-                        let set = idm!(cls("NSIndexSet"), "indexSetWithIndex:", usize: *i);
-                        vm!(e.aux, "selectRowIndexes:byExtendingSelection:", Id: set, u8: 0);
-                        vm!(e.aux, "scrollRowToVisible:", isize: *i as isize);
+                Kind::ListBox | Kind::Table => {
+                    // GNUstep raises for any selection change on a table without columns, and
+                    // AppKit for a row its view does not (yet) have; the core re-sends the
+                    // selection together with the columns
+                    if send!(isize, e.aux, "numberOfColumns") > 0 {
+                        match sel {
+                            Some(i) if (*i as isize) < send!(isize, e.aux, "numberOfRows") => {
+                                let set = idm!(cls("NSIndexSet"), "indexSetWithIndex:", usize: *i);
+                                vm!(e.aux, "selectRowIndexes:byExtendingSelection:", Id: set, u8: 0);
+                                vm!(e.aux, "scrollRowToVisible:", isize: *i as isize);
+                            }
+                            _ => vm!(e.aux, "deselectAll:", Id: NIL),
+                        }
                     }
-                    _ => vm!(e.aux, "deselectAll:", Id: NIL),
-                },
+                }
                 _ => {}
             },
             Prop::Bounds(r) => set_bounds(&e, id, *r),
