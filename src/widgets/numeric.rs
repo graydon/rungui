@@ -3,24 +3,29 @@
 use super::*;
 
 fn set_value(id: WidgetId, v: f64) {
-    let mut vv = v;
+    // clamp first: the backend must never see NaN or a value outside the range
+    let Some(v) = core::read(id, |n| {
+        n.range().map(|r| {
+            if v.is_nan() {
+                r.range.0
+            } else {
+                v.clamp(r.range.0, r.range.1.max(r.range.0))
+            }
+        })
+    })
+    .flatten() else {
+        return;
+    };
     core::set(
         id,
         false,
         |n| {
             if let Some(r) = n.range_mut() {
-                vv = if v.is_nan() {
-                    r.range.0
-                } else {
-                    v.clamp(r.range.0, r.range.1.max(r.range.0))
-                };
-                r.value = vv;
+                r.value = v;
             }
         },
         Prop::Value(v),
     );
-    // re-push the clamped value (the closure ran before `Prop::Value(v)` was consumed)
-    core::set(id, false, |_| {}, Prop::Value(vv));
 }
 /// Normalise a (min, max, step) request: finite, `min <= max`, `step > 0` (NaN / infinities
 /// would make `f64::clamp` panic later).

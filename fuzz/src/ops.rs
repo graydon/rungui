@@ -106,6 +106,11 @@ pub struct Fuzz {
     /// Whether callbacks and batches may panic on purpose (must be false under libFuzzer, whose
     /// panic hook aborts even for panics the library contains).
     panics: bool,
+    /// Debugging aids from the environment: `RUNGUI_FUZZ_TRACE=1` logs every operation to stderr,
+    /// `RUNGUI_FUZZ_LIMIT=n` stops after `n` operations (bisect a failure by moving `n`).
+    trace: bool,
+    limit: u32,
+    executed: Cell<u32>,
     me: RefCell<Option<std::rc::Weak<Fuzz>>>,
 }
 
@@ -179,6 +184,12 @@ impl Fuzz {
             budget: Cell::new(0),
             mode,
             panics,
+            trace: std::env::var_os("RUNGUI_FUZZ_TRACE").is_some(),
+            limit: std::env::var("RUNGUI_FUZZ_LIMIT")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(u32::MAX),
+            executed: Cell::new(0),
             me: RefCell::new(None),
         });
         *fz.me.borrow_mut() = Some(Rc::downgrade(&fz));
@@ -356,7 +367,7 @@ impl Fuzz {
                 return false;
             }
         }
-        !self.inp.borrow().exhausted()
+        !self.inp.borrow().exhausted() && self.executed.get() < self.limit
     }
 
     /// Destroy everything and, on the mock backend, verify nothing leaked.
@@ -432,11 +443,15 @@ impl Fuzz {
 
     /// One random operation. False once the budget is spent.
     fn step(&self) -> bool {
-        if self.budget.get() == 0 {
+        if self.budget.get() == 0 || self.executed.get() >= self.limit {
             return false;
         }
         self.budget.set(self.budget.get() - 1);
         let op = self.u8() % 128;
+        self.executed.set(self.executed.get() + 1);
+        if self.trace {
+            eprintln!("op #{} code {op} (depth {})", self.executed.get(), self.depth.get());
+        }
         match op {
             0..=29 => self.create(op),
             30..=59 => self.common(op - 30),
@@ -761,7 +776,11 @@ impl Fuzz {
             19 => {
                 let id = self.of(&[Tag::Window]);
                 let w = Window::from_id(id);
-                match self.u8() % 12 {
+                let sub = self.u8() % 12;
+                if self.trace {
+                    eprintln!("  window {id:?} sub-op {sub}");
+                }
+                match sub {
                     0 => w.show(),
                     1 => w.hide(),
                     2 => w.set_size(self.int(), self.int()),

@@ -287,6 +287,8 @@ impl Prop<'_> {
             Prop::TreeRows(_) | Prop::TreeSelected(_) => kind == Tree,
             Prop::Orientation(_) => kind == Sash,
             Prop::Wrap(_) => kind == TextArea,
+            // a popup menu is only ever shown by `popup_menu`, never by being made visible
+            Prop::Visible(_) => kind != PopupMenu,
             _ => true,
         }
     }

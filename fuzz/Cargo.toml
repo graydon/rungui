@@ -35,3 +35,12 @@ bench = false
 
 # Not part of the main workspace: it needs nightly and libFuzzer.
 [workspace]
+
+# Replays a native-driver seed on the mock backend and dumps the widget tree.
+[[bin]]
+name = "replay_mock"
+path = "src/bin/replay_mock.rs"
+test = false
+doc = false
+bench = false
+required-features = ["mock"]

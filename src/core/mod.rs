@@ -32,6 +32,7 @@ use crate::types::*;
 use std::cell::RefCell;
 use std::collections::{BTreeSet, HashMap};
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::sync::atomic::{AtomicBool, Ordering};
 use timers::TimerEntry;
 
 thread_local! {
@@ -144,8 +145,22 @@ pub(crate) fn with<R>(f: impl FnOnce(&mut Registry) -> R) -> Option<R> {
     .flatten()
 }
 
+/// A wake-up the backend has been asked for but the loop has not yet answered. Every mutation
+/// calls `wake`; without this a burst of N mutations would queue N native wake-ups (idle sources,
+/// posted messages, dispatch blocks), and Win32 silently drops posts once its queue is full.
+static WAKE_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// Ask the backend to run [`drain_posted`] on the UI thread soon. Callable from any thread.
 fn wake() {
-    B::wake();
+    if !WAKE_PENDING.swap(true, Ordering::AcqRel) {
+        B::wake();
+    }
+}
+
+/// The loop is about to drain: later wake-ups must reach the backend again. Called before the post
+/// queue is read, so a closure posted after the read still gets its own wake-up.
+fn wake_answered() {
+    WAKE_PENDING.store(false, Ordering::Release);
 }
 
 pub fn set_error(e: Error) {

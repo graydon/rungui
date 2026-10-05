@@ -387,6 +387,15 @@ impl Node {
             _ => None,
         }
     }
+    /// How many things `selection` can point at: items, tabs or rows.
+    pub fn selectable_len(&self) -> usize {
+        match &self.data {
+            NodeData::List(l) => l.items.len(),
+            NodeData::Tabs(_) => self.children.len(),
+            NodeData::Table(t) => t.rows.len(),
+            _ => 0,
+        }
+    }
     pub fn selection_mut(&mut self) -> Option<&mut Option<usize>> {
         match &mut self.data {
             NodeData::List(l) => Some(&mut l.selected),

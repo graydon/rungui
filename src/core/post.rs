@@ -1,6 +1,6 @@
 //! Cross-thread post queue and the idle flush (layout + accessibility).
 
-use super::{REG, flush_models, guarded, wake, with};
+use super::{REG, flush_models, guarded, wake, wake_answered, with};
 use crate::backend::{Backend, Native as B};
 use crate::layout;
 use crate::types::WidgetId;
@@ -49,6 +49,7 @@ pub fn post_to(target: std::thread::ThreadId, f: impl FnOnce() + Send + 'static)
 /// Backend entry point: called on the main thread after `Backend::wake`. Runs queued closures
 /// (a snapshot, so closures that post again run on the next wake) and then flushes layout/a11y.
 pub fn drain_posted() {
+    wake_answered();
     let me = std::thread::current().id();
     let batch = QUEUES
         .lock()

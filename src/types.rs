@@ -239,8 +239,9 @@ impl Column {
             sortable: false,
         }
     }
+    /// Initial width in logical pixels, clamped to `1..=32767`.
     pub fn width(mut self, w: i32) -> Self {
-        self.width = w.max(1);
+        self.width = w.clamp(1, MAX_PX);
         self
     }
     pub fn align(mut self, a: ColumnAlign) -> Self {

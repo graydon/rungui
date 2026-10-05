@@ -91,9 +91,8 @@ pub fn event(id: WidgetId, ev: Event) {
                     }
                 }
                 Event::Selected(s) => {
-                    if n.table()
-                        .is_some_and(|t| s.is_some_and(|i| i >= t.rows.len()))
-                    {
+                    // a stale or buggy backend index must not become state
+                    if s.is_some_and(|i| i >= n.selectable_len()) {
                         return None;
                     }
                     if let Some(sel) = n.selection_mut() {

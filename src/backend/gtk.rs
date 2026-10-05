@@ -257,15 +257,25 @@ unsafe fn tree_node(model: P, it: &mut TreeIter) -> u64 {
     unsafe { gtk_tree_model_get(model, it, 1 as c_int, &mut n as *mut u64, -1 as c_int) };
     n
 }
+/// The first (for a flat table: the only) index of a tree path, if it has one.
+unsafe fn first_index(path: P) -> Option<usize> {
+    unsafe {
+        let indices = gtk_tree_path_get_indices(path);
+        if indices.is_null() || gtk_tree_path_get_depth(path) < 1 {
+            return None;
+        }
+        usize::try_from(*indices).ok()
+    }
+}
 unsafe fn path_index(model: P, it: &mut TreeIter) -> Option<usize> {
     unsafe {
         let path = gtk_tree_model_get_path(model, it);
         if path.is_null() {
             return None;
         }
-        let i = *gtk_tree_path_get_indices(path);
+        let i = first_index(path);
         gtk_tree_path_free(path);
-        (i >= 0).then_some(i as usize)
+        i
     }
 }
 unsafe extern "C" fn h_tv_activated(tv: P, path: P, _col: P, d: P) {
@@ -282,9 +292,8 @@ unsafe extern "C" fn h_tv_activated(tv: P, path: P, _col: P, d: P) {
                 }
             }
         } else {
-            let i = *gtk_tree_path_get_indices(path);
-            if i >= 0 {
-                emit(id, Event::Activated(i as usize));
+            if let Some(i) = first_index(path) {
+                emit(id, Event::Activated(i));
             }
         }
     }
@@ -376,7 +385,10 @@ unsafe extern "C" fn h_sash_motion(_w: P, ev: *const EventMotion, d: P) -> c_int
         return 0;
     }
     let root = if w.sash_v { ev.y_root } else { ev.x_root };
-    emit(id, Event::SashDragged(pos0 + (root - start).round() as i32));
+    emit(
+        id,
+        Event::SashDragged(pos0.saturating_add((root - start).round() as i32)),
+    );
     1
 }
 unsafe extern "C" fn h_sash_release(_w: P, ev: *const EventButton, d: P) -> c_int {
@@ -675,6 +687,12 @@ fn digits_for(step: f64) -> c_uint {
     d
 }
 
+/// Response codes of the buttons of a message box (any distinct, non-GTK-reserved values).
+const RESP_OK: c_int = 1;
+const RESP_CANCEL: c_int = 2;
+const RESP_YES: c_int = 3;
+const RESP_NO: c_int = 4;
+
 /// Natural-size floors for widgets whose GTK natural size is too small to use.
 const MIN_TEXT_AREA: Size = Size::new(240, 100);
 const MIN_LIST_BOX: Size = Size::new(160, 100);
@@ -846,7 +864,6 @@ impl Backend for Gtk {
         if !ok {
             return Err(Error::InvalidHandle);
         }
-        
         guarded(|| unsafe { create_inner(id, kind, parent, pw, win) })
     }
 
@@ -858,10 +875,12 @@ impl Backend for Gtk {
             }
             // forget the id first so late signals/idles find nothing
             WIDGETS.with(|m| m.borrow_mut().remove(&id));
-            if let Some(p) = w.parent.and_then(get) {
-                if w.kind == Kind::MenuBar && p.menubar == w.w {
-                    upd(w.parent.unwrap(), |p| p.menubar = NULL);
-                }
+            if let (Some(pid), Kind::MenuBar) = (w.parent, w.kind) {
+                upd(pid, |p| {
+                    if p.menubar == w.w {
+                        p.menubar = NULL
+                    }
+                });
             }
             gtk_widget_destroy(w.w);
             if !w.extra.is_null() {
@@ -924,51 +943,30 @@ impl Backend for Gtk {
                 return Answer::Cancel;
             }
             gtk_window_set_title(d, cs(&spec.title).as_ptr());
-            let add = |t: &CStr, r: c_int| {
-                gtk_dialog_add_button(d, t.as_ptr(), r);
+            // (label, response) in button order, and the answer a closed dialog counts as
+            let (buttons, closed_as): (&[(&CStr, c_int)], Answer) = match spec.buttons {
+                Buttons::Ok => (&[(c"OK", RESP_OK)], Answer::Ok),
+                Buttons::OkCancel => (&[(c"Cancel", RESP_CANCEL), (c"OK", RESP_OK)], Answer::Cancel),
+                Buttons::YesNo => (&[(c"No", RESP_NO), (c"Yes", RESP_YES)], Answer::No),
+                Buttons::YesNoCancel => (
+                    &[(c"Cancel", RESP_CANCEL), (c"No", RESP_NO), (c"Yes", RESP_YES)],
+                    Answer::Cancel,
+                ),
             };
-            let (default_ans, _) = match spec.buttons {
-                Buttons::Ok => {
-                    add(c"OK", 1);
-                    (Answer::Ok, ())
-                }
-                Buttons::OkCancel => {
-                    add(c"Cancel", 2);
-                    add(c"OK", 1);
-                    (Answer::Cancel, ())
-                }
-                Buttons::YesNo => {
-                    add(c"No", 4);
-                    add(c"Yes", 3);
-                    (Answer::No, ())
-                }
-                Buttons::YesNoCancel => {
-                    add(c"Cancel", 2);
-                    add(c"No", 4);
-                    add(c"Yes", 3);
-                    (Answer::Cancel, ())
-                }
-            };
-            gtk_dialog_set_default_response(
-                d,
-                if default_ans == Answer::Ok {
-                    1
-                } else {
-                    3.min(if spec.buttons == Buttons::OkCancel {
-                        1
-                    } else {
-                        3
-                    })
-                },
-            );
+            for (label, response) in buttons {
+                gtk_dialog_add_button(d, label.as_ptr(), *response);
+            }
+            // Enter picks the affirmative button
+            let default_response = buttons.last().map_or(RESP_OK, |b| b.1);
+            gtk_dialog_set_default_response(d, default_response);
             let r = gtk_dialog_run(d);
             gtk_widget_destroy(d);
             match r {
-                1 => Answer::Ok,
-                3 => Answer::Yes,
-                4 => Answer::No,
-                2 => Answer::Cancel,
-                _ => default_ans,
+                RESP_OK => Answer::Ok,
+                RESP_YES => Answer::Yes,
+                RESP_NO => Answer::No,
+                RESP_CANCEL => Answer::Cancel,
+                _ => closed_as,
             }
         }
     }
@@ -1331,17 +1329,18 @@ unsafe fn create_inner(
             }
             Kind::MenuBar => {
                 let bar = gtk_menu_bar_new();
-                let p = pw
-                    .filter(|p| p.kind == Kind::Window)
-                    .ok_or(Error::InvalidHandle)?;
+                let (Some(pid), Some(p)) = (parent, pw.filter(|p| p.kind == Kind::Window)) else {
+                    gtk_widget_destroy(bar); // never added to anything: release the floating ref
+                    return Err(Error::InvalidHandle);
+                };
                 gtk_box_pack_start(p.outer, bar, 0, 0, 0);
                 gtk_box_reorder_child(p.outer, bar, 0);
                 gtk_widget_show(bar);
                 w.w = bar;
                 w.inner = bar;
-                upd(parent.unwrap(), |p| p.menubar = bar);
+                upd(pid, |p| p.menubar = bar);
                 WIDGETS.with(|m| m.borrow_mut().insert(id, w));
-                if let Some(p) = get(parent.unwrap()) {
+                if let Some(p) = get(pid) {
                     apply_window_size(&p);
                 }
                 return Ok(());
@@ -1381,7 +1380,11 @@ unsafe fn create_inner(
             _ => return Err(Error::Unsupported),
         }
         if kind != Kind::Window {
-            put(&pw.ok_or(Error::InvalidHandle)?, w.w);
+            let Some(p) = pw else {
+                gtk_widget_destroy(w.w); // never added to anything: release the floating ref
+                return Err(Error::InvalidHandle);
+            };
+            put(&p, w.w);
         }
         WIDGETS.with(|m| m.borrow_mut().insert(id, w));
         Ok(())
@@ -1433,14 +1436,9 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
                 }
             }
             Prop::Tooltip(t) => {
-                gtk_widget_set_tooltip_text(
-                    w.w,
-                    if t.is_empty() {
-                        std::ptr::null()
-                    } else {
-                        cs(t).as_ptr()
-                    },
-                );
+                // the CString must outlive the call: a temporary in an `else` block tail would not
+                let c = cs(t);
+                gtk_widget_set_tooltip_text(w.w, if t.is_empty() { std::ptr::null() } else { c.as_ptr() });
             }
             Prop::Placeholder(t) => {
                 if matches!(w.kind, Kind::TextInput | Kind::PasswordInput) {
