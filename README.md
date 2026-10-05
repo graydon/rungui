@@ -6,48 +6,17 @@ This repository is written by an LLM.
 
 If LLM code is a no-go for you, close the tab and move on.
 
-If there are bugs I'll fix them, but it's a small codebase bridging to stable
-APIs and was synthesized in 3 hours with a cheap model; it really shouldn't
-require much maintenance. It's just fussy code no human bothered to write.
+I believe it's basically okay and have lightly reviewed, tested and fuzzed it a
+fair bit. But, you know, LLM code. Caveat emptor.
 
 ## Overview
 
-Rungui is a portable wrapper over 3 desktop GUI toolkits: Linux/GTK, macOS/AppKit
-and Win32. It is intended as a simple 80/20 option in the sprawling landscape of
-"GUIs for Rust".
-
-Benefits:
-
-  1. It's lightweight: 14kloc and no external dependencies, compiles in ~3
-     seconds to a few hundred KiB of object code. All FFIs are locally declared.
-
-  2. It gets a fair amount of the tricky stuff in GUIs -- eg. accessibility and
-     text-rendering, tables and trees -- by delegating to the platform libraries.
-
-  3. It doesn't have any complex traits or macros or preprocessors or anything.
-     You just build a tree of nested objects and attach callbacks.
-
-  4. It doesn't hide the platform libraries, you can call `native_handle()` to
-     get a `GtkWidget*` / `HWND` / `NSView*` if you want to go further.
-
-Drawbacks:
-
-  1. You have to write your applications "the old fashioned way" with stateful
-     UI object handles and callbacks, not "the new way" with FRP-style
-     reactive/declarative UI or immediate mode or anything.
-
-  2. There's some runtime overhead mapping the memory-safe `Copy` integer IDs
-     used as object handles to native abstractions, and there's some imprecision
-     about lifetimes and validity contexts (eg. if you use such a handle on the
-     wrong thread or after the object dies it just goes inert and does nothing).
-
-  3. It doesn't do cutting-edge GPU rendering or cool visual effects or run on
-     webassembly or anything flashy. Just a bunch of old standard widgets.
-
-  4. While it is 100% Rust and the interface ought to be safe, of course the
-     platform libraries are typically decades-old C code and so there are lots
-     of `unsafe` blocks inside the implementation.
-
+Rungui is a small (15kloc) portable desktop GUI library built as a wrapper over
+GTK3 (Linux), Win32 (Windows) and AppKit (macOS). It has no dependencies and
+builds in seconds. The style is old-fashioned stateful objects with callbacks.
+There are no advanced Rust features used, just `Copy` integer IDs for object
+handles that go inert when the underlying native object is destroyed or used out
+of valid context.
 
 ## Quickstart
 
@@ -82,10 +51,7 @@ Widgets: `Label`, `Button`, `CheckBox`, `RadioButton`, `TextInput`, `TextArea`, 
 
 ## Example screenshots
 
-`examples/file_manager` is a dual-pane file manager (folder tree, two sortable file tables,
-text / hex / image preview, menus with accelerators, context menu, status bar, copy / move /
-rename / delete). It is about 2k lines of ordinary Rust against rungui's public API, with no
-backend-specific code.
+`examples/file_manager` is a dual-pane file manager, about 2kloc, nothing platform specific.
 
 **GTK3 (Linux)**
 
@@ -157,4 +123,7 @@ ASL2/MIT at your option
 
 I want to keep this thing very small and simple. Bug reports or fixes welcome. I
 intend to shake bugs out of it until it feels stable and then call it 1.0 and
-mostly leave it be. Beyond that, if you have big ambitions probably best to fork.
+mostly leave it be. Beyond that, if you have big ambitions probably best to
+fork. It is a small codebase bridging to stable native APIs that never change.
+It was synthesized in 3 hours on a cheap model. It shouldn't really require much
+extension or maintenance.
