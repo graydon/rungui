@@ -42,7 +42,7 @@ out="$(mktemp)"
 # over them now and then (assertions inside its file chooser, submenu arrows drawn with negative
 # sizes in popup menus).
 modal="${MODAL:-messages}"
-[ "$bin" = native ] || modal=0
+[ "$bin" = native ] && [ "$BACKEND" = gtk ] || modal=0   # the dismissing loop below knows GTK dialogs only
 [ "$modal" != 0 ] && env_extra+=(RUNGUI_FUZZ_MODAL="$modal")
 export MODAL_PUMP=0
 [ "$modal" != 0 ] && MODAL_PUMP=1
