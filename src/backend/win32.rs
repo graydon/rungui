@@ -1796,373 +1796,63 @@ fn set_pages_visible(tabs: WidgetId) {
     position_pages(tabs);
 }
 
+/// The widget a property is being set on, with what `set_impl` looks up once for every property.
+#[derive(Copy, Clone)]
+struct Target {
+    id: WidgetId,
+    kind: Kind,
+    h: HWND,
+    /// SpinBox: the up-down control. GroupBox: the frame control.
+    aux: HWND,
+    /// The widget's window.
+    win: WidgetId,
+    dpi: u32,
+}
+
 fn set_impl(id: WidgetId, prop: &Prop) {
     let Some((kind, h, aux, win)) = get(id, |w| (w.kind, w.hwnd, w.w_aux(), w.win)) else {
         return;
     };
     let dpi = dpi_of(id);
+    let tg = Target {
+        id,
+        kind,
+        h,
+        aux,
+        win,
+        dpi,
+    };
     match prop {
-        Prop::Text(t) => {
-            with_w(id, |w| w.text = t.to_string());
-            match kind {
-                Kind::Window => set_text(h, t),
-                Kind::Label => {
-                    set_text(h, t);
-                    unsafe {
-                        InvalidateRect(h, null(), 1);
-                    }
-                }
-                Kind::Button | Kind::CheckBox | Kind::RadioButton => set_text(h, &esc_amp(t)),
-                Kind::GroupBox => set_text(aux, &esc_amp(t)),
-                Kind::TextInput | Kind::PasswordInput | Kind::TextArea => {
-                    let multi = kind == Kind::TextArea;
-                    if get_text(h, multi) != *t {
-                        set_text(h, &if multi { nl_in(t) } else { t.to_string() });
-                    }
-                }
-                Kind::Page => {
-                    if let Some(th) = get(id, |w| w.parent)
-                        .flatten()
-                        .and_then(|p| get(p, |x| x.hwnd))
-                    {
-                        let idx = page_index(id);
-                        let mut buf = wide(t);
-                        let item = TCITEMW {
-                            mask: TCIF_TEXT,
-                            dwState: 0,
-                            dwStateMask: 0,
-                            pszText: buf.as_mut_ptr(),
-                            cchTextMax: 0,
-                            iImage: -1,
-                            lParam: 0,
-                        };
-                        send(th, TCM_SETITEMW, idx, &item as *const _ as isize);
-                        position_pages(get(id, |w| w.parent).flatten().unwrap_or(WidgetId::DEAD));
-                    }
-                }
-                Kind::Menu | Kind::MenuItem | Kind::CheckMenuItem => menu_update_text(id),
-                _ => {}
-            }
-        }
-        Prop::Tooltip(t) => {
-            if matches!(
-                kind,
-                Kind::MenuItem
-                    | Kind::CheckMenuItem
-                    | Kind::Menu
-                    | Kind::MenuBar
-                    | Kind::MenuSeparator
-                    | Kind::Page
-            ) {
-                return;
-            }
-            update_tooltip(id, t);
-        }
-        Prop::Placeholder(t) => {
-            with_w(id, |w| w.placeholder = t.to_string());
-            if matches!(kind, Kind::TextInput | Kind::PasswordInput) {
-                let w = wide(t);
-                send(h, EM_SETCUEBANNER, 1, w.as_ptr() as isize);
-            }
-        }
-        Prop::Enabled(e) => {
-            with_w(id, |w| w.enabled = *e);
-            match kind {
-                Kind::MenuItem | Kind::CheckMenuItem | Kind::Menu => {
-                    let Some((pm, cmd, pos)) = st(|s| {
-                        let w = s.widgets.get(&id)?;
-                        let p = s.widgets.get(&w.parent?)?;
-                        Some((p.hmenu, w.cmd, p.children.iter().position(|c| *c == id)?))
-                    })
-                    .flatten() else {
-                        return;
-                    };
-                    let (item, by) = if kind == Kind::Menu {
-                        (pos as u32, MF_BYPOSITION)
-                    } else {
-                        (cmd as u32, MF_BYCOMMAND)
-                    };
-                    unsafe {
-                        EnableMenuItem(pm, item, by | if *e { 0 } else { MF_GRAYED });
-                    }
-                    menu_changed(win);
-                }
-                Kind::MenuBar | Kind::MenuSeparator => {}
-                _ => unsafe {
-                    EnableWindow(h, *e as BOOL);
-                    if aux != 0 {
-                        EnableWindow(aux, *e as BOOL);
-                    }
-                },
-            }
-        }
-        Prop::Visible(v) => {
-            with_w(id, |w| w.vis = *v);
-            match kind {
-                Kind::Window => unsafe {
-                    if *v {
-                        let first =
-                            with_w(id, |w| !std::mem::replace(&mut w.shown, true)).unwrap_or(false);
-                        ShowWindow(h, SW_SHOW);
-                        UpdateWindow(h);
-                        if first {
-                            let mut rc = RECT::default();
-                            GetWindowRect(h, &mut rc);
-                            with_w(id, |w| {
-                                w.last_pos = Some((lp(rc.left, w.dpi), lp(rc.top, w.dpi)))
-                            });
-                        }
-                        if first {
-                            // DefWindowProc ignores WM_NEXTDLGCTL: pick the first tab stop ourselves
-                            let f = GetNextDlgTabItem(h, 0, 0);
-                            if f != 0 {
-                                SetFocus(f);
-                            }
-                        }
-                    } else {
-                        ShowWindow(h, SW_HIDE);
-                    }
-                },
-                Kind::Page => {
-                    if let Some(t) = get(id, |w| w.parent).flatten() {
-                        set_pages_visible(t);
-                    }
-                }
-                Kind::Menu
-                | Kind::MenuBar
-                | Kind::MenuItem
-                | Kind::CheckMenuItem
-                | Kind::MenuSeparator => {}
-                _ => unsafe {
-                    let c = if *v { SW_SHOWNOACTIVATE } else { SW_HIDE };
-                    ShowWindow(h, c);
-                    if aux != 0 && kind != Kind::GroupBox {
-                        ShowWindow(aux, c);
-                    }
-                },
-            }
-        }
-        Prop::Checked(c) => {
-            with_w(id, |w| w.checked = *c);
-            match kind {
-                Kind::CheckBox | Kind::RadioButton => {
-                    send(h, BM_SETCHECK, *c as usize, 0);
-                }
-                Kind::CheckMenuItem => {
-                    if let Some((pm, cmd)) = st(|s| {
-                        let w = s.widgets.get(&id)?;
-                        Some((s.widgets.get(&w.parent?)?.hmenu, w.cmd))
-                    })
-                    .flatten()
-                    {
-                        unsafe {
-                            CheckMenuItem(
-                                pm,
-                                cmd as u32,
-                                MF_BYCOMMAND | if *c { MF_CHECKED } else { 0 },
-                            );
-                        }
-                    }
-                }
-                _ => {}
-            }
-        }
-        Prop::Range { min, max, step } => {
-            with_w(id, |w| w.range = (*min, *max, *step));
-            if kind == Kind::Slider {
-                send(
-                    h,
-                    TBM_SETRANGE,
-                    1,
-                    (slider_steps((*min, *max, *step)) as isize) << 16,
-                );
-                let v = get(id, |w| w.value).unwrap_or(*min);
-                apply_value(id, v);
-            }
-        }
+        Prop::Text(t) => set_text_prop(&tg, t),
+        Prop::Tooltip(t) => set_tooltip_prop(&tg, t),
+        Prop::Placeholder(t) => set_placeholder(&tg, t),
+        Prop::Enabled(e) => set_enabled(&tg, e),
+        Prop::Visible(v) => set_visible(&tg, v),
+        Prop::Checked(c) => set_checked(&tg, c),
+        Prop::Range { min, max, step } => set_range(&tg, min, max, step),
         Prop::Value(v) => apply_value(id, *v),
-        Prop::Items(items) => {
-            with_w(id, |w| w.items = items.to_vec());
-            let (reset, add) = match kind {
-                Kind::ComboBox => (CB_RESETCONTENT, CB_ADDSTRING),
-                Kind::ListBox => (LB_RESETCONTENT, LB_ADDSTRING),
-                _ => return,
-            };
-            send(h, reset, 0, 0);
-            for it in items.iter() {
-                let w = wide(it);
-                send(h, add, 0, w.as_ptr() as isize);
-            }
-            let sel = get(id, |w| w.selected)
-                .flatten()
-                .filter(|i| *i < items.len());
-            set_selection(id, sel);
-        }
-        Prop::Selected(s) => {
-            with_w(id, |w| w.selected = *s);
-            set_selection(id, *s);
-            if kind == Kind::Tabs {
-                position_pages(id);
-            }
-        }
-        Prop::Bounds(r) => {
-            with_w(id, |w| w.bounds = *r);
-            apply_bounds(id);
-        }
-        Prop::Image(img) => {
-            if kind != Kind::Image {
-                return;
-            }
-            let bmp = img.map_or(0, build_bitmap);
-            let old = with_w(id, |w| {
-                w.image = img.cloned();
-                std::mem::replace(&mut w.hbmp, bmp)
-            })
-            .unwrap_or(0);
-            if old != 0 {
-                unsafe {
-                    DeleteObject(old);
-                }
-            }
-            unsafe {
-                InvalidateRect(h, null(), 1);
-            }
-        }
-        Prop::Accel(a) => {
-            with_w(id, |w| {
-                w.accel = if a.is_empty() {
-                    None
-                } else {
-                    Some(a.to_string())
-                }
-            });
-            if matches!(kind, Kind::MenuItem | Kind::CheckMenuItem) {
-                menu_update_text(id);
-                rebuild_accel(win);
-            }
-        }
-        Prop::ReadOnly(b) => {
-            with_w(id, |w| w.readonly = *b);
-            if matches!(
-                kind,
-                Kind::TextInput | Kind::PasswordInput | Kind::TextArea | Kind::SpinBox
-            ) {
-                send(h, EM_SETREADONLY, *b as usize, 0);
-            }
-        }
-        Prop::Indeterminate(b) => {
-            if kind == Kind::ProgressBar {
-                unsafe {
-                    let st_ = GetWindowLongPtrW(h, GWL_STYLE);
-                    let n = if *b {
-                        st_ | PBS_MARQUEE as isize
-                    } else {
-                        st_ & !(PBS_MARQUEE as isize)
-                    };
-                    SetWindowLongPtrW(h, GWL_STYLE, n);
-                }
-                send(h, PBM_SETMARQUEE, *b as usize, 30);
-            }
-        }
-        Prop::Resizable(b) => {
-            if kind == Kind::Window {
-                unsafe {
-                    let s0 = GetWindowLongPtrW(h, GWL_STYLE);
-                    let bits = (WS_THICKFRAME | WS_MAXIMIZEBOX) as isize;
-                    SetWindowLongPtrW(h, GWL_STYLE, if *b { s0 | bits } else { s0 & !bits });
-                    SetWindowPos(
-                        h,
-                        0,
-                        0,
-                        0,
-                        0,
-                        0,
-                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-                    );
-                }
-                if let Some(sz) = get(id, |w| w.client_req).flatten() {
-                    set_client_size(id, sz);
-                }
-            }
-        }
-        Prop::Columns(cols) => {
-            if kind == Kind::Table {
-                table_set_columns(id, cols);
-            }
-        }
-        Prop::Rows(rows) => {
-            if kind == Kind::Table {
-                table_set_rows(id, rows);
-            }
-        }
-        Prop::SortIndicator(s) => {
-            if kind == Kind::Table {
-                table_set_sort(id, *s);
-            }
-        }
-        Prop::TreeRows(rows) => {
-            if kind == Kind::Tree {
-                tree_set_rows(id, rows);
-            }
-        }
-        Prop::TreeSelected(n) => {
-            if kind == Kind::Tree {
-                tree_select(id, *n);
-            }
-        }
-        Prop::Orientation(o) => {
-            if kind == Kind::Sash {
-                with_w(id, |w| w.vertical = *o == Orientation::Vertical);
-            }
-        }
-        Prop::Monospace(on) => {
-            if matches!(kind, Kind::TextInput | Kind::PasswordInput | Kind::TextArea) {
-                with_w(id, |w| w.mono = *on);
-                send(h, WM_SETFONT, font_of(id, dpi) as usize, 1);
-            }
-        }
-        Prop::Wrap(on) => {
-            if kind == Kind::TextArea && get(id, |w| w.wrap) != Some(*on) {
-                with_w(id, |w| w.wrap = *on);
-                recreate_edit(id);
-            }
-        }
-        Prop::Position { x, y } => {
-            if kind == Kind::Window {
-                unsafe {
-                    SetWindowPos(
-                        h,
-                        0,
-                        px(*x, dpi),
-                        px(*y, dpi),
-                        0,
-                        0,
-                        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-                    );
-                }
-                with_w(id, |w| w.last_pos = Some((*x, *y)));
-            }
-        }
-        Prop::MinSize(sz) => {
-            if kind == Kind::Window {
-                with_w(id, |w| w.min_size = *sz);
-                if let Some(c) = get(id, |w| w.client_req).flatten() {
-                    // grow the window if it is already smaller than the new minimum
-                    set_client_size(id, Size::new(c.w.max(sz.w), c.h.max(sz.h)));
-                }
-            }
-        }
-        Prop::Focus => {
-            if h != 0 {
-                unsafe {
-                    SetFocus(h);
-                }
-            }
-        }
+        Prop::Items(items) => set_items(&tg, items),
+        Prop::Selected(s) => set_selected_prop(&tg, s),
+        Prop::Bounds(r) => set_bounds(&tg, r),
+        Prop::Image(img) => set_image(&tg, img),
+        Prop::Accel(a) => set_accel(&tg, a),
+        Prop::ReadOnly(b) => set_read_only(&tg, b),
+        Prop::Indeterminate(b) => set_indeterminate(&tg, b),
+        Prop::Resizable(b) => set_resizable(&tg, b),
+        Prop::Columns(cols) => set_columns(&tg, cols),
+        Prop::Rows(rows) => set_rows(&tg, rows),
+        Prop::SortIndicator(s) => set_sort_indicator(&tg, s),
+        Prop::TreeRows(rows) => set_tree_rows(&tg, rows),
+        Prop::TreeSelected(n) => set_tree_selected(&tg, n),
+        Prop::Orientation(o) => set_orientation(&tg, o),
+        Prop::Monospace(on) => set_monospace(&tg, on),
+        Prop::Wrap(on) => set_wrap(&tg, on),
+        Prop::Position { x, y } => set_position(&tg, x, y),
+        Prop::MinSize(sz) => set_min_size(&tg, sz),
+        Prop::Focus => set_focus(&tg),
         #[allow(unreachable_patterns)] // new Props are ignored until a backend handles them
         _ => {}
     }
-    let _ = dpi;
 }
 
 impl W {
@@ -3714,4 +3404,449 @@ fn file_dialog_impl(owner: HWND, spec: &FileSpec) -> Vec<String> {
         release(dlg);
     }
     out
+}
+
+/// `Prop::Text`.
+fn set_text_prop(tg: &Target, t: &str) {
+    let Target {
+        id, kind, h, aux, ..
+    } = *tg;
+    with_w(id, |w| w.text = t.to_string());
+    match kind {
+        Kind::Window => set_text(h, t),
+        Kind::Label => {
+            set_text(h, t);
+            unsafe {
+                InvalidateRect(h, null(), 1);
+            }
+        }
+        Kind::Button | Kind::CheckBox | Kind::RadioButton => set_text(h, &esc_amp(t)),
+        Kind::GroupBox => set_text(aux, &esc_amp(t)),
+        Kind::TextInput | Kind::PasswordInput | Kind::TextArea => {
+            let multi = kind == Kind::TextArea;
+            if get_text(h, multi) != *t {
+                set_text(h, &if multi { nl_in(t) } else { t.to_string() });
+            }
+        }
+        Kind::Page => {
+            if let Some(th) = get(id, |w| w.parent)
+                .flatten()
+                .and_then(|p| get(p, |x| x.hwnd))
+            {
+                let idx = page_index(id);
+                let mut buf = wide(t);
+                let item = TCITEMW {
+                    mask: TCIF_TEXT,
+                    dwState: 0,
+                    dwStateMask: 0,
+                    pszText: buf.as_mut_ptr(),
+                    cchTextMax: 0,
+                    iImage: -1,
+                    lParam: 0,
+                };
+                send(th, TCM_SETITEMW, idx, &item as *const _ as isize);
+                position_pages(get(id, |w| w.parent).flatten().unwrap_or(WidgetId::DEAD));
+            }
+        }
+        Kind::Menu | Kind::MenuItem | Kind::CheckMenuItem => menu_update_text(id),
+        _ => {}
+    }
+}
+
+/// `Prop::Tooltip`.
+fn set_tooltip_prop(tg: &Target, t: &str) {
+    let Target { id, kind, .. } = *tg;
+    if matches!(
+        kind,
+        Kind::MenuItem
+            | Kind::CheckMenuItem
+            | Kind::Menu
+            | Kind::MenuBar
+            | Kind::MenuSeparator
+            | Kind::Page
+    ) {
+        return;
+    }
+    update_tooltip(id, t);
+}
+
+/// `Prop::Placeholder`.
+fn set_placeholder(tg: &Target, t: &str) {
+    let Target { id, kind, h, .. } = *tg;
+    with_w(id, |w| w.placeholder = t.to_string());
+    if matches!(kind, Kind::TextInput | Kind::PasswordInput) {
+        let w = wide(t);
+        send(h, EM_SETCUEBANNER, 1, w.as_ptr() as isize);
+    }
+}
+
+/// `Prop::Enabled`.
+fn set_enabled(tg: &Target, e: &bool) {
+    let Target {
+        id,
+        kind,
+        h,
+        aux,
+        win,
+        ..
+    } = *tg;
+    with_w(id, |w| w.enabled = *e);
+    match kind {
+        Kind::MenuItem | Kind::CheckMenuItem | Kind::Menu => {
+            let Some((pm, cmd, pos)) = st(|s| {
+                let w = s.widgets.get(&id)?;
+                let p = s.widgets.get(&w.parent?)?;
+                Some((p.hmenu, w.cmd, p.children.iter().position(|c| *c == id)?))
+            })
+            .flatten() else {
+                return;
+            };
+            let (item, by) = if kind == Kind::Menu {
+                (pos as u32, MF_BYPOSITION)
+            } else {
+                (cmd as u32, MF_BYCOMMAND)
+            };
+            unsafe {
+                EnableMenuItem(pm, item, by | if *e { 0 } else { MF_GRAYED });
+            }
+            menu_changed(win);
+        }
+        Kind::MenuBar | Kind::MenuSeparator => {}
+        _ => unsafe {
+            EnableWindow(h, *e as BOOL);
+            if aux != 0 {
+                EnableWindow(aux, *e as BOOL);
+            }
+        },
+    }
+}
+
+/// `Prop::Visible`.
+fn set_visible(tg: &Target, v: &bool) {
+    let Target {
+        id, kind, h, aux, ..
+    } = *tg;
+    with_w(id, |w| w.vis = *v);
+    match kind {
+        Kind::Window => unsafe {
+            if *v {
+                let first = with_w(id, |w| !std::mem::replace(&mut w.shown, true)).unwrap_or(false);
+                ShowWindow(h, SW_SHOW);
+                UpdateWindow(h);
+                if first {
+                    let mut rc = RECT::default();
+                    GetWindowRect(h, &mut rc);
+                    with_w(id, |w| {
+                        w.last_pos = Some((lp(rc.left, w.dpi), lp(rc.top, w.dpi)))
+                    });
+                }
+                if first {
+                    // DefWindowProc ignores WM_NEXTDLGCTL: pick the first tab stop ourselves
+                    let f = GetNextDlgTabItem(h, 0, 0);
+                    if f != 0 {
+                        SetFocus(f);
+                    }
+                }
+            } else {
+                ShowWindow(h, SW_HIDE);
+            }
+        },
+        Kind::Page => {
+            if let Some(t) = get(id, |w| w.parent).flatten() {
+                set_pages_visible(t);
+            }
+        }
+        Kind::Menu | Kind::MenuBar | Kind::MenuItem | Kind::CheckMenuItem | Kind::MenuSeparator => {
+        }
+        _ => unsafe {
+            let c = if *v { SW_SHOWNOACTIVATE } else { SW_HIDE };
+            ShowWindow(h, c);
+            if aux != 0 && kind != Kind::GroupBox {
+                ShowWindow(aux, c);
+            }
+        },
+    }
+}
+
+/// `Prop::Checked`.
+fn set_checked(tg: &Target, c: &bool) {
+    let Target { id, kind, h, .. } = *tg;
+    with_w(id, |w| w.checked = *c);
+    match kind {
+        Kind::CheckBox | Kind::RadioButton => {
+            send(h, BM_SETCHECK, *c as usize, 0);
+        }
+        Kind::CheckMenuItem => {
+            if let Some((pm, cmd)) = st(|s| {
+                let w = s.widgets.get(&id)?;
+                Some((s.widgets.get(&w.parent?)?.hmenu, w.cmd))
+            })
+            .flatten()
+            {
+                unsafe {
+                    CheckMenuItem(
+                        pm,
+                        cmd as u32,
+                        MF_BYCOMMAND | if *c { MF_CHECKED } else { 0 },
+                    );
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// `Prop::Range`.
+fn set_range(tg: &Target, min: &f64, max: &f64, step: &f64) {
+    let Target { id, kind, h, .. } = *tg;
+    with_w(id, |w| w.range = (*min, *max, *step));
+    if kind == Kind::Slider {
+        send(
+            h,
+            TBM_SETRANGE,
+            1,
+            (slider_steps((*min, *max, *step)) as isize) << 16,
+        );
+        let v = get(id, |w| w.value).unwrap_or(*min);
+        apply_value(id, v);
+    }
+}
+
+/// `Prop::Items`.
+fn set_items(tg: &Target, items: &[String]) {
+    let Target { id, kind, h, .. } = *tg;
+    with_w(id, |w| w.items = items.to_vec());
+    let (reset, add) = match kind {
+        Kind::ComboBox => (CB_RESETCONTENT, CB_ADDSTRING),
+        Kind::ListBox => (LB_RESETCONTENT, LB_ADDSTRING),
+        _ => return,
+    };
+    send(h, reset, 0, 0);
+    for it in items.iter() {
+        let w = wide(it);
+        send(h, add, 0, w.as_ptr() as isize);
+    }
+    let sel = get(id, |w| w.selected)
+        .flatten()
+        .filter(|i| *i < items.len());
+    set_selection(id, sel);
+}
+
+/// `Prop::Selected`.
+fn set_selected_prop(tg: &Target, s: &Option<usize>) {
+    let Target { id, kind, .. } = *tg;
+    with_w(id, |w| w.selected = *s);
+    set_selection(id, *s);
+    if kind == Kind::Tabs {
+        position_pages(id);
+    }
+}
+
+/// `Prop::Bounds`.
+fn set_bounds(tg: &Target, r: &Rect) {
+    let Target { id, .. } = *tg;
+    with_w(id, |w| w.bounds = *r);
+    apply_bounds(id);
+}
+
+/// `Prop::Image`.
+fn set_image(tg: &Target, img: &Option<&ImageData>) {
+    let Target { id, kind, h, .. } = *tg;
+    if kind != Kind::Image {
+        return;
+    }
+    let bmp = img.map_or(0, build_bitmap);
+    let old = with_w(id, |w| {
+        w.image = img.cloned();
+        std::mem::replace(&mut w.hbmp, bmp)
+    })
+    .unwrap_or(0);
+    if old != 0 {
+        unsafe {
+            DeleteObject(old);
+        }
+    }
+    unsafe {
+        InvalidateRect(h, null(), 1);
+    }
+}
+
+/// `Prop::Accel`.
+fn set_accel(tg: &Target, a: &str) {
+    let Target { id, kind, win, .. } = *tg;
+    with_w(id, |w| {
+        w.accel = if a.is_empty() {
+            None
+        } else {
+            Some(a.to_string())
+        }
+    });
+    if matches!(kind, Kind::MenuItem | Kind::CheckMenuItem) {
+        menu_update_text(id);
+        rebuild_accel(win);
+    }
+}
+
+/// `Prop::ReadOnly`.
+fn set_read_only(tg: &Target, b: &bool) {
+    let Target { id, kind, h, .. } = *tg;
+    with_w(id, |w| w.readonly = *b);
+    if matches!(
+        kind,
+        Kind::TextInput | Kind::PasswordInput | Kind::TextArea | Kind::SpinBox
+    ) {
+        send(h, EM_SETREADONLY, *b as usize, 0);
+    }
+}
+
+/// `Prop::Indeterminate`.
+fn set_indeterminate(tg: &Target, b: &bool) {
+    let Target { kind, h, .. } = *tg;
+    if kind == Kind::ProgressBar {
+        unsafe {
+            let st_ = GetWindowLongPtrW(h, GWL_STYLE);
+            let n = if *b {
+                st_ | PBS_MARQUEE as isize
+            } else {
+                st_ & !(PBS_MARQUEE as isize)
+            };
+            SetWindowLongPtrW(h, GWL_STYLE, n);
+        }
+        send(h, PBM_SETMARQUEE, *b as usize, 30);
+    }
+}
+
+/// `Prop::Resizable`.
+fn set_resizable(tg: &Target, b: &bool) {
+    let Target { id, kind, h, .. } = *tg;
+    if kind == Kind::Window {
+        unsafe {
+            let s0 = GetWindowLongPtrW(h, GWL_STYLE);
+            let bits = (WS_THICKFRAME | WS_MAXIMIZEBOX) as isize;
+            SetWindowLongPtrW(h, GWL_STYLE, if *b { s0 | bits } else { s0 & !bits });
+            SetWindowPos(
+                h,
+                0,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+            );
+        }
+        if let Some(sz) = get(id, |w| w.client_req).flatten() {
+            set_client_size(id, sz);
+        }
+    }
+}
+
+/// `Prop::Columns`.
+fn set_columns(tg: &Target, cols: &[Column]) {
+    let Target { id, kind, .. } = *tg;
+    if kind == Kind::Table {
+        table_set_columns(id, cols);
+    }
+}
+
+/// `Prop::Rows`.
+fn set_rows(tg: &Target, rows: &[Vec<String>]) {
+    let Target { id, kind, .. } = *tg;
+    if kind == Kind::Table {
+        table_set_rows(id, rows);
+    }
+}
+
+/// `Prop::SortIndicator`.
+fn set_sort_indicator(tg: &Target, s: &Option<(usize, bool)>) {
+    let Target { id, kind, .. } = *tg;
+    if kind == Kind::Table {
+        table_set_sort(id, *s);
+    }
+}
+
+/// `Prop::TreeRows`.
+fn set_tree_rows(tg: &Target, rows: &[TreeRow]) {
+    let Target { id, kind, .. } = *tg;
+    if kind == Kind::Tree {
+        tree_set_rows(id, rows);
+    }
+}
+
+/// `Prop::TreeSelected`.
+fn set_tree_selected(tg: &Target, n: &Option<u64>) {
+    let Target { id, kind, .. } = *tg;
+    if kind == Kind::Tree {
+        tree_select(id, *n);
+    }
+}
+
+/// `Prop::Orientation`.
+fn set_orientation(tg: &Target, o: &Orientation) {
+    let Target { id, kind, .. } = *tg;
+    if kind == Kind::Sash {
+        with_w(id, |w| w.vertical = *o == Orientation::Vertical);
+    }
+}
+
+/// `Prop::Monospace`.
+fn set_monospace(tg: &Target, on: &bool) {
+    let Target {
+        id, kind, h, dpi, ..
+    } = *tg;
+    if matches!(kind, Kind::TextInput | Kind::PasswordInput | Kind::TextArea) {
+        with_w(id, |w| w.mono = *on);
+        send(h, WM_SETFONT, font_of(id, dpi) as usize, 1);
+    }
+}
+
+/// `Prop::Wrap`.
+fn set_wrap(tg: &Target, on: &bool) {
+    let Target { id, kind, .. } = *tg;
+    if kind == Kind::TextArea && get(id, |w| w.wrap) != Some(*on) {
+        with_w(id, |w| w.wrap = *on);
+        recreate_edit(id);
+    }
+}
+
+/// `Prop::Position`.
+fn set_position(tg: &Target, x: &i32, y: &i32) {
+    let Target {
+        id, kind, h, dpi, ..
+    } = *tg;
+    if kind == Kind::Window {
+        unsafe {
+            SetWindowPos(
+                h,
+                0,
+                px(*x, dpi),
+                px(*y, dpi),
+                0,
+                0,
+                SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+        with_w(id, |w| w.last_pos = Some((*x, *y)));
+    }
+}
+
+/// `Prop::MinSize`.
+fn set_min_size(tg: &Target, sz: &Size) {
+    let Target { id, kind, .. } = *tg;
+    if kind == Kind::Window {
+        with_w(id, |w| w.min_size = *sz);
+        if let Some(c) = get(id, |w| w.client_req).flatten() {
+            // grow the window if it is already smaller than the new minimum
+            set_client_size(id, Size::new(c.w.max(sz.w), c.h.max(sz.h)));
+        }
+    }
+}
+
+/// `Prop::Focus`.
+fn set_focus(tg: &Target) {
+    let Target { h, .. } = *tg;
+    if h != 0 {
+        unsafe {
+            SetFocus(h);
+        }
+    }
 }
