@@ -142,6 +142,37 @@ mod glib_log {
 /// Print resource use every this many seeds.
 const REPORT_EVERY: u64 = 100;
 
+/// Windows: with `RUNGUI_FUZZ_MODAL` set the driver opens dialogs and menus that block the loop, so
+/// a helper thread closes whatever is open (dialog boxes `#32770`, popup menus `#32768`) every
+/// 100 ms, which is what the xdotool loop of scripts/fuzz-native.sh does for GTK.
+#[cfg(windows)]
+fn close_modal_windows_in_background() {
+    unsafe extern "system" {
+        fn FindWindowW(class: *const u16, title: *const u16) -> isize;
+        fn PostMessageW(h: isize, m: u32, w: usize, l: isize) -> i32;
+    }
+    const WM_CLOSE: u32 = 0x10;
+    const WM_KEYDOWN: u32 = 0x100;
+    const VK_ESCAPE: usize = 0x1B;
+    let class = |s: &str| s.encode_utf16().chain([0]).collect::<Vec<u16>>();
+    std::thread::spawn(move || {
+        let (dialog, menu) = (class("#32770"), class("#32768"));
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            unsafe {
+                let d = FindWindowW(dialog.as_ptr(), std::ptr::null());
+                if d != 0 {
+                    PostMessageW(d, WM_CLOSE, 0, 0);
+                }
+                let m = FindWindowW(menu.as_ptr(), std::ptr::null());
+                if m != 0 {
+                    PostMessageW(m, WM_KEYDOWN, VK_ESCAPE, 0);
+                }
+            }
+        }
+    });
+}
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let seeds: u64 = args.next().and_then(|a| a.parse().ok()).unwrap_or(200);
@@ -149,6 +180,10 @@ fn main() {
     // contained panics are part of the test; keep their messages out of the log
     if std::env::var_os("RUNGUI_FUZZ_VERBOSE").is_none() {
         std::panic::set_hook(Box::new(|_| {}));
+    }
+    #[cfg(windows)]
+    if std::env::var_os("RUNGUI_FUZZ_MODAL").is_some() {
+        close_modal_windows_in_background();
     }
     let app = App::new("rungui-fuzz-native").expect("toolkit init");
     glib_log::install();

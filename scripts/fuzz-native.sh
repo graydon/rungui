@@ -59,10 +59,10 @@ out="$(mktemp)"
 # over them now and then (assertions inside its file chooser, submenu arrows drawn with negative
 # sizes in popup menus).
 modal="${MODAL:-0}"
-[ "$bin" = native ] && [ "$BACKEND" = gtk ] || modal=0   # the dismissing loop below knows GTK dialogs only
+[ "$bin" = native ] && [ "$BACKEND" != gnustep ] || modal=0   # the dismissing loop below knows GTK and wine dialogs only
 [ "$modal" != 0 ] && env_extra+=(RUNGUI_FUZZ_MODAL="$modal")
 export MODAL_PUMP=0
-[ "$modal" != 0 ] && MODAL_PUMP=1
+[ "$modal" != 0 ] && [ "$BACKEND" != wine ] && MODAL_PUMP=1   # (the Windows driver closes its own dialogs)
 xvfb-run -a -s "-screen 0 1280x1024x24" bash -c '
   if [ "$MODAL_PUMP" = 1 ]; then
     # no window manager runs here: focus each visible DIALOG window (the toolkit marks them with a
