@@ -1231,22 +1231,13 @@ fn set_client_size(win: WidgetId, sz: Size) {
     with_w(win, |w| w.client_req = Some(sz));
     let (cw, ch) = (px(sz.w.max(1), dpi), px(sz.h.max(1), dpi));
     unsafe {
-        let style = GetWindowLongPtrW(h, GWL_STYLE) as u32;
-        let ex = GetWindowLongPtrW(h, GWL_EXSTYLE) as u32;
         let mut rc = RECT {
             left: 0,
             top: 0,
             right: cw,
             bottom: ch,
         };
-        match fns.adjust_rect_dpi {
-            Some(f) => {
-                f(&mut rc, style, has_menu as BOOL, ex, dpi);
-            }
-            None => {
-                AdjustWindowRectEx(&mut rc, style, has_menu as BOOL, ex);
-            }
-        }
+        adjust_window_rect(&mut rc, h, has_menu, dpi, &fns);
         let flags = SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE;
         SetWindowPos(h, 0, 0, 0, rc.right - rc.left, rc.bottom - rc.top, flags);
         // a wrapped menu bar changes the client height: correct once
@@ -1840,157 +1831,39 @@ fn handle_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
             Some(0)
         }
         WM_SIZE if kind == Kind::Window => {
-            if !muted() && w != SIZE_MINIMIZED {
-                let dpi = get(id, |x| x.dpi).unwrap_or(96);
-                let sz = Size::new(
-                    lp(loword(l as usize) as i32, dpi),
-                    lp(hiword(l as usize) as i32, dpi),
-                );
-                with_w(id, |x| x.client_req = Some(sz));
-                emit(id, Event::Resized { w: sz.w, h: sz.h });
-            }
+            on_size(id, w, l);
             Some(0)
         }
         WM_CONTEXTMENU => {
-            // controls handle their own (ctl_proc); this is the window, a container or a
-            // non-subclassed child (label, image, progress bar) whose message bubbled up
-            let src = id_of(w as HWND).unwrap_or(id);
-            let own = get(src, |x| x.kind).is_some_and(|k| {
-                !matches!(
-                    k,
-                    Kind::Label
-                        | Kind::Image
-                        | Kind::ProgressBar
-                        | Kind::Window
-                        | Kind::Page
-                        | Kind::GroupBox
-                )
-            });
-            if !own {
-                context_menu(src, l);
-            }
+            on_context_menu_message(id, w, l);
             Some(0)
         }
         WM_MOVE if kind == Kind::Window => {
-            if !muted() {
-                let dpi = get(id, |x| x.dpi).unwrap_or(96);
-                let mut rc = RECT::default();
-                unsafe {
-                    GetWindowRect(h, &mut rc);
-                }
-                let pos = (lp(rc.left, dpi), lp(rc.top, dpi));
-                // only once shown (last_pos is recorded then) and only real changes
-                if get(id, |x| x.last_pos).flatten().is_some_and(|p| p != pos) {
-                    with_w(id, |x| x.last_pos = Some(pos));
-                    emit(id, Event::Moved { x: pos.0, y: pos.1 });
-                }
-            }
+            on_move(id, h);
             Some(0)
         }
-        WM_GETMINMAXINFO if kind == Kind::Window => {
-            let (ms, dpi, has_menu, fns) = st(|s| {
-                let x = s.widgets.get(&id)?;
-                Some((
-                    x.min_size,
-                    x.dpi,
-                    x.children
-                        .iter()
-                        .any(|c| s.widgets.get(c).is_some_and(|k| k.kind == Kind::MenuBar)),
-                    s.fns,
-                ))
-            })
-            .flatten()?;
-            if ms.w <= 0 && ms.h <= 0 {
-                return None;
-            }
-            unsafe {
-                let style = GetWindowLongPtrW(h, GWL_STYLE) as u32;
-                let ex = GetWindowLongPtrW(h, GWL_EXSTYLE) as u32;
-                let mut rc = RECT {
-                    left: 0,
-                    top: 0,
-                    right: px(ms.w.max(0), dpi),
-                    bottom: px(ms.h.max(0), dpi),
-                };
-                match fns.adjust_rect_dpi {
-                    Some(f) => {
-                        f(&mut rc, style, has_menu as BOOL, ex, dpi);
-                    }
-                    None => {
-                        AdjustWindowRectEx(&mut rc, style, has_menu as BOOL, ex);
-                    }
-                }
-                let mmi = &mut *(l as *mut MINMAXINFO);
-                mmi.ptMinTrackSize = POINT {
-                    x: rc.right - rc.left,
-                    y: rc.bottom - rc.top,
-                };
-            }
-            Some(0)
-        }
+        WM_GETMINMAXINFO if kind == Kind::Window => on_min_max_info(id, h, l),
         WM_DPICHANGED if kind == Kind::Window => {
             on_dpi_changed(id, h, loword(w), l);
             Some(0)
         }
         WM_ACTIVATE if kind == Kind::Window => {
-            if loword(w) != 0 {
-                let lf = get(id, |x| x.last_focus).unwrap_or(0);
-                unsafe {
-                    if lf != 0 && IsWindow(lf) != 0 && IsChild(h, lf) != 0 {
-                        SetFocus(lf);
-                    }
-                }
-            }
+            on_activate(id, h, w);
             None
         }
         WM_COMMAND => on_command(w, l),
         WM_NOTIFY => on_notify(l),
         WM_HSCROLL => {
-            if l != 0 && !muted() {
-                if let Some(sid) = id_of(l) {
-                    if let Some((r, old)) = get(sid, |x| (x.range, x.value)) {
-                        let n = slider_steps(r);
-                        let pos = send(l, TBM_GETPOS, 0, 0) as i32;
-                        let v = (r.0 + (r.1 - r.0) * pos as f64 / n as f64)
-                            .clamp(r.0.min(r.1), r.1.max(r.0));
-                        if (v - old).abs() > f64::EPSILON {
-                            with_w(sid, |x| x.value = v);
-                            emit(sid, Event::Value(v));
-                        }
-                    }
-                }
-            }
+            on_trackbar_scroll(l);
             Some(0)
         }
         WM_DRAWITEM => {
             let ds = unsafe { &*(l as *const DRAWITEMSTRUCT) };
-            if let Some(iid) = id_of(ds.hwndItem) {
-                draw_image(iid, ds);
-                return Some(1);
-            }
-            None
+            let iid = id_of(ds.hwndItem)?;
+            draw_image(iid, ds);
+            Some(1)
         }
-        WM_CTLCOLORSTATIC | WM_CTLCOLORBTN => {
-            let sid = id_of(l)?;
-            if matches!(
-                get(sid, |x| x.kind),
-                Some(
-                    Kind::Label
-                        | Kind::GroupBox
-                        | Kind::CheckBox
-                        | Kind::RadioButton
-                        | Kind::Slider
-                )
-            ) {
-                unsafe {
-                    // paint what the parent would show behind the label (page body, group box...)
-                    fill_bg(l, w as isize, true);
-                    SetBkMode(w as isize, TRANSPARENT);
-                    return Some(GetStockObject(NULL_BRUSH));
-                }
-            }
-            None
-        }
+        WM_CTLCOLORSTATIC | WM_CTLCOLORBTN => on_control_color(w, l),
         WM_ERASEBKGND if kind == Kind::Page => {
             unsafe {
                 if !paint_page_body(h, h, w as isize) {
@@ -2008,6 +1881,156 @@ fn handle_msg(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> Option<LRESULT> {
             Some(1)
         }
         _ => None,
+    }
+}
+
+/// `WM_SIZE` of a window: tell the core the new client size (physical pixels -> logical).
+fn on_size(id: WidgetId, w: WPARAM, l: LPARAM) {
+    if muted() || w == SIZE_MINIMIZED {
+        return;
+    }
+    let dpi = get(id, |x| x.dpi).unwrap_or(96);
+    let sz = Size::new(
+        lp(loword(l as usize) as i32, dpi),
+        lp(hiword(l as usize) as i32, dpi),
+    );
+    with_w(id, |x| x.client_req = Some(sz));
+    emit(id, Event::Resized { w: sz.w, h: sz.h });
+}
+
+/// `WM_CONTEXTMENU` reaching a window or container: controls handle their own (`ctl_proc`), so
+/// this is the window, a container or a non-subclassed child (label, image, progress bar) whose
+/// message bubbled up; `w` is the window the user clicked on.
+fn on_context_menu_message(id: WidgetId, w: WPARAM, l: LPARAM) {
+    let src = id_of(w as HWND).unwrap_or(id);
+    let handles_own = get(src, |x| x.kind).is_some_and(|k| {
+        !matches!(
+            k,
+            Kind::Label
+                | Kind::Image
+                | Kind::ProgressBar
+                | Kind::Window
+                | Kind::Page
+                | Kind::GroupBox
+        )
+    });
+    if !handles_own {
+        context_menu(src, l);
+    }
+}
+
+/// `WM_MOVE` of a window: report a real change of the position.
+fn on_move(id: WidgetId, h: HWND) {
+    if muted() {
+        return;
+    }
+    let dpi = get(id, |x| x.dpi).unwrap_or(96);
+    let mut rc = RECT::default();
+    unsafe {
+        GetWindowRect(h, &mut rc);
+    }
+    let pos = (lp(rc.left, dpi), lp(rc.top, dpi));
+    // only once shown (last_pos is recorded then) and only real changes
+    if get(id, |x| x.last_pos).flatten().is_some_and(|p| p != pos) {
+        with_w(id, |x| x.last_pos = Some(pos));
+        emit(id, Event::Moved { x: pos.0, y: pos.1 });
+    }
+}
+
+/// `WM_GETMINMAXINFO`: the smallest outer size that leaves the requested client minimum.
+fn on_min_max_info(id: WidgetId, h: HWND, l: LPARAM) -> Option<LRESULT> {
+    let (ms, dpi, has_menu, fns) = st(|s| {
+        let x = s.widgets.get(&id)?;
+        Some((
+            x.min_size,
+            x.dpi,
+            x.children
+                .iter()
+                .any(|c| s.widgets.get(c).is_some_and(|k| k.kind == Kind::MenuBar)),
+            s.fns,
+        ))
+    })
+    .flatten()?;
+    if ms.w <= 0 && ms.h <= 0 {
+        return None;
+    }
+    let mut rc = RECT {
+        left: 0,
+        top: 0,
+        right: px(ms.w.max(0), dpi),
+        bottom: px(ms.h.max(0), dpi),
+    };
+    adjust_window_rect(&mut rc, h, has_menu, dpi, &fns);
+    let mmi = unsafe { &mut *(l as *mut MINMAXINFO) };
+    mmi.ptMinTrackSize = POINT {
+        x: rc.right - rc.left,
+        y: rc.bottom - rc.top,
+    };
+    Some(0)
+}
+
+/// Grow the client rectangle `rc` to the outer rectangle of window `h` (its current styles).
+fn adjust_window_rect(rc: &mut RECT, h: HWND, has_menu: bool, dpi: u32, fns: &Fns) {
+    unsafe {
+        let style = GetWindowLongPtrW(h, GWL_STYLE) as u32;
+        let ex = GetWindowLongPtrW(h, GWL_EXSTYLE) as u32;
+        match fns.adjust_rect_dpi {
+            Some(f) => {
+                f(rc, style, has_menu as BOOL, ex, dpi);
+            }
+            None => {
+                AdjustWindowRectEx(rc, style, has_menu as BOOL, ex);
+            }
+        }
+    }
+}
+
+/// `WM_ACTIVATE` of a window: put the focus back where it was.
+fn on_activate(id: WidgetId, h: HWND, w: WPARAM) {
+    if loword(w) == 0 {
+        return;
+    }
+    let lf = get(id, |x| x.last_focus).unwrap_or(0);
+    unsafe {
+        if lf != 0 && IsWindow(lf) != 0 && IsChild(h, lf) != 0 {
+            SetFocus(lf);
+        }
+    }
+}
+
+/// `WM_HSCROLL` from the trackbar `l`: its position as the slider's value.
+fn on_trackbar_scroll(l: LPARAM) {
+    if l == 0 || muted() {
+        return;
+    }
+    let Some(sid) = id_of(l) else { return };
+    let Some((r, old)) = get(sid, |x| (x.range, x.value)) else {
+        return;
+    };
+    let n = slider_steps(r);
+    let pos = send(l, TBM_GETPOS, 0, 0) as i32;
+    let v = (r.0 + (r.1 - r.0) * pos as f64 / n as f64).clamp(r.0.min(r.1), r.1.max(r.0));
+    if (v - old).abs() > f64::EPSILON {
+        with_w(sid, |x| x.value = v);
+        emit(sid, Event::Value(v));
+    }
+}
+
+/// `WM_CTLCOLORSTATIC` / `WM_CTLCOLORBTN` from control `l` with device context `w`: controls that
+/// are drawn transparent show what the parent shows behind them (page body, group box...).
+fn on_control_color(w: WPARAM, l: LPARAM) -> Option<LRESULT> {
+    let sid = id_of(l)?;
+    let transparent = matches!(
+        get(sid, |x| x.kind),
+        Some(Kind::Label | Kind::GroupBox | Kind::CheckBox | Kind::RadioButton | Kind::Slider)
+    );
+    if !transparent {
+        return None;
+    }
+    unsafe {
+        fill_bg(l, w as isize, true);
+        SetBkMode(w as isize, TRANSPARENT);
+        Some(GetStockObject(NULL_BRUSH))
     }
 }
 
@@ -2252,45 +2275,58 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
     let code = hdr.code as i32;
     let cid = id_of(hdr.hwndFrom)?;
     let kind = get(cid, |x| x.kind)?;
-    match (kind, code) {
-        (Kind::Tabs, TCN_SELCHANGE) if !muted() => {
-            let i = send(hdr.hwndFrom, TCM_GETCURSEL, 0, 0);
-            let sel = if i < 0 { None } else { Some(i as usize) };
-            with_w(cid, |x| x.selected = sel);
-            {
-                let _m = MuteGuard::new();
-                position_pages(cid);
-            }
-            emit(cid, Event::Selected(sel));
+    match kind {
+        Kind::Tabs if code == TCN_SELCHANGE && !muted() => {
+            on_tab_changed(cid, hdr.hwndFrom);
             Some(0)
         }
-        (Kind::Table, LVN_ITEMCHANGED) if !muted() => {
-            let nm = unsafe { &*(l as *const NMLISTVIEW) };
+        Kind::Table if !muted() => on_table_notify(cid, hdr, l),
+        Kind::Tree if !muted() => on_tree_notify(cid, hdr, l),
+        Kind::SpinBox if code == UDN_DELTAPOS => {
+            if !muted() {
+                on_spin_delta(cid, l);
+            }
+            Some(1) // we manage the value ourselves
+        }
+        _ => None,
+    }
+}
+
+/// `TCN_SELCHANGE`: show the chosen page and report it.
+fn on_tab_changed(cid: WidgetId, tabs: HWND) {
+    let i = send(tabs, TCM_GETCURSEL, 0, 0);
+    let sel = if i < 0 { None } else { Some(i as usize) };
+    with_w(cid, |x| x.selected = sel);
+    {
+        let _m = MuteGuard::new();
+        position_pages(cid);
+    }
+    emit(cid, Event::Selected(sel));
+}
+
+/// Notifications of a list view (`l` points at the notification, `hdr` is its header).
+fn on_table_notify(cid: WidgetId, hdr: &NMHDR, l: LPARAM) -> Option<LRESULT> {
+    let nm = unsafe { &*(l as *const NMLISTVIEW) };
+    match hdr.code as i32 {
+        LVN_ITEMCHANGED => {
             if nm.uChanged & LVIF_STATE != 0 && (nm.uNewState ^ nm.uOldState) & LVIS_SELECTED != 0 {
-                let msg = msg_hwnd();
                 unsafe {
-                    PostMessageW(msg, WM_SELCHECK, cid.0 as usize, 0);
+                    PostMessageW(msg_hwnd(), WM_SELCHECK, cid.0 as usize, 0);
                 }
             }
-            Some(0)
         }
-        (Kind::Table, LVN_COLUMNCLICK) if !muted() => {
-            let nm = unsafe { &*(l as *const NMLISTVIEW) };
+        LVN_COLUMNCLICK => {
             if nm.iSubItem >= 0 {
                 emit(cid, Event::ColumnClicked(nm.iSubItem as usize));
             }
-            Some(0)
         }
-        (Kind::Table, NM_DBLCLK) if !muted() => {
-            let nm = unsafe { &*(l as *const NMLISTVIEW) };
+        NM_DBLCLK => {
             if nm.iItem >= 0 {
                 emit(cid, Event::Activated(nm.iItem as usize));
             }
-            Some(0)
         }
-        (Kind::Table, LVN_KEYDOWN) if !muted() => {
-            let vk = key_of_keydown(l);
-            if vk as usize == VK_RETURN {
+        LVN_KEYDOWN => {
+            if key_of_keydown(l) as usize == VK_RETURN {
                 let i = send(
                     hdr.hwndFrom,
                     LVM_GETNEXTITEM,
@@ -2301,18 +2337,24 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
                     emit(cid, Event::Activated(i as usize));
                 }
             }
-            Some(0)
         }
-        (Kind::Tree, TVN_SELCHANGEDW) if !muted() => {
+        _ => return None,
+    }
+    Some(0)
+}
+
+/// Notifications of a tree view.
+fn on_tree_notify(cid: WidgetId, hdr: &NMHDR, l: LPARAM) -> Option<LRESULT> {
+    match hdr.code as i32 {
+        TVN_SELCHANGEDW => {
             let nm = unsafe { &*(l as *const NMTREEVIEWW) };
             let node = (nm.itemNew.hItem != 0).then_some(nm.itemNew.lParam as u64);
             if get(cid, |x| x.last_tsel) != Some(node) {
                 with_w(cid, |x| x.last_tsel = node);
                 emit(cid, Event::TreeSelected(node));
             }
-            Some(0)
         }
-        (Kind::Tree, TVN_ITEMEXPANDEDW) if !muted() => {
+        TVN_ITEMEXPANDEDW => {
             let nm = unsafe { &*(l as *const NMTREEVIEWW) };
             let open = nm.action & 3 == TVE_EXPAND as u32;
             // the app usually reacts by replacing the rows: deliver outside this notification
@@ -2321,57 +2363,57 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
             unsafe {
                 PostMessageW(msg_hwnd(), WM_TREEEXP, 0, 0);
             }
-            Some(0)
         }
-        (Kind::Tree, NM_DBLCLK) if !muted() => {
-            let mut p = POINT::default();
-            let mut ht = TVHITTESTINFO {
-                pt: p,
-                flags: 0,
-                hItem: 0,
-            };
-            unsafe {
-                GetCursorPos(&mut p);
-                ScreenToClient(hdr.hwndFrom, &mut p);
-            }
-            ht.pt = p;
-            send(hdr.hwndFrom, TVM_HITTEST, 0, &mut ht as *mut _ as isize);
-            if ht.hItem != 0 && ht.flags & TVHT_ONITEMBUTTON == 0 {
-                if let Some(n) = tree_node_of(hdr.hwndFrom, ht.hItem) {
-                    emit(cid, Event::TreeActivated(n));
-                }
-            }
-            Some(0)
-        }
-        (Kind::Tree, TVN_KEYDOWN) if !muted() => {
-            let vk = key_of_keydown(l);
-            if vk as usize == VK_RETURN {
+        NM_DBLCLK => tree_double_click(cid, hdr.hwndFrom),
+        TVN_KEYDOWN => {
+            if key_of_keydown(l) as usize == VK_RETURN {
                 tree_activate_selected(cid);
             }
-            Some(0)
         }
-        (Kind::SpinBox, UDN_DELTAPOS) => {
-            if !muted() {
-                let nm = unsafe { &*(l as *const NMUPDOWN) };
-                let (r, old, eh) = get(cid, |x| (x.range, x.value, x.hwnd))?;
-                let step = if r.2 > 0.0 { r.2 } else { 1.0 };
-                // the field may hold unparsed text: start from what is shown
-                let shown = get_text(eh, false)
-                    .trim()
-                    .replace(',', ".")
-                    .parse::<f64>()
-                    .unwrap_or(old);
-                let v = (shown + nm.iDelta as f64 * step).clamp(r.0.min(r.1), r.1.max(r.0));
-                {
-                    let _m = MuteGuard::new();
-                    apply_value(cid, v);
-                }
-                emit(cid, Event::Value(v));
-            }
-            Some(1) // we manage the value ourselves
-        }
-        _ => None,
+        _ => return None,
     }
+    Some(0)
+}
+
+/// A double click in a tree: activate the node under the pointer (not its expand button).
+fn tree_double_click(cid: WidgetId, tree: HWND) {
+    let mut p = POINT::default();
+    unsafe {
+        GetCursorPos(&mut p);
+        ScreenToClient(tree, &mut p);
+    }
+    let mut ht = TVHITTESTINFO {
+        pt: p,
+        flags: 0,
+        hItem: 0,
+    };
+    send(tree, TVM_HITTEST, 0, &mut ht as *mut _ as isize);
+    if ht.hItem != 0 && ht.flags & TVHT_ONITEMBUTTON == 0 {
+        if let Some(n) = tree_node_of(tree, ht.hItem) {
+            emit(cid, Event::TreeActivated(n));
+        }
+    }
+}
+
+/// `UDN_DELTAPOS`: the spin buttons were pressed; the new value is the shown value plus a step.
+fn on_spin_delta(cid: WidgetId, l: LPARAM) {
+    let nm = unsafe { &*(l as *const NMUPDOWN) };
+    let Some((r, old, eh)) = get(cid, |x| (x.range, x.value, x.hwnd)) else {
+        return;
+    };
+    let step = if r.2 > 0.0 { r.2 } else { 1.0 };
+    // the field may hold unparsed text: start from what is shown
+    let shown = get_text(eh, false)
+        .trim()
+        .replace(',', ".")
+        .parse::<f64>()
+        .unwrap_or(old);
+    let v = (shown + nm.iDelta as f64 * step).clamp(r.0.min(r.1), r.1.max(r.0));
+    {
+        let _m = MuteGuard::new();
+        apply_value(cid, v);
+    }
+    emit(cid, Event::Value(v));
 }
 
 /// Subclass procedure for native controls: focus events, Enter in list boxes, spin-box normalisation.
@@ -3146,6 +3188,90 @@ unsafe fn item_path(item: Obj) -> Option<String> {
     }
 }
 
+/// The "files of type" list of a file dialog (`filters`: label and extensions; no extensions = all).
+unsafe fn set_file_types(dlg: Obj, filters: &[(String, Vec<String>)]) {
+    if filters.is_empty() {
+        return;
+    }
+    unsafe {
+        let names: Vec<Vec<u16>> = filters.iter().map(|(n, _)| wide(n)).collect();
+        let pats: Vec<Vec<u16>> = filters
+            .iter()
+            .map(|(_, e)| {
+                if e.is_empty() {
+                    wide("*.*")
+                } else {
+                    wide(
+                        &e.iter()
+                            .map(|x| {
+                                format!("*.{}", x.trim_start_matches("*.").trim_start_matches('.'))
+                            })
+                            .collect::<Vec<_>>()
+                            .join(";"),
+                    )
+                }
+            })
+            .collect();
+        let specs: Vec<COMDLG_FILTERSPEC> = names
+            .iter()
+            .zip(&pats)
+            .map(|(n, p)| COMDLG_FILTERSPEC {
+                name: n.as_ptr(),
+                spec: p.as_ptr(),
+            })
+            .collect();
+        vt::<unsafe extern "system" fn(Obj, u32, *const COMDLG_FILTERSPEC) -> i32>(
+            dlg,
+            FD_SET_FILE_TYPES,
+        )(dlg, specs.len() as u32, specs.as_ptr());
+    }
+}
+
+/// The paths the user chose in a dialog that was confirmed (all of them, for `many`).
+unsafe fn dialog_results(dlg: Obj, many: bool) -> Vec<String> {
+    let mut out = vec![];
+    unsafe {
+        if many {
+            let mut arr: Obj = null_mut();
+            if vt::<unsafe extern "system" fn(Obj, *mut Obj) -> i32>(dlg, FOD_GET_RESULTS)(
+                dlg, &mut arr,
+            ) >= 0
+                && !arr.is_null()
+            {
+                let mut n = 0u32;
+                vt::<unsafe extern "system" fn(Obj, *mut u32) -> i32>(arr, SIA_GET_COUNT)(
+                    arr, &mut n,
+                );
+                for i in 0..n {
+                    let mut item: Obj = null_mut();
+                    if vt::<unsafe extern "system" fn(Obj, u32, *mut Obj) -> i32>(
+                        arr,
+                        SIA_GET_ITEM_AT,
+                    )(arr, i, &mut item)
+                        >= 0
+                        && !item.is_null()
+                    {
+                        out.extend(item_path(item));
+                        release(item);
+                    }
+                }
+                release(arr);
+            }
+        } else {
+            let mut item: Obj = null_mut();
+            if vt::<unsafe extern "system" fn(Obj, *mut Obj) -> i32>(dlg, FD_GET_RESULT)(
+                dlg, &mut item,
+            ) >= 0
+                && !item.is_null()
+            {
+                out.extend(item_path(item));
+                release(item);
+            }
+        }
+    }
+    out
+}
+
 fn file_dialog_impl(owner: HWND, spec: &FileSpec) -> Vec<String> {
     let save = spec.mode == FileMode::Save;
     let (clsid, iid) = if save {
@@ -3176,41 +3302,8 @@ fn file_dialog_impl(owner: HWND, spec: &FileSpec) -> Vec<String> {
                 wide(&spec.title).as_ptr(),
             );
         }
-        if spec.mode != FileMode::PickFolder && !spec.filters.is_empty() {
-            let names: Vec<Vec<u16>> = spec.filters.iter().map(|(n, _)| wide(n)).collect();
-            let pats: Vec<Vec<u16>> = spec
-                .filters
-                .iter()
-                .map(|(_, e)| {
-                    if e.is_empty() {
-                        wide("*.*")
-                    } else {
-                        wide(
-                            &e.iter()
-                                .map(|x| {
-                                    format!(
-                                        "*.{}",
-                                        x.trim_start_matches("*.").trim_start_matches('.')
-                                    )
-                                })
-                                .collect::<Vec<_>>()
-                                .join(";"),
-                        )
-                    }
-                })
-                .collect();
-            let specs: Vec<COMDLG_FILTERSPEC> = names
-                .iter()
-                .zip(&pats)
-                .map(|(n, p)| COMDLG_FILTERSPEC {
-                    name: n.as_ptr(),
-                    spec: p.as_ptr(),
-                })
-                .collect();
-            vt::<unsafe extern "system" fn(Obj, u32, *const COMDLG_FILTERSPEC) -> i32>(
-                dlg,
-                FD_SET_FILE_TYPES,
-            )(dlg, specs.len() as u32, specs.as_ptr());
+        if spec.mode != FileMode::PickFolder {
+            set_file_types(dlg, &spec.filters);
         }
         if let Some(dir) = &spec.initial_dir {
             let mut item: Obj = null_mut();
@@ -3234,43 +3327,7 @@ fn file_dialog_impl(owner: HWND, spec: &FileSpec) -> Vec<String> {
         }
         let hr = vt::<unsafe extern "system" fn(Obj, HWND) -> i32>(dlg, FD_SHOW)(dlg, owner);
         if hr >= 0 {
-            if spec.mode == FileMode::OpenMany {
-                let mut arr: Obj = null_mut();
-                if vt::<unsafe extern "system" fn(Obj, *mut Obj) -> i32>(dlg, FOD_GET_RESULTS)(
-                    dlg, &mut arr,
-                ) >= 0
-                    && !arr.is_null()
-                {
-                    let mut n = 0u32;
-                    vt::<unsafe extern "system" fn(Obj, *mut u32) -> i32>(arr, SIA_GET_COUNT)(
-                        arr, &mut n,
-                    );
-                    for i in 0..n {
-                        let mut item: Obj = null_mut();
-                        if vt::<unsafe extern "system" fn(Obj, u32, *mut Obj) -> i32>(
-                            arr,
-                            SIA_GET_ITEM_AT,
-                        )(arr, i, &mut item)
-                            >= 0
-                            && !item.is_null()
-                        {
-                            out.extend(item_path(item));
-                            release(item);
-                        }
-                    }
-                    release(arr);
-                }
-            } else {
-                let mut item: Obj = null_mut();
-                if vt::<unsafe extern "system" fn(Obj, *mut Obj) -> i32>(dlg, FD_GET_RESULT)(
-                    dlg, &mut item,
-                ) >= 0
-                    && !item.is_null()
-                {
-                    out.extend(item_path(item));
-                    release(item);
-                }
-            }
+            out = dialog_results(dlg, spec.mode == FileMode::OpenMany);
         }
         release(dlg);
     }

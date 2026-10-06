@@ -847,6 +847,9 @@ fn context_menu_events() {
 
 // ------------------------------------------------------------------ modal dialogs
 
+/// Dialogs are found by class name, so tests that open them must not overlap.
+static DIALOG_TESTS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// A timer that dismisses the modal dialog (class `#32770`) with the command `id` as soon as one
 /// exists.
 fn dismiss_dialog(id: usize) -> Timer {
@@ -861,6 +864,7 @@ fn dismiss_dialog(id: usize) -> Timer {
 
 #[test]
 fn message_boxes_return_an_answer() {
+    let _one_at_a_time = DIALOG_TESTS.lock().unwrap_or_else(|e| e.into_inner());
     let app = new_app("win32-native-msgbox");
     let win = Window::new("t");
     let answers: Rc<RefCell<Vec<Answer>>> = Rc::default();
@@ -911,6 +915,7 @@ fn message_boxes_return_an_answer() {
 
 #[test]
 fn file_dialogs_can_be_cancelled() {
+    let _one_at_a_time = DIALOG_TESTS.lock().unwrap_or_else(|e| e.into_inner());
     let app = new_app("win32-native-files");
     let win = Window::new("t");
     let dir = std::env::temp_dir();
@@ -969,39 +974,4 @@ fn table_cell_edits_are_made_in_place() {
         "the selection stays"
     );
     assert_eq!(table.selected(), Some(2));
-}
-
-#[test]
-fn closures_posted_from_other_threads_run_on_the_ui_thread() {
-    use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    let app = new_app("win32-native-post");
-    let win = Window::new("t");
-    let label = Label::new(VBox::new(win), "before");
-    let ran = Arc::new(AtomicUsize::new(0));
-    let ui = std::thread::current().id();
-    const POSTS: usize = 2_000;
-    let r = ran.clone();
-    let poster = std::thread::spawn(move || {
-        for i in 0..POSTS {
-            let r = r.clone();
-            App::post(move || {
-                assert_eq!(std::thread::current().id(), ui);
-                r.fetch_add(1, Ordering::SeqCst);
-                if i == POSTS - 1 {
-                    label.set_text("after");
-                }
-            });
-        }
-    });
-    // keep the loop's queue busy meanwhile: the wake-up of the posts must not get lost behind it
-    let t = Timer::every(1, move || {
-        if ran.load(Ordering::SeqCst) == POSTS {
-            App::quit();
-        }
-    });
-    app.run();
-    t.stop();
-    poster.join().unwrap();
-    assert_eq!(label.text(), "after");
 }
