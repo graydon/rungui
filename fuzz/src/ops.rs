@@ -109,6 +109,10 @@ pub struct Fuzz {
     /// Debugging aids from the environment: `RUNGUI_FUZZ_TRACE=1` logs every operation to stderr,
     /// `RUNGUI_FUZZ_LIMIT=n` stops after `n` operations (bisect a failure by moving `n`).
     trace: bool,
+    /// `RUNGUI_FUZZ_ASCII_TEXT=1`: random-byte strings keep only their ASCII (Wine's text shaping
+    /// crashes on some random scripts, e.g. U+02D6 with the default font; the fixed strings with
+    /// CJK, Hebrew, emoji and combining marks stay).
+    ascii_only: bool,
     /// `RUNGUI_FUZZ_MODAL=messages|files|all` (native mode): run message boxes (`messages`), file
     /// dialogs too (`files`), popup menus too (`all`). They block the toolkit's loop until dismissed,
     /// so something outside (scripts/fuzz-native.sh presses Escape on a timer) must close them.
@@ -200,6 +204,7 @@ impl Fuzz {
             mode,
             panics,
             trace: std::env::var_os("RUNGUI_FUZZ_TRACE").is_some(),
+            ascii_only: std::env::var_os("RUNGUI_FUZZ_ASCII_TEXT").is_some(),
             modal_messages: matches!(
                 std::env::var("RUNGUI_FUZZ_MODAL").as_deref(),
                 Ok("messages" | "files" | "all")
@@ -287,7 +292,14 @@ impl Fuzz {
                 // raw bytes, lossily decoded (invalid UTF-8 becomes U+FFFD)
                 let n = usize::from(self.u8() % 24);
                 let bytes: Vec<u8> = (0..n).map(|_| self.u8()).collect();
-                String::from_utf8_lossy(&bytes).into_owned()
+                let s = String::from_utf8_lossy(&bytes).into_owned();
+                if self.ascii_only {
+                    s.chars()
+                        .map(|c| if c.is_ascii() { c } else { '\u{FFFD}' })
+                        .collect()
+                } else {
+                    s
+                }
             }
             _ => STRS[usize::from(self.u8()) % STRS.len()].to_string(),
         }

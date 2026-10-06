@@ -20,7 +20,7 @@ case "$BACKEND" in
   gtk) feat=(); env_extra=(NO_AT_BRIDGE=1) ;;
   gnustep) feat=(--features emulate-mac); env_extra=(NSZombieEnabled=YES) ;;
   # the Win32 backend, built with mingw and run under wine in a private prefix (x86_64 hosts only)
-  wine) feat=(--target x86_64-pc-windows-gnu); env_extra=() ;;
+  wine) feat=(--target x86_64-pc-windows-gnu); env_extra=(RUNGUI_FUZZ_ASCII_TEXT=1) ;;
   *) echo "unknown BACKEND $BACKEND"; exit 2 ;;
 esac
 [ "$BACKEND" = wine ] && [ "${ASAN:-0}" = 1 ] && { echo "ASAN=1 does not work for BACKEND=wine (mingw has no sanitizer runtime)"; exit 2; }
@@ -44,6 +44,11 @@ else
     mkdir -p "$T"; T_ABS="$(cd "$T" && pwd)"
     env_extra+=(WINEPREFIX="$T_ABS/wineprefix-fuzz" WINEDEBUG=-all "WINEDLLOVERRIDES=mscoree,mshtml=")
     exe_cmd=(wine "$exe")
+    # a crash must end the process (exit status) instead of waiting in winedbg forever
+    for kv in Debugger=false Auto=1; do
+      env "WINEPREFIX=$T_ABS/wineprefix-fuzz" WINEDEBUG=-all wine reg add \
+        'HKLM\Software\Microsoft\Windows NT\CurrentVersion\AeDebug' /v "${kv%%=*}" /t REG_SZ /d "${kv#*=}" /f >/dev/null 2>&1
+    done
   fi
 fi
 [ ${#exe_cmd[@]} = 0 ] && exe_cmd=("$exe")
