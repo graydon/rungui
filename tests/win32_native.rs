@@ -47,10 +47,7 @@ fn slider_range_wider_than_16_bits() {
     assert_eq!(send(h, TBM_GETPOS), max);
     s.set_value(500_000.0);
     let half = send(h, TBM_GETPOS);
-    assert!(
-        (half * 2 - max).abs() <= 1,
-        "half-way is {half} of {max}"
-    );
+    assert!((half * 2 - max).abs() <= 1, "half-way is {half} of {max}");
 }
 
 #[test]
@@ -67,7 +64,11 @@ fn list_and_combo_hold_every_item() {
     assert_eq!(send(lh, LB_GETCURSEL), 1_999);
     list.set_items(&items[..10]);
     assert_eq!(send(lh, LB_GETCOUNT), 10);
-    assert_eq!(send(lh, LB_GETCURSEL), -1, "selection beyond the new end is dropped");
+    assert_eq!(
+        send(lh, LB_GETCURSEL),
+        -1,
+        "selection beyond the new end is dropped"
+    );
     let combo = ComboBox::new(col);
     combo.set_items(&items);
     combo.set_selected(Some(7));

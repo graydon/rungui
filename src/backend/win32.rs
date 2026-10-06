@@ -57,6 +57,14 @@ const SLIDER_MAX_STEPS: f64 = 100_000.0;
 const SLIDER_DEFAULT_STEPS: i32 = 1000;
 /// Initial outer size of a new window in device pixels (the core resizes it before it is shown).
 const NEW_WINDOW_SIZE: (i32, i32) = (400, 300);
+/// Widest a tooltip gets before it wraps (logical pixels).
+const TOOLTIP_MAX_WIDTH: i32 = 400;
+/// Milliseconds between steps of an indeterminate progress bar.
+const MARQUEE_STEP_MS: isize = 30;
+/// Rows a combo box's drop-down shows before it scrolls.
+const COMBO_DROPDOWN_ROWS: usize = 10;
+/// Cache key bit that tells the monospace font of a DPI from the UI font of the same DPI.
+const MONO_FONT_KEY: u32 = 0x8000_0000;
 /// Size of the probe rectangle used to measure a tab control's non-client area.
 const TAB_PROBE: i32 = 1000;
 
@@ -431,7 +439,7 @@ fn font(dpi: u32) -> isize {
 
 /// Fixed-pitch font for `dpi` (Consolas when installed, else the system's fixed-pitch match), cached.
 fn mono_font(dpi: u32) -> isize {
-    let key = dpi | 0x8000_0000;
+    let key = dpi | MONO_FONT_KEY;
     if let Some(f) = st(|s| s.fonts.get(&key).copied()).flatten() {
         return f;
     }
@@ -1273,7 +1281,12 @@ fn client_logical(win: WidgetId) -> Option<Size> {
 
 /// Offset of a GroupBox's inner client area inside its outer rect, physical pixels.
 fn group_inset(dpi: u32) -> (i32, i32, i32, i32) {
-    (px(7, dpi), text_h(dpi) + px(4, dpi), px(7, dpi), px(7, dpi))
+    (
+        px(metrics::GROUP_MARGIN, dpi),
+        text_h(dpi) + px(metrics::GROUP_CAPTION_GAP, dpi),
+        px(metrics::GROUP_MARGIN, dpi),
+        px(metrics::GROUP_MARGIN, dpi),
+    )
 }
 
 fn apply_bounds(id: WidgetId) {
@@ -1311,7 +1324,7 @@ fn apply_bounds(id: WidgetId) {
             unsafe {
                 match kind {
                     Kind::SpinBox => {
-                        let uw = px(17, dpi).min(w / 2);
+                        let uw = px(metrics::SPIN_ARROWS_W, dpi).min(w / 2);
                         SetWindowPos(h, 0, x, y, (w - uw).max(0), hh, flags);
                         if aux != 0 {
                             SetWindowPos(aux, 0, x + w - uw, y, uw, hh, flags);
@@ -1391,72 +1404,112 @@ fn position_pages(tabs: WidgetId) {
     }
 }
 
+/// Natural-size metrics in logical pixels (96 dpi); `px` scales them.
+mod metrics {
+    /// Extra width around a label's text.
+    pub const LABEL_PAD_W: i32 = 1;
+    /// Push button: padding around the text, and the smallest size.
+    pub const BUTTON_PAD_W: i32 = 24;
+    pub const BUTTON_PAD_H: i32 = 10;
+    pub const BUTTON_MIN: (i32, i32) = (60, 23);
+    /// Check box / radio button: room for the box next to the text, and the smallest height.
+    pub const CHECK_PAD_W: i32 = 22;
+    pub const CHECK_MIN_H: i32 = 16;
+    pub const CHECK_PAD_H: i32 = 2;
+    /// Single-line and multi-line text controls: width, and padding added to the text height
+    /// (a text area is five lines tall; the monospace one is wider).
+    pub const ENTRY_W: i32 = 160;
+    pub const ENTRY_PAD_H: i32 = 8;
+    pub const TEXT_AREA_W: i32 = 200;
+    pub const TEXT_AREA_MONO_W: i32 = 240;
+    pub const TEXT_AREA_LINES: i32 = 5;
+    pub const TABLE: (i32, i32) = (300, 150);
+    pub const TREE: (i32, i32) = (200, 200);
+    /// Combo box: arrow and border next to the widest item, minimum width, height padding.
+    pub const COMBO_PAD_W: i32 = 34;
+    pub const COMBO_MIN_W: i32 = 80;
+    pub const COMBO_PAD_H: i32 = 10;
+    /// List box: visible rows (clamped), width padding, minimum width, per-row and total padding.
+    pub const LIST_ROWS: (usize, usize) = (3, 8);
+    pub const LIST_PAD_W: i32 = 30;
+    pub const LIST_MIN_W: i32 = 120;
+    pub const LIST_ROW_PAD: i32 = 1;
+    pub const LIST_PAD_H: i32 = 6;
+    pub const SLIDER: (i32, i32) = (150, 28);
+    pub const PROGRESS: (i32, i32) = (150, 16);
+    pub const SPIN: (i32, i32) = (80, 8);
+    /// Width of a spin box's up-down arrows.
+    pub const SPIN_ARROWS_W: i32 = 17;
+    /// An image control with no image.
+    pub const EMPTY_IMAGE: i32 = 32;
+    /// Group box frame: side and bottom margin, and the gap under the caption.
+    pub const GROUP_MARGIN: i32 = 7;
+    pub const GROUP_CAPTION_GAP: i32 = 4;
+}
+
 fn preferred_impl(id: WidgetId) -> Option<Size> {
-    let (kind, text, items, image, range, mono) = get(id, |w| {
+    use metrics::*;
+    let (kind, text, items, image, mono) = get(id, |w| {
         (
             w.kind,
             w.text.clone(),
             w.items.clone(),
             w.image.clone(),
-            w.range,
             w.mono,
         )
     })?;
     let dpi = dpi_of(id);
     let th = text_h(dpi);
     let widest = |items: &[String]| items.iter().map(|i| measure(dpi, i).0).max().unwrap_or(0);
-    let _ = range;
+    // height of a line of text in the control's own font
+    let line_h = if mono {
+        measure_with(mono_font(dpi), "Ag").1
+    } else {
+        th
+    };
     let (w, h) = match kind {
         Kind::Label => {
             let (w, h) = measure(dpi, &text);
-            (w + px(1, dpi), h)
+            (w + px(LABEL_PAD_W, dpi), h)
         }
         Kind::Button => {
             let (w, _) = measure(dpi, &esc_text(&text));
             (
-                (w + px(24, dpi)).max(px(60, dpi)),
-                (th + px(10, dpi)).max(px(23, dpi)),
+                (w + px(BUTTON_PAD_W, dpi)).max(px(BUTTON_MIN.0, dpi)),
+                (th + px(BUTTON_PAD_H, dpi)).max(px(BUTTON_MIN.1, dpi)),
             )
         }
         Kind::CheckBox | Kind::RadioButton => {
             let (w, _) = measure(dpi, &esc_text(&text));
-            (w + px(22, dpi), th.max(px(16, dpi)) + px(2, dpi))
-        }
-        Kind::TextInput | Kind::PasswordInput => {
-            let th = if mono {
-                measure_with(mono_font(dpi), "Ag").1
-            } else {
-                th
-            };
-            (px(160, dpi), th + px(8, dpi))
-        }
-        Kind::TextArea => {
-            let th = if mono {
-                measure_with(mono_font(dpi), "Ag").1
-            } else {
-                th
-            };
-            (px(if mono { 240 } else { 200 }, dpi), th * 5 + px(8, dpi))
-        }
-        Kind::Table => (px(300, dpi), px(150, dpi)),
-        Kind::Tree => (px(200, dpi), px(200, dpi)),
-        Kind::ComboBox => (
-            (widest(&items) + px(34, dpi)).max(px(80, dpi)),
-            th + px(10, dpi),
-        ),
-        Kind::ListBox => {
-            let rows = items.len().clamp(3, 8) as i32;
             (
-                (widest(&items) + px(30, dpi)).max(px(120, dpi)),
-                rows * (th + px(1, dpi)) + px(6, dpi),
+                w + px(CHECK_PAD_W, dpi),
+                th.max(px(CHECK_MIN_H, dpi)) + px(CHECK_PAD_H, dpi),
             )
         }
-        Kind::Slider => (px(150, dpi), px(28, dpi)),
-        Kind::ProgressBar => (px(150, dpi), px(16, dpi)),
-        Kind::SpinBox => (px(80, dpi), th + px(8, dpi)),
+        Kind::TextInput | Kind::PasswordInput => (px(ENTRY_W, dpi), line_h + px(ENTRY_PAD_H, dpi)),
+        Kind::TextArea => (
+            px(if mono { TEXT_AREA_MONO_W } else { TEXT_AREA_W }, dpi),
+            line_h * TEXT_AREA_LINES + px(ENTRY_PAD_H, dpi),
+        ),
+        Kind::Table => (px(TABLE.0, dpi), px(TABLE.1, dpi)),
+        Kind::Tree => (px(TREE.0, dpi), px(TREE.1, dpi)),
+        Kind::ComboBox => (
+            (widest(&items) + px(COMBO_PAD_W, dpi)).max(px(COMBO_MIN_W, dpi)),
+            th + px(COMBO_PAD_H, dpi),
+        ),
+        Kind::ListBox => {
+            let rows = items.len().clamp(LIST_ROWS.0, LIST_ROWS.1) as i32;
+            (
+                (widest(&items) + px(LIST_PAD_W, dpi)).max(px(LIST_MIN_W, dpi)),
+                rows * (th + px(LIST_ROW_PAD, dpi)) + px(LIST_PAD_H, dpi),
+            )
+        }
+        Kind::Slider => (px(SLIDER.0, dpi), px(SLIDER.1, dpi)),
+        Kind::ProgressBar => (px(PROGRESS.0, dpi), px(PROGRESS.1, dpi)),
+        Kind::SpinBox => (px(SPIN.0, dpi), th + px(SPIN.1, dpi)),
         Kind::Image => match image {
             Some(i) => (px(i.w as i32, dpi), px(i.h as i32, dpi)),
-            None => (px(32, dpi), px(32, dpi)),
+            None => (px(EMPTY_IMAGE, dpi), px(EMPTY_IMAGE, dpi)),
         },
         _ => (0, 0),
     };
@@ -1514,7 +1567,7 @@ fn update_tooltip(id: WidgetId, text: &str) {
                 8,
                 wide("tooltips_class32").as_ptr(),
                 null(),
-                0x8000_0000 | TTS_ALWAYSTIP,
+                WS_POPUP | TTS_ALWAYSTIP,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
                 CW_USEDEFAULT,
@@ -1527,7 +1580,12 @@ fn update_tooltip(id: WidgetId, text: &str) {
             if tip == 0 {
                 return;
             }
-            send(tip, TTM_SETMAXTIPWIDTH, 0, px(400, dpi) as isize);
+            send(
+                tip,
+                TTM_SETMAXTIPWIDTH,
+                0,
+                px(TOOLTIP_MAX_WIDTH, dpi) as isize,
+            );
             with_w(win, |w| w.tip_hwnd = tip);
         }
         let mut ti = TOOLINFOW {
@@ -1626,7 +1684,7 @@ struct Target {
 }
 
 fn set_impl(id: WidgetId, prop: &Prop) {
-    let Some((kind, h, aux, win)) = get(id, |w| (w.kind, w.hwnd, w.w_aux(), w.win)) else {
+    let Some((kind, h, aux, win)) = get(id, |w| (w.kind, w.hwnd, w.aux, w.win)) else {
         return;
     };
     let dpi = dpi_of(id);
@@ -1668,12 +1726,6 @@ fn set_impl(id: WidgetId, prop: &Prop) {
         Prop::Focus => set_focus(&tg),
         #[allow(unreachable_patterns)] // new Props are ignored until a backend handles them
         _ => {}
-    }
-}
-
-impl W {
-    fn w_aux(&self) -> HWND {
-        self.aux
     }
 }
 
@@ -2062,7 +2114,7 @@ fn on_dpi_changed(id: WidgetId, h: HWND, dpi: u32, l: LPARAM) {
     if dpi == 0 || l == 0 {
         return;
     }
-    let ids: Vec<WidgetId> = {
+    {
         let _m = MuteGuard::new();
         with_w(id, |w| w.dpi = dpi);
         let r = unsafe { *(l as *const RECT) };
@@ -2092,15 +2144,12 @@ fn on_dpi_changed(id: WidgetId, h: HWND, dpi: u32, l: LPARAM) {
                 send(*aux, WM_SETFONT, f, 1);
             }
         }
-        let ids: Vec<WidgetId> = list.iter().map(|x| x.0).collect();
-        for i in &ids {
+        for (i, _, _) in &list {
             if *i != id {
                 apply_bounds(*i);
             }
         }
-        ids
-    };
-    let _ = ids;
+    }
     if let Some(sz) = client_logical(id) {
         emit(id, Event::Resized { w: sz.w, h: sz.h });
     }
@@ -2189,6 +2238,11 @@ fn fire_menu_cmd(cmd: u16) {
     }
 }
 
+/// The virtual key of an `LVN_KEYDOWN` / `TVN_KEYDOWN` notification (`wVKey` follows the header).
+fn key_of_keydown(l: LPARAM) -> u16 {
+    unsafe { ((l as *const u8).add(std::mem::size_of::<NMHDR>()) as *const u16).read_unaligned() }
+}
+
 fn on_notify(l: LPARAM) -> Option<LRESULT> {
     if l == 0 {
         return None;
@@ -2234,7 +2288,7 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
             Some(0)
         }
         (Kind::Table, LVN_KEYDOWN) if !muted() => {
-            let vk = unsafe { *((l as *const u8).add(std::mem::size_of::<NMHDR>()) as *const u16) };
+            let vk = key_of_keydown(l);
             if vk as usize == VK_RETURN {
                 let i = send(
                     hdr.hwndFrom,
@@ -2289,7 +2343,7 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
             Some(0)
         }
         (Kind::Tree, TVN_KEYDOWN) if !muted() => {
-            let vk = unsafe { *((l as *const u8).add(std::mem::size_of::<NMHDR>()) as *const u16) };
+            let vk = key_of_keydown(l);
             if vk as usize == VK_RETURN {
                 tree_activate_selected(cid);
             }
@@ -3539,7 +3593,7 @@ fn set_indeterminate(tg: &Target, b: &bool) {
             };
             SetWindowLongPtrW(h, GWL_STYLE, n);
         }
-        send(h, PBM_SETMARQUEE, *b as usize, 30);
+        send(h, PBM_SETMARQUEE, *b as usize, MARQUEE_STEP_MS);
     }
 }
 
@@ -3937,7 +3991,7 @@ fn create_control(
             send(h, PBM_SETRANGE32, 0, PROGRESS_STEPS as isize);
         }
         Kind::ComboBox => {
-            send(h, CB_SETMINVISIBLE, 10, 0);
+            send(h, CB_SETMINVISIBLE, COMBO_DROPDOWN_ROWS, 0);
         }
         Kind::TextInput | Kind::PasswordInput | Kind::TextArea => {
             send(h, EM_SETLIMITTEXT, 0, 0); // 0 = as much as the control supports
