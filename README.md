@@ -12,11 +12,11 @@ fair bit. But, you know, LLM code. Caveat emptor.
 ## Overview
 
 Rungui is a small (15kloc) portable desktop GUI library built as a wrapper over
-GTK3 (Linux), Win32 (Windows) and AppKit (macOS). It has no dependencies and
-builds in seconds. The style is old-fashioned stateful objects with callbacks.
-There are no advanced Rust features used, just `Copy` integer IDs for object
-handles that go inert when the underlying native object is destroyed or used out
-of valid context.
+GTK3 (Linux), Win32 (Windows) and AppKit (macOS). It has no other Rust
+dependencies and builds in seconds. The style is old-fashioned stateful objects
+with callbacks. There are no advanced Rust features used, just `Copy` integer
+IDs for object handles that go inert when the underlying native object is
+destroyed or used out of valid context.
 
 ## Quickstart
 
