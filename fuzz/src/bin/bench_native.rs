@@ -41,6 +41,7 @@ fn main() {
         App::quit();
     });
     app.run();
+    rungui_fuzz::dump_coverage();
     assert!(*done.borrow());
 }
 

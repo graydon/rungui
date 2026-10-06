@@ -13,6 +13,9 @@ libfuzzer-sys = { version = "0.4", optional = true }
 rungui = { path = ".." }
 
 [features]
+# Win32 code coverage under wine: build with the sancov trace-pc flags and link
+# scripts/wincov/cov.o (see scripts/wincov.sh); the drivers then write the executed addresses out.
+wincov = []
 # Headless in-memory backend (for the libFuzzer target and `tests/random_ops.rs`).
 mock = ["rungui/mock", "dep:libfuzzer-sys"]
 # Cocoa backend on GNUstep (linux hosts).

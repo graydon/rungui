@@ -202,4 +202,5 @@ fn main() {
         }
     });
     app.run();
+    rungui_fuzz::dump_coverage();
 }

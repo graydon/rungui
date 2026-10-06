@@ -94,3 +94,33 @@ unsafe impl std::alloc::GlobalAlloc for CountingAlloc {
         unsafe { std::alloc::System.realloc(p, l, n) }
     }
 }
+
+/// Append the code addresses reached so far (hex offsets from the image base, one per line) to the
+/// file named by `RUNGUI_COV_OUT`. A no-op unless built with the `wincov` feature, see
+/// `scripts/wincov.sh`.
+#[cfg(all(windows, feature = "wincov"))]
+pub fn dump_coverage() {
+    use std::io::Write;
+    const SPAN: usize = 16 << 20;
+    unsafe extern "C" {
+        static rungui_cov_seen: [u8; SPAN];
+    }
+    let Some(path) = std::env::var_os("RUNGUI_COV_OUT") else {
+        return;
+    };
+    let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) else {
+        return;
+    };
+    let seen = unsafe { &*std::ptr::addr_of!(rungui_cov_seen) };
+    let mut out = String::new();
+    for (rva, hit) in seen.iter().enumerate() {
+        if *hit != 0 {
+            out.push_str(&format!("{rva:x}\n"));
+        }
+    }
+    let _ = f.write_all(out.as_bytes());
+}
+
+/// See the Windows version; without `wincov` there is nothing to write.
+#[cfg(not(all(windows, feature = "wincov")))]
+pub fn dump_coverage() {}
