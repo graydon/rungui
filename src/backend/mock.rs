@@ -50,6 +50,8 @@ pub struct MockWidget {
     pub image: Option<ImageData>,
     /// Number of `Prop::Bounds` pushes received (to test change-only updates).
     pub bounds_pushes: u32,
+    /// Number of `Prop::Rows` pushes received.
+    pub rows_pushes: u32,
     /// Table state as last pushed by the core.
     pub columns: Vec<Column>,
     /// Table rows.
@@ -225,7 +227,19 @@ impl Backend for Mock {
                 Prop::Indeterminate(b) => w.indeterminate = *b,
                 Prop::Focus => w.focused = true,
                 Prop::Columns(c) => w.columns = c.to_vec(),
-                Prop::Rows(r) => w.rows = r.to_vec(),
+                Prop::Rows(r) => {
+                    w.rows = r.to_vec();
+                    w.rows_pushes += 1;
+                }
+                Prop::Cell { row, col, text } => {
+                    if let Some(r) = w.rows.get_mut(*row) {
+                        // missing cells are empty, as in a `Rows` push
+                        if r.len() <= *col {
+                            r.resize(*col + 1, String::new());
+                        }
+                        r[*col] = text.to_string();
+                    }
+                }
                 Prop::SortIndicator(x) => w.sort = *x,
                 Prop::TreeRows(r) => w.tree_rows = r.to_vec(),
                 Prop::TreeSelected(x) => w.tree_selected = *x,

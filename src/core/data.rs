@@ -17,20 +17,34 @@ pub fn data_update(id: WidgetId, what: Data, f: impl FnOnce(&mut Node)) {
 
 /// Combine two kinds of pending update into one that covers both.
 fn merge(pending: Option<Data>, what: Data) -> Data {
-    match pending {
-        None => what,
-        Some(p) if p == what => p,
-        Some(_) if what == Data::TreeRows => Data::TreeRows,
-        Some(_) => Data::TableAll,
+    match (pending, what) {
+        (None, _) => what,
+        (Some(p), _) if p == what => p,
+        (Some(_), Data::TreeRows) => Data::TreeRows,
+        // all rows include the cells
+        (Some(Data::TableCells), Data::TableRows) | (Some(Data::TableRows), Data::TableCells) => {
+            Data::TableRows
+        }
+        _ => Data::TableAll,
     }
 }
+
+/// More changed cells than this are sent as the whole table instead.
+const MAX_PENDING_CELLS: usize = 256;
 
 /// Note that part of the model of table/tree `id` changed. The backend is updated at the next
 /// loop turn (see [`flush_models`]), so any number of mutations costs one transfer of the model.
 pub fn push(id: WidgetId, what: Data) {
     let need_wake = with(|r| {
         let b = r.nodes.get_mut(&id)?.batch_mut()?;
-        b.pending = Some(merge(b.pending, what));
+        let mut merged = merge(b.pending, what);
+        if merged == Data::TableCells && b.cells.len() > MAX_PENDING_CELLS {
+            merged = Data::TableRows;
+        }
+        if merged != Data::TableCells {
+            b.cells.clear();
+        }
+        b.pending = Some(merged);
         r.dirty_models.insert(id);
         Some(r.schedule())
     })
@@ -89,6 +103,7 @@ fn send(id: WidgetId, what: Data) {
         Table {
             cols: Option<Vec<Column>>,
             rows: Option<Vec<Vec<String>>>,
+            cells: Vec<(usize, usize, String)>,
             sel: Option<usize>,
             sort: Option<(usize, bool)>,
             send_sel: bool,
@@ -100,18 +115,30 @@ fn send(id: WidgetId, what: Data) {
         },
     }
     let Some(snap) = with(|r| {
-        let n = r.nodes.get(&id)?;
-        if let Some(t) = n.table() {
+        let n = r.nodes.get_mut(&id)?;
+        if let Some(t) = n.table_mut() {
             let all = what == Data::TableAll;
+            let listed = std::mem::take(&mut t.batch.cells);
+            let cells = if what == Data::TableCells {
+                // cells that vanished with a later shrinking of the table are skipped
+                listed
+                    .into_iter()
+                    .filter_map(|(r, c)| Some((r, c, t.rows.get(r)?.get(c)?.clone())))
+                    .collect()
+            } else {
+                vec![]
+            };
             return Some(Snap::Table {
                 cols: all.then(|| t.columns.clone()),
                 rows: (all || what == Data::TableRows).then(|| t.rows.clone()),
+                cells,
                 sel: t.selected,
                 sort: t.sort,
                 send_sel: all || matches!(what, Data::TableRows | Data::TableSelected),
                 send_sort: all || what == Data::TableSort,
             });
         }
+        let n = r.nodes.get(&id)?;
         let t = n.tree()?;
         Some(Snap::Tree {
             rows: (what == Data::TreeRows).then(|| t.flatten()),
@@ -125,6 +152,7 @@ fn send(id: WidgetId, what: Data) {
         Snap::Table {
             cols,
             rows,
+            cells,
             sel,
             sort,
             send_sel,
@@ -135,6 +163,16 @@ fn send(id: WidgetId, what: Data) {
             }
             if let Some(r) = rows {
                 B::set(id, &Prop::Rows(&r));
+            }
+            for (row, col, text) in &cells {
+                B::set(
+                    id,
+                    &Prop::Cell {
+                        row: *row,
+                        col: *col,
+                        text,
+                    },
+                );
             }
             if send_sel {
                 B::set(id, &Prop::Selected(sel));

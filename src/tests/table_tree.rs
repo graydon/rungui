@@ -587,3 +587,38 @@ fn a11y_popup_menu_role() {
     // popup menus are top-level objects: they are not part of a window's a11y list
     assert!(a11y::resolve(pm.id()).is_none());
 }
+
+#[test]
+fn set_cell_sends_only_the_cell() {
+    init();
+    let win = Window::new("w");
+    let t = Table::new(win);
+    t.set_columns(&[Column::new("a"), Column::new("b")]);
+    let rows: Vec<Vec<String>> = (0..50).map(|i| vec![i.to_string(), "x".into()]).collect();
+    t.set_rows(&rows);
+    t.set_selected(Some(7));
+    App::update();
+    let before = widget(t.id()).unwrap().rows_pushes;
+    t.set_cell(3, 1, "changed");
+    t.set_cell(4, 1, "also");
+    t.set_cell(999, 0, "ignored");
+    App::update();
+    let w = widget(t.id()).unwrap();
+    assert_eq!(w.rows_pushes, before, "the rows were not sent again");
+    assert_eq!(w.rows[3][1], "changed");
+    assert_eq!(w.rows[4][1], "also");
+    assert_eq!(w.selected, Some(7));
+    assert_eq!(t.cell(3, 1), "changed");
+    // a flood of changes, or a change mixed with a row change, falls back to the whole table
+    for i in 0..400 {
+        t.set_cell(i % 50, 0, &format!("v{i}"));
+    }
+    t.push_row(&["new", "row"]);
+    t.set_cell(0, 1, "after");
+    App::update();
+    let w = widget(t.id()).unwrap();
+    assert_eq!(w.rows, t.rows());
+    assert_eq!(w.rows[0][1], "after");
+    assert_eq!(w.selected, Some(7));
+    win.destroy();
+}

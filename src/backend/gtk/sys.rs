@@ -397,6 +397,12 @@ unsafe extern "C" {
     pub fn gtk_tree_model_get_path(m: P, it: *mut TreeIter) -> P;
     pub fn gtk_tree_model_get_iter(m: P, it: *mut TreeIter, path: P) -> c_int;
     pub fn gtk_tree_model_get_n_columns(m: P) -> c_int;
+    pub fn gtk_tree_model_iter_nth_child(
+        m: P,
+        it: *mut TreeIter,
+        parent: *mut TreeIter,
+        n: c_int,
+    ) -> c_int;
     pub fn gtk_tree_model_foreach(m: P, f: TreeForeachFn, data: P);
     pub fn gtk_tree_path_new_from_indices(first: c_int, ...) -> P;
     pub fn gtk_tree_path_get_indices(p: P) -> *mut c_int;

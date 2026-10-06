@@ -1721,6 +1721,7 @@ impl Backend for Cocoa {
             Prop::Resizable(r) => prop_resizable(id, &e, *r),
             Prop::Columns(cols) => set_columns(&e, cols),
             Prop::Rows(rows) => prop_rows(id, &e, rows),
+            Prop::Cell { row, col, text } => prop_cell(id, &e, *row, *col, text),
             Prop::SortIndicator(si) => set_sort_indicator(&e, *si),
             Prop::TreeRows(rows) => set_tree_rows(id, &e, rows),
             Prop::TreeSelected(n) => prop_tree_selected(id, &e, *n),
@@ -2867,6 +2868,18 @@ fn prop_resizable(id: WidgetId, e: &Entry, r: bool) {
 fn prop_rows(id: WidgetId, e: &Entry, rows: &[Vec<String>]) {
     st(|s| s.rows.insert(id, rows.to_vec()));
     vm!(e.aux, "reloadData");
+}
+
+/// `Prop::Cell`: change the stored text and redraw (no copy of the other rows).
+fn prop_cell(id: WidgetId, e: &Entry, row: usize, col: usize, text: &str) {
+    let done = st(|s| {
+        let cell = s.rows.get_mut(&id)?.get_mut(row)?.get_mut(col)?;
+        *cell = text.to_string();
+        Some(())
+    });
+    if done.is_some() {
+        vm!(e.aux, "reloadData");
+    }
 }
 
 /// `Prop::TreeSelected`.

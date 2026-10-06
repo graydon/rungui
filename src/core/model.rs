@@ -29,6 +29,8 @@ pub struct LayoutProps {
 pub struct Batch {
     pub freeze: u32,
     pub pending: Option<Data>,
+    /// Cells changed since the last push while `pending` is `Data::TableCells`.
+    pub cells: Vec<(usize, usize)>,
 }
 
 /// Table model (rows are plain strings).
@@ -288,6 +290,8 @@ pub enum Data {
     TableAll,
     /// Rows + selection.
     TableRows,
+    /// Only the cells listed in `Batch::cells`.
+    TableCells,
     TableSelected,
     TableSort,
     /// Rows + selection.

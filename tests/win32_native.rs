@@ -136,6 +136,9 @@ const CB_GETCURSEL: u32 = 0x147;
 const CB_SETCURSEL: u32 = 0x14E;
 const PBM_GETPOS: u32 = 0x408;
 const LVM_SETITEMSTATE: u32 = 0x102B;
+const LVM_GETITEMTEXTW: u32 = 0x1073;
+const LVM_GETNEXTITEM: u32 = 0x100C;
+const LVNI_SELECTED: isize = 2;
 const TVM_EXPAND: u32 = 0x1102;
 const TVM_GETNEXTITEM: u32 = 0x110A;
 const TVM_SELECTITEM: u32 = 0x110B;
@@ -932,4 +935,38 @@ fn file_dialogs_can_be_cancelled() {
     });
     assert_eq!(out.borrow().len(), 4, "every dialog returned");
     assert!(out.borrow().iter().all(|n| *n == 0), "{:?}", out.borrow());
+}
+
+#[test]
+fn table_cell_edits_are_made_in_place() {
+    let _app = new_app("win32-native-cell");
+    let win = Window::new("t");
+    let col = VBox::new(win);
+    let table = Table::new(col);
+    table.set_columns(&[Column::new("a"), Column::new("b")]);
+    table.set_rows(&[vec!["1", "x"], vec!["2", "y"], vec!["3", "z"]]);
+    table.set_selected(Some(2));
+    let h = hwnd(table.native_handle());
+    table.set_cell(1, 1, "changed ü");
+    App::update(); // model changes reach the controls at the end of the loop turn
+    let mut buf = [0u16; 64];
+    let it = LvItem {
+        mask: 0,
+        item: 1,
+        sub_item: 1,
+        state: 0,
+        state_mask: 0,
+        text: buf.as_mut_ptr(),
+        text_max: 64,
+        image: 0,
+        lparam: 0,
+    };
+    let n = unsafe { SendMessageW(h, LVM_GETITEMTEXTW, 1, &it as *const LvItem as isize) };
+    assert_eq!(String::from_utf16_lossy(&buf[..n as usize]), "changed ü");
+    assert_eq!(
+        unsafe { SendMessageW(h, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED) },
+        2,
+        "the selection stays"
+    );
+    assert_eq!(table.selected(), Some(2));
 }

@@ -1715,6 +1715,7 @@ fn set_impl(id: WidgetId, prop: &Prop) {
         Prop::Resizable(b) => set_resizable(&tg, b),
         Prop::Columns(cols) => set_columns(&tg, cols),
         Prop::Rows(rows) => set_rows(&tg, rows),
+        Prop::Cell { row, col, text } => set_cell(&tg, *row, *col, text),
         Prop::SortIndicator(s) => set_sort_indicator(&tg, s),
         Prop::TreeRows(rows) => set_tree_rows(&tg, rows),
         Prop::TreeSelected(n) => set_tree_selected(&tg, n),
@@ -3634,6 +3635,26 @@ fn set_rows(tg: &Target, rows: &[Vec<String>]) {
     let Target { id, kind, .. } = *tg;
     if kind == Kind::Table {
         table_set_rows(id, rows);
+    }
+}
+
+/// `Prop::Cell`.
+fn set_cell(tg: &Target, row: usize, col: usize, text: &str) {
+    let Target { kind, h, .. } = *tg;
+    if kind == Kind::Table {
+        let mut buf = wide(text);
+        let it = LVITEMW {
+            mask: LVIF_TEXT,
+            iItem: row as i32,
+            iSubItem: col as i32,
+            state: 0,
+            stateMask: 0,
+            pszText: buf.as_mut_ptr(),
+            cchTextMax: 0,
+            iImage: 0,
+            lParam: 0,
+        };
+        send(h, LVM_SETITEMTEXTW, row, &it as *const _ as isize);
     }
 }
 

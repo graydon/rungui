@@ -256,6 +256,17 @@ pub enum Prop<'a> {
     /// Table: full replacement of the rows. Missing cells are empty, extra cells are ignored.
     /// Always followed by `Selected` (native rebuilds clear the selection).
     Rows(&'a [Vec<String>]),
+    /// Table: replace the text of one cell, sent instead of `Rows` when only a few cells changed
+    /// (`row` and `col` are inside the last `Rows` and `Columns`). Selection and scroll position
+    /// must stay as they are.
+    Cell {
+        /// Row index.
+        row: usize,
+        /// Column index.
+        col: usize,
+        /// The new text.
+        text: &'a str,
+    },
     /// Table: sort arrow on (column, ascending); `None` clears it. Display only: never sort in the backend.
     SortIndicator(Option<(usize, bool)>),
     /// Tree: full replacement, pre-order flattening of ALL nodes (also those below collapsed nodes).
@@ -323,7 +334,9 @@ impl Prop<'_> {
             Prop::ReadOnly(_) | Prop::Monospace(_) => text_input,
             Prop::Indeterminate(_) => kind == ProgressBar,
             Prop::Resizable(_) | Prop::Position { .. } | Prop::MinSize(_) => kind == Window,
-            Prop::Columns(_) | Prop::Rows(_) | Prop::SortIndicator(_) => kind == Table,
+            Prop::Columns(_) | Prop::Rows(_) | Prop::Cell { .. } | Prop::SortIndicator(_) => {
+                kind == Table
+            }
             Prop::TreeRows(_) | Prop::TreeSelected(_) => kind == Tree,
             Prop::Orientation(_) => kind == Sash,
             Prop::Wrap(_) => kind == TextArea,

@@ -115,8 +115,8 @@ R = run-tested, C = compiles and links only, T = type-checked only, N = not impl
   create/destroy (also in plain C), and a popup menu holding a submenu can warn about negative sizes.
 - **Win32 under wine:** `listbox set_items` of 10,000 items takes about 0.6 s and resizing a window of
   1,000 controls about 0.8 s, both dominated by wine's own message handling (a bare-Win32 loop costs
-  about half of the latter). A table or tree is rebuilt from the whole model on every change (as on the
-  other backends), so changing one cell of 10,000 rows costs about 180 ms there.
+  about half of the latter). A tree is rebuilt from the whole model on every change (as on the
+  other backends), so changing a tree node costs about 110 ms there for 10,000 nodes (a table cell is changed in place and costs nothing).
 - **API gaps found by the file manager:** no key-event or focus callbacks on tables, no
   `on_activate` (Enter) on `TextInput`, no modal windows or input dialog, no multi-select, no
   right-clicked-row query for context menus, no column-resize or scroll-to-row control.

@@ -108,16 +108,17 @@ impl Table {
     /// Set one cell (the row is padded with empty cells if needed; out-of-range rows are ignored).
     /// Note: this shadows the grid-placement `Widget::set_cell`, reachable as `(*table).set_cell(..)`.
     pub fn set_cell(&self, row: usize, col: usize, text: &str) {
-        core::data_update(self.id(), core::Data::TableRows, |n| {
-            if let Some(r) = n.table_mut().and_then(|t| t.rows.get_mut(row)) {
-                if col >= MAX_COLUMNS {
-                    return; // absurd column index: would allocate gigabytes
-                }
-                if r.len() <= col {
-                    r.resize(col + 1, String::new());
-                }
-                r[col] = text.to_string();
+        core::data_update(self.id(), core::Data::TableCells, |n| {
+            let Some(t) = n.table_mut() else { return };
+            let Some(r) = t.rows.get_mut(row) else { return };
+            if col >= MAX_COLUMNS {
+                return; // absurd column index: would allocate gigabytes
             }
+            if r.len() <= col {
+                r.resize(col + 1, String::new());
+            }
+            r[col] = text.to_string();
+            t.batch.cells.push((row, col));
         });
     }
     /// The text of one cell (empty when out of range).

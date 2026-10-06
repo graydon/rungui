@@ -1332,6 +1332,7 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
             Prop::Resizable(r) => set_resizable(id, w, *r),
             Prop::Columns(cols) if w.kind == Kind::Table => set_columns(id, w, cols),
             Prop::Rows(rows) if w.kind == Kind::Table => set_rows(w, rows),
+            Prop::Cell { row, col, text } if w.kind == Kind::Table => set_cell(w, *row, *col, text),
             Prop::SortIndicator(si) if w.kind == Kind::Table => set_sort_indicator(w, si),
             Prop::TreeRows(rows) if w.kind == Kind::Tree => set_tree_rows(w, rows),
             Prop::TreeSelected(node) if w.kind == Kind::Tree => set_tree_selected(w, node),
@@ -1817,6 +1818,22 @@ unsafe fn set_rows(w: &W, rows: &&[Vec<String>]) {
         }
         gtk_tree_view_set_model(tv, store);
         g_object_unref(store);
+    }
+}
+
+/// `Prop::Cell`: one cell of the list store, in place (selection and scroll position stay).
+unsafe fn set_cell(w: &W, row: usize, col: usize, text: &str) {
+    unsafe {
+        let store = gtk_tree_view_get_model(w.inner);
+        if store.is_null() || col >= gtk_tree_model_get_n_columns(store) as usize {
+            return;
+        }
+        let mut it = TreeIter::new();
+        if let Ok(n) = c_int::try_from(row) {
+            if gtk_tree_model_iter_nth_child(store, &mut it, NULL as *mut TreeIter, n) != 0 {
+                gtk_list_store_set(store, &mut it, col as c_int, cs(text).as_ptr(), -1 as c_int);
+            }
+        }
     }
 }
 

@@ -143,7 +143,7 @@ fn table_op(rng: &mut Rng, t: Table, m: &mut TModel) -> String {
             assert_eq!(t.selected(), before);
             mock::user_activate_row(t.id(), m.rows.len());
             mock::user_click_column(t.id(), m.ncols + 1);
-            t.set_cell(usize::MAX, 0, ""); // no-op that re-pushes the model (the mock mirrored the bogus selection)
+            t.set_selected(before); // re-push the selection (the mock mirrored the bogus one)
             "stale user events".into()
         }
         _ => {
