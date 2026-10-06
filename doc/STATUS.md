@@ -88,10 +88,10 @@ R = run-tested, C = compiles and links only, T = type-checked only, N = not impl
 ## Known gaps
 
 - **Win32:** never run on real Windows; verified only under wine on Xvfb with no window manager, so
-  `Event::Moved`, `Prop::MinSize`, live window shrinking and DPI change are compile-checked only.
+  live window shrinking is not exercised; `Prop::MinSize` (`WM_GETMINMAXINFO`), `Event::Moved` and DPI changes are driven by synthetic messages in `tests/win32_native.rs`, not by a window manager or a second monitor.
   Accessibility is MSAA only (the stock controls' own default actions apply), explicit
   `set_a11y_*` overrides on menu items are not applied (`IAccPropServices::SetHmenuProp` could do it), the SpinBox up/down control has no name or value unless the app sets one. Checked with a
-  UIA client (comtypes) and an MSAA client, not with a real screen reader. The sash's keyboard handling (tab stop, `WM_KEYDOWN`, focus rectangle) is compile-checked only, and its tab stop comes before both panes because it is created first. comctl32 left-aligns the first Table column;
+  UIA client (comtypes) and an MSAA client, not with a real screen reader. The sash's keys are tested under wine by `tests/win32_native.rs` (the focus rectangle is not), and its tab stop comes before both panes because it is created first. comctl32 left-aligns the first Table column;
   Shift+F10/Apps-key menus untested.
 - **macOS:** run on real macOS. Audited by reading, not run: `objc_msgSend_stret` (x86_64
   only), exact-type msgSend transmutes, BOOL/NSInteger sizes, common-modes timers, file dialogs,
