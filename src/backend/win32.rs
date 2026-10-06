@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::ptr::{null, null_mut};
-use std::sync::atomic::{AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 
 mod sys;
 use sys::*;
@@ -60,7 +60,12 @@ const NEW_WINDOW_SIZE: (i32, i32) = (400, 300);
 /// Size of the probe rectangle used to measure a tab control's non-client area.
 const TAB_PROBE: i32 = 1000;
 
+/// The message window of the thread that most recently completed `init`: where `wake` calls from
+/// threads without a toolkit instance of their own go.
 static MSG_HWND: AtomicIsize = AtomicIsize::new(0);
+/// A `wake` could not post its message (the 10,000-message queue was full). The core will not ask
+/// again until a drain has run, so the loop drains as soon as it next gets a message.
+static WAKE_LOST: AtomicBool = AtomicBool::new(false);
 
 // ------------------------------------------------------------------ state
 
@@ -93,6 +98,8 @@ struct W {
     dpi: u32,
     tip_hwnd: HWND,
     haccel: isize,
+    /// Some accelerator changed since `haccel` was built (rebuilt before the next key is translated).
+    accel_dirty: bool,
     menubar: isize,
     client_req: Option<Size>,
     shown: bool,
@@ -142,6 +149,7 @@ impl W {
             dpi: 96,
             tip_hwnd: 0,
             haccel: 0,
+            accel_dirty: false,
             menubar: 0,
             client_req: None,
             shown: false,
@@ -190,6 +198,16 @@ thread_local! {
     static TREE_EXP: RefCell<Vec<(WidgetId, u64, bool)>> = const { RefCell::new(Vec::new()) };
     /// Set by `popup_menu`: a context menu was shown during the current `ContextMenu` emission.
     static POPUP_SHOWN: Cell<bool> = const { Cell::new(false) };
+    /// This thread's message window (0 before `init`).
+    static MY_MSG_HWND: Cell<HWND> = const { Cell::new(0) };
+}
+
+/// The message window for work on behalf of the calling thread: its own, else the UI thread's.
+fn msg_hwnd() -> HWND {
+    match MY_MSG_HWND.try_with(Cell::get) {
+        Ok(h) if h != 0 => h,
+        _ => MSG_HWND.load(Ordering::SeqCst),
+    }
 }
 
 /// Short, non-reentrant access to the state. Returns `None` if the state is already borrowed
@@ -301,6 +319,13 @@ fn slider_steps(r: (f64, f64, f64)) -> i32 {
     } else {
         SLIDER_DEFAULT_STEPS
     }
+}
+
+/// Give a trackbar the positions `0..=steps`. (`TBM_SETRANGE` packs both ends into 16 bits each,
+/// which cannot hold the up to `SLIDER_MAX_STEPS` positions.)
+fn set_slider_range(h: HWND, steps: i32) {
+    send(h, TBM_SETRANGEMIN, 0, 0);
+    send(h, TBM_SETRANGEMAX, 1, steps as isize);
 }
 
 fn vk_for(key: &str) -> Option<u16> {
@@ -508,8 +533,17 @@ fn activate_visual_styles() {
 <assembly xmlns=\"urn:schemas-microsoft-com:asm.v1\" manifestVersion=\"1.0\"><dependency><dependentAssembly>\
 <assemblyIdentity type=\"win32\" name=\"Microsoft.Windows.Common-Controls\" version=\"6.0.0.0\" \
 processorArchitecture=\"*\" publicKeyToken=\"6595b64144ccf1df\" language=\"*\"/></dependentAssembly></dependency></assembly>";
+    // `create_new` after removing any leftover: never follow or reuse a file (or link) somebody
+    // else left under that name
     let path = std::env::temp_dir().join(format!("rungui-{}.manifest", std::process::id()));
-    if std::fs::write(&path, MANIFEST).is_err() {
+    let _ = std::fs::remove_file(&path);
+    let written = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .and_then(|mut f| std::io::Write::write_all(&mut f, MANIFEST.as_bytes()));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&path);
         return;
     }
     let src = wide(&path.to_string_lossy());
@@ -611,6 +645,7 @@ impl Backend for Win32 {
                 )));
             }
             MSG_HWND.store(h, Ordering::SeqCst);
+            let _ = MY_MSG_HWND.try_with(|m| m.set(h));
             st(|s| {
                 s.inst = inst;
                 s.fns = fns;
@@ -628,9 +663,13 @@ impl Backend for Win32 {
                 if r <= 0 {
                     break;
                 }
+                if WAKE_LOST.swap(false, Ordering::SeqCst) {
+                    let _ = catch_unwind(core::drain_posted);
+                }
                 let root = GetAncestor(msg.hwnd, GA_ROOT);
                 if root != 0 {
                     if let Some(id) = id_of(root) {
+                        flush_accel(id);
                         let ha = get(id, |w| w.haccel).unwrap_or(0);
                         if ha != 0 && TranslateAcceleratorW(root, ha, &msg) != 0 {
                             continue;
@@ -663,16 +702,14 @@ impl Backend for Win32 {
     fn wake() {
         // the core already collapses bursts of wake-ups into one, so a posted message per call
         // cannot flood the (10,000 message) queue
-        let h = MSG_HWND.load(Ordering::SeqCst);
-        if h != 0 {
-            unsafe {
-                PostMessageW(h, WM_WAKE, 0, 0);
-            }
+        let h = msg_hwnd();
+        if h != 0 && unsafe { PostMessageW(h, WM_WAKE, 0, 0) } == 0 {
+            WAKE_LOST.store(true, Ordering::SeqCst);
         }
     }
 
     fn timer_start(token: u64, millis: u32, repeat: bool) -> Result<()> {
-        let h = MSG_HWND.load(Ordering::SeqCst);
+        let h = msg_hwnd();
         if h == 0 {
             return Err(Error::NotInitialized);
         }
@@ -685,7 +722,7 @@ impl Backend for Win32 {
     }
 
     fn timer_stop(token: u64) {
-        let h = MSG_HWND.load(Ordering::SeqCst);
+        let h = msg_hwnd();
         st(|s| s.timers.remove(&token));
         if h != 0 {
             unsafe {
@@ -978,7 +1015,9 @@ fn destroy_impl(id: WidgetId) {
                 if let (Some(pm), Some(pos)) = (w.parent.and_then(|p| get(p, |x| x.hmenu)), pos) {
                     DeleteMenu(pm, pos as u32, MF_BYPOSITION);
                 }
-                menu_changed(w.win);
+                if on_menu_bar(w.kind, w.parent) {
+                    menu_changed(w.win);
+                }
             }
             _ => {
                 if w.has_tip {
@@ -1024,8 +1063,16 @@ fn remove_tooltip(win: WidgetId, h: HWND) {
 
 // ------------------------------------------------------------------ menus
 
+/// Does a change to a menu part of this `kind` under `parent` alter the menu bar? Only the bar
+/// itself and its top-level menus show in the window; everything below is drawn when opened.
+fn on_menu_bar(kind: Kind, parent: Option<WidgetId>) -> bool {
+    kind == Kind::MenuBar || parent.and_then(|p| get(p, |w| w.kind)) == Some(Kind::MenuBar)
+}
+
+/// The menu bar of `win` changed: redraw it and keep the client area at its requested size (a
+/// bar that wraps to another line takes some of it).
 fn menu_changed(win: WidgetId) {
-    let Some((h, req)) = get(win, |w| (w.hwnd, w.client_req)) else {
+    let Some((h, req, dpi)) = get(win, |w| (w.hwnd, w.client_req, w.dpi)) else {
         return;
     };
     if h == 0 {
@@ -1035,7 +1082,14 @@ fn menu_changed(win: WidgetId) {
         DrawMenuBar(h);
     }
     if let Some(sz) = req {
-        set_client_size(win, sz);
+        let mut cr = RECT::default();
+        unsafe {
+            GetClientRect(h, &mut cr);
+        }
+        if (cr.right - cr.left, cr.bottom - cr.top) != (px(sz.w.max(1), dpi), px(sz.h.max(1), dpi))
+        {
+            set_client_size(win, sz);
+        }
     }
 }
 
@@ -1049,11 +1103,19 @@ fn menu_label(w: &W) -> String {
 }
 
 fn menu_update_text(id: WidgetId) {
-    let Some((kind, cmd, win, pm, pos, label)) = st(|s| {
+    let Some((kind, cmd, win, pm, pos, label, on_bar)) = st(|s| {
         let w = s.widgets.get(&id)?;
         let p = s.widgets.get(&w.parent?)?;
         let pos = p.children.iter().position(|c| *c == id)?;
-        Some((w.kind, w.cmd, w.win, p.hmenu, pos, menu_label(w)))
+        Some((
+            w.kind,
+            w.cmd,
+            w.win,
+            p.hmenu,
+            pos,
+            menu_label(w),
+            p.kind == Kind::MenuBar,
+        ))
     })
     .flatten() else {
         return;
@@ -1082,12 +1144,21 @@ fn menu_update_text(id: WidgetId) {
             &mii,
         );
     }
-    menu_changed(win);
+    if on_bar {
+        menu_changed(win);
+    }
 }
 
+/// An accelerator of `win` was added, changed or removed. The table is rebuilt lazily, once per
+/// burst of changes (see `flush_accel`).
 fn rebuild_accel(win: WidgetId) {
-    if get(win, |w| w.kind) != Some(Kind::Window) {
-        return; // popup menus show accelerators but never register them
+    with_w(win, |w| w.accel_dirty = w.kind == Kind::Window);
+}
+
+/// Rebuild the accelerator table of `win` if it is out of date.
+fn flush_accel(win: WidgetId) {
+    if !with_w(win, |w| std::mem::take(&mut w.accel_dirty)).unwrap_or(false) {
+        return; // up to date (popup menus show accelerators but never register them)
     }
     let list: Vec<ACCEL> = st(|s| {
         let mut v = vec![];
@@ -2141,7 +2212,7 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
         (Kind::Table, LVN_ITEMCHANGED) if !muted() => {
             let nm = unsafe { &*(l as *const NMLISTVIEW) };
             if nm.uChanged & LVIF_STATE != 0 && (nm.uNewState ^ nm.uOldState) & LVIS_SELECTED != 0 {
-                let msg = MSG_HWND.load(Ordering::SeqCst);
+                let msg = msg_hwnd();
                 unsafe {
                     PostMessageW(msg, WM_SELCHECK, cid.0 as usize, 0);
                 }
@@ -2193,7 +2264,7 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
             let _ =
                 TREE_EXP.try_with(|q| q.borrow_mut().push((cid, nm.itemNew.lParam as u64, open)));
             unsafe {
-                PostMessageW(MSG_HWND.load(Ordering::SeqCst), WM_TREEEXP, 0, 0);
+                PostMessageW(msg_hwnd(), WM_TREEEXP, 0, 0);
             }
             Some(0)
         }
@@ -3238,10 +3309,15 @@ fn set_enabled(tg: &Target, e: &bool) {
     with_w(id, |w| w.enabled = *e);
     match kind {
         Kind::MenuItem | Kind::CheckMenuItem | Kind::Menu => {
-            let Some((pm, cmd, pos)) = st(|s| {
+            let Some((pm, cmd, pos, on_bar)) = st(|s| {
                 let w = s.widgets.get(&id)?;
                 let p = s.widgets.get(&w.parent?)?;
-                Some((p.hmenu, w.cmd, p.children.iter().position(|c| *c == id)?))
+                Some((
+                    p.hmenu,
+                    w.cmd,
+                    p.children.iter().position(|c| *c == id)?,
+                    p.kind == Kind::MenuBar,
+                ))
             })
             .flatten() else {
                 return;
@@ -3254,7 +3330,9 @@ fn set_enabled(tg: &Target, e: &bool) {
             unsafe {
                 EnableMenuItem(pm, item, by | if *e { 0 } else { MF_GRAYED });
             }
-            menu_changed(win);
+            if on_bar {
+                menu_changed(win);
+            }
         }
         Kind::MenuBar | Kind::MenuSeparator => {}
         _ => unsafe {
@@ -3346,12 +3424,7 @@ fn set_range(tg: &Target, min: &f64, max: &f64, step: &f64) {
     let Target { id, kind, h, .. } = *tg;
     with_w(id, |w| w.range = (*min, *max, *step));
     if kind == Kind::Slider {
-        send(
-            h,
-            TBM_SETRANGE,
-            1,
-            (slider_steps((*min, *max, *step)) as isize) << 16,
-        );
+        set_slider_range(h, slider_steps((*min, *max, *step)));
         let v = get(id, |w| w.value).unwrap_or(*min);
         apply_value(id, v);
     }
@@ -3361,15 +3434,24 @@ fn set_range(tg: &Target, min: &f64, max: &f64, step: &f64) {
 fn set_items(tg: &Target, items: &[String]) {
     let Target { id, kind, h, .. } = *tg;
     with_w(id, |w| w.items = items.to_vec());
-    let (reset, add) = match kind {
-        Kind::ComboBox => (CB_RESETCONTENT, CB_ADDSTRING),
-        Kind::ListBox => (LB_RESETCONTENT, LB_ADDSTRING),
+    let (reset, add, reserve) = match kind {
+        Kind::ComboBox => (CB_RESETCONTENT, CB_ADDSTRING, CB_INITSTORAGE),
+        Kind::ListBox => (LB_RESETCONTENT, LB_ADDSTRING, LB_INITSTORAGE),
         _ => return,
     };
+    // no repainting between the adds, and room for all of them up front (each add otherwise grows
+    // the control's storage and invalidates it)
+    send(h, WM_SETREDRAW, 0, 0);
     send(h, reset, 0, 0);
+    let bytes: usize = items.iter().map(|i| i.len() * 2 + 2).sum();
+    send(h, reserve, items.len(), bytes as isize);
     for it in items.iter() {
         let w = wide(it);
         send(h, add, 0, w.as_ptr() as isize);
+    }
+    send(h, WM_SETREDRAW, 1, 0);
+    unsafe {
+        InvalidateRect(h, null(), 1);
     }
     let sel = get(id, |w| w.selected)
         .flatten()
@@ -3709,8 +3791,9 @@ fn create_menu_part(
             pw.children.push(id);
         }
     });
-    let win = if kind == Kind::MenuBar { p } else { pwin };
-    menu_changed(win);
+    if on_menu_bar(kind, Some(p)) {
+        menu_changed(if kind == Kind::MenuBar { p } else { pwin });
+    }
     Ok(())
 }
 
@@ -3848,7 +3931,7 @@ fn create_control(
     w.hwnd = h;
     match kind {
         Kind::Slider => {
-            send(h, TBM_SETRANGE, 1, (slider_steps(w.range) as isize) << 16);
+            set_slider_range(h, slider_steps(w.range));
         }
         Kind::ProgressBar => {
             send(h, PBM_SETRANGE32, 0, PROGRESS_STEPS as isize);

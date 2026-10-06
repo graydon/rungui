@@ -116,6 +116,19 @@ fn run(scale: usize) {
             tree.set_text(*n, "renamed");
         }
     });
+    // menus: every item with an accelerator re-registers the window's accelerator table
+    const MENU_ITEMS: usize = 1_000;
+    let bar = MenuBar::new(win);
+    let menu = Menu::new(bar, "&Big");
+    let mut items_m = vec![];
+    step("menu items with accelerators", MENU_ITEMS, || {
+        for i in 0..MENU_ITEMS {
+            let it = MenuItem::new(menu, &format!("Item {i}"));
+            it.set_accel(&format!("Ctrl+Alt+F{}", i % 24 + 1));
+            items_m.push(it);
+        }
+    });
+    step("destroy menu", MENU_ITEMS, || menu.destroy());
     step("destroy table", rows, || table.destroy());
     step("destroy form", widgets, || form.destroy());
     step("destroy window", 1, || win.destroy());
