@@ -8,12 +8,13 @@ edition = "2024"
 cargo-fuzz = true
 
 [dependencies]
-libfuzzer-sys = "0.4"
+# only the libFuzzer target needs it (and a C++ compiler for the target), so Win32 builds skip it
+libfuzzer-sys = { version = "0.4", optional = true }
 rungui = { path = ".." }
 
 [features]
 # Headless in-memory backend (for the libFuzzer target and `tests/random_ops.rs`).
-mock = ["rungui/mock"]
+mock = ["rungui/mock", "dep:libfuzzer-sys"]
 # Cocoa backend on GNUstep (linux hosts).
 emulate-mac = ["rungui/emulate-mac"]
 

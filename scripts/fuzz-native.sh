@@ -19,8 +19,12 @@ case "$BACKEND" in
   # (on GTK the driver aborts on GLib warnings itself and skips known toolkit ones)
   gtk) feat=(); env_extra=(NO_AT_BRIDGE=1) ;;
   gnustep) feat=(--features emulate-mac); env_extra=(NSZombieEnabled=YES) ;;
+  # the Win32 backend, built with mingw and run under wine in a private prefix (x86_64 hosts only)
+  wine) feat=(--target x86_64-pc-windows-gnu); env_extra=() ;;
   *) echo "unknown BACKEND $BACKEND"; exit 2 ;;
 esac
+[ "$BACKEND" = wine ] && [ "${ASAN:-0}" = 1 ] && { echo "ASAN=1 does not work for BACKEND=wine (mingw has no sanitizer runtime)"; exit 2; }
+exe_cmd=()
 bin=native; args=("$seeds" "$first")
 [ "${SOAK:-0}" = 1 ] && { bin=soak; args=("$seeds"); }
 if [ "${ASAN:-0}" = 1 ]; then
@@ -35,7 +39,14 @@ else
   export CARGO_TARGET_DIR="$T"
   cargo build --manifest-path fuzz/Cargo.toml "${feat[@]}" --bin "$bin" || exit 1
   exe="$T/debug/$bin"
+  if [ "$BACKEND" = wine ]; then
+    exe="$T/x86_64-pc-windows-gnu/debug/$bin.exe"
+    mkdir -p "$T"; T_ABS="$(cd "$T" && pwd)"
+    env_extra+=(WINEPREFIX="$T_ABS/wineprefix-fuzz" WINEDEBUG=-all "WINEDLLOVERRIDES=mscoree,mshtml=")
+    exe_cmd=(wine "$exe")
+  fi
 fi
+[ ${#exe_cmd[@]} = 0 ] && exe_cmd=("$exe")
 out="$(mktemp)"
 # MODAL=messages lets the driver open message boxes, MODAL=files file dialogs too and
 # MODAL=all popup menus as well; MODAL=0 none. They block the toolkit's loop, so a background loop
@@ -64,7 +75,7 @@ xvfb-run -a -s "-screen 0 1280x1024x24" bash -c '
   rc=$?
   [ -n "${pump:-}" ] && kill "$pump" 2>/dev/null
   exit $rc
-' _ "${env_extra[@]}" "$exe" "${args[@]}" > "$out" 2>&1
+' _ "${env_extra[@]}" "${exe_cmd[@]}" "${args[@]}" > "$out" 2>&1
 rc=$?
 # GNUstep logs harmless NSAssert chatter about negative view sizes and font offsets
 grep -vE '^seed [0-9]+$|Failed to determine offsets|given negative (width|height)' "$out" | tail -n 40

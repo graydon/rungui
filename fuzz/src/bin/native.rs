@@ -9,6 +9,11 @@
 //! deterministic byte stream, so a failure is reproduced by `native 1 <seed>`.
 use rungui::*;
 use rungui_fuzz::ops::{Fuzz, Mode};
+use rungui_fuzz::{CountingAlloc, live_heap_bytes, resources};
+
+#[global_allocator]
+static ALLOC: CountingAlloc = CountingAlloc;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -134,20 +139,6 @@ mod glib_log {
     pub fn install() {}
 }
 
-/// Resident memory (KiB) and open file descriptors of this process, to spot leaks across seeds.
-fn resources() -> (u64, usize) {
-    let rss_pages = std::fs::read_to_string("/proc/self/statm")
-        .ok()
-        .and_then(|s| {
-            s.split_whitespace()
-                .nth(1)
-                .and_then(|p| p.parse::<u64>().ok())
-        })
-        .unwrap_or(0);
-    let fds = std::fs::read_dir("/proc/self/fd").map_or(0, |d| d.count());
-    (rss_pages * 4, fds)
-}
-
 /// Print resource use every this many seeds.
 const REPORT_EVERY: u64 = 100;
 
@@ -178,7 +169,10 @@ fn main() {
             let report = seed % REPORT_EVERY == 0;
             if report {
                 let (rss, fds) = resources();
-                println!("resources at seed {seed}: rss {rss} KiB, {fds} fds");
+                println!(
+                    "resources at seed {seed}: rss {rss} KiB, {fds} fds, rust heap {} KiB",
+                    live_heap_bytes() / 1024
+                );
             }
             eprintln!("seed {seed}");
             // RUNGUI_FUZZ_NO_PANICS=1: no deliberate panics (so a debugger can stop on the first real

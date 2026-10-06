@@ -7,6 +7,11 @@
 //!
 //! Naming sections (menus basic text lists numeric image tabs table tree group) builds only those.
 use rungui::*;
+use rungui_fuzz::{CountingAlloc, live_heap_bytes, resources};
+
+#[global_allocator]
+static ALLOC: CountingAlloc = CountingAlloc;
+
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -16,19 +21,6 @@ const ROWS: usize = 50;
 const REPORT_EVERY: u32 = 250;
 /// Let the loop run this long between building and destroying a window.
 const LIVE_MS: u32 = 2;
-
-fn resources() -> (u64, usize) {
-    let rss_pages = std::fs::read_to_string("/proc/self/statm")
-        .ok()
-        .and_then(|s| {
-            s.split_whitespace()
-                .nth(1)
-                .and_then(|p| p.parse::<u64>().ok())
-        })
-        .unwrap_or(0);
-    let fds = std::fs::read_dir("/proc/self/fd").map_or(0, |d| d.count());
-    (rss_pages * 4, fds)
-}
 
 /// The parts of the window, so a leak can be narrowed down by naming only some of them.
 const SECTIONS: [&str; 13] = [
@@ -151,7 +143,11 @@ fn main() {
             n2.set(n2.get() + 1);
             if n2.get() % REPORT_EVERY == 0 {
                 let (rss, fds) = resources();
-                println!("iteration {}: rss {rss} KiB, {fds} fds", n2.get());
+                println!(
+                    "iteration {}: rss {rss} KiB, {fds} fds, rust heap {} KiB",
+                    n2.get(),
+                    live_heap_bytes() / 1024
+                );
             }
             if n2.get() >= iterations {
                 App::quit();
