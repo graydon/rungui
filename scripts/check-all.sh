@@ -45,4 +45,10 @@ run cargo run --release --features mock --example bench_mock "$@" -- --max-expon
 [ "${SKIP_SMOKE:-0}" = 1 ] || SOAK=1 run scripts/fuzz-native.sh 400
 [ "${SKIP_SMOKE:-0}" = 1 ] || BACKEND=gnustep run scripts/fuzz-native.sh 60
 [ "${SKIP_SMOKE:-0}" = 1 ] || BACKEND=gnustep SOAK=1 run scripts/fuzz-native.sh 200
+# the Win32 backend under wine (x86_64 hosts with wine only): the test suite incl. tests/win32_native.rs and the fuzz driver
+if [ "${SKIP_SMOKE:-0}" != 1 ] && command -v wine >/dev/null && [ "$(uname -m)" = x86_64 ]; then
+  run cargo test --target x86_64-pc-windows-gnu "$@"
+  BACKEND=wine run scripts/fuzz-native.sh 100
+  BACKEND=wine SOAK=1 run scripts/fuzz-native.sh 200
+fi
 exit $fail
