@@ -622,7 +622,7 @@ impl Backend for Win32 {
             {
                 let icc = INITCOMMONCONTROLSEX {
                     dwSize: std::mem::size_of::<INITCOMMONCONTROLSEX>() as u32,
-                    dwICC: 0x40FF,
+                    dwICC: ICC_ALL_USED,
                 };
                 f(&icc);
             }
@@ -2218,10 +2218,10 @@ fn on_command(w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                     emit(cid, Event::Toggled(true));
                 }
             }
-            (Kind::TextInput | Kind::PasswordInput | Kind::TextArea, 0x300) => {
+            (Kind::TextInput | Kind::PasswordInput | Kind::TextArea, EN_CHANGE) => {
                 emit(cid, Event::Text(get_text(l, kind == Kind::TextArea)));
             }
-            (Kind::SpinBox, 0x300) => {
+            (Kind::SpinBox, EN_CHANGE) => {
                 let t = get_text(text_h_, false).trim().replace(',', ".");
                 if let Ok(v) = t.parse::<f64>() {
                     let v = v.clamp(range.0.min(range.1), range.1.max(range.0));
@@ -2708,12 +2708,7 @@ fn tree_set_rows(id: WidgetId, rows: &[TreeRow]) {
     }
     send(h, WM_SETREDRAW, 1, 0);
     if top > 0 {
-        send(
-            h,
-            0x115, /* WM_VSCROLL */
-            4 /* SB_THUMBPOSITION */ | ((top as usize) << 16),
-            0,
-        );
+        send(h, WM_VSCROLL, SB_THUMBPOSITION | ((top as usize) << 16), 0);
     }
     unsafe {
         InvalidateRect(h, null(), 1);

@@ -801,3 +801,12 @@ unsafe extern "system" {
     ) -> i32;
     pub fn CoTaskMemFree(p: *mut c_void);
 }
+
+// notification codes and messages that were bare numbers in the backend
+pub const WM_VSCROLL: u32 = 0x115;
+pub const SB_THUMBPOSITION: usize = 4;
+/// `EN_CHANGE`: the text of an edit control changed.
+pub const EN_CHANGE: u32 = 0x300;
+/// `InitCommonControlsEx` classes: every common control class the backend creates
+/// (list view, tree view, tab, tooltip, trackbar, up-down, progress, standard).
+pub const ICC_ALL_USED: u32 = 0x40FF;
