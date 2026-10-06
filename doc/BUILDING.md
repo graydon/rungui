@@ -40,8 +40,9 @@ Needs a nightly toolchain with `llvm-tools-preview` for coverage and AddressSani
 | scaling of the core | `cargo run --release --features mock --example bench_mock -- --max-exponent 1.75` prints the measured growth exponent of every hot path at doubling sizes and fails above the bound |
 | random API fuzzing, mock backend, AddressSanitizer | `cargo +nightly fuzz run api_mock --features mock` (libFuzzer; corpus in `fuzz/corpus`) |
 | the same random programs as a fixed-seed test | `tests/random_ops.rs` (part of `cargo test --features mock`) |
-| random API fuzzing of a real toolkit | `scripts/fuzz-native.sh [seeds] [first_seed]`, `BACKEND=gnustep` for Cocoa-on-GNUstep, `ASAN=1` for AddressSanitizer, `MODAL=files` or `MODAL=all` to let the driver open file dialogs and popup menus as well |
+| random API fuzzing of a real toolkit | `scripts/fuzz-native.sh [seeds] [first_seed]`, `BACKEND=gnustep` for Cocoa-on-GNUstep, `BACKEND=wine` for Win32 under wine, `ASAN=1` for AddressSanitizer, `MODAL=files` or `MODAL=all` to let the driver open file dialogs and popup menus as well |
 | leak soak of a real toolkit (create/destroy loop, prints RSS and open fds) | `SOAK=1 scripts/fuzz-native.sh [iterations]` |
+| line coverage of the Win32 backend under wine | `scripts/wincov.sh all` (nightly; block-level sanitizer coverage, `report --list` names the uncovered lines) |
 | narrowing a failing seed | `scripts/fuzz-bisect.sh <seed>` (operation count), `RUNGUI_FUZZ_TRACE=1`, `cargo run --manifest-path fuzz/Cargo.toml --features mock --bin replay_mock -- <seed> [ops]` dumps the widget tree a seed builds |
 
 `fuzz/src/ops.rs` is the byte-driven interpreter all of these share: it creates every widget kind,

@@ -65,7 +65,18 @@ R = run-tested, C = compiles and links only, T = type-checked only, N = not impl
   with xdotool and `G_DEBUG=fatal-warnings`; they check results on disk and via trace output.
 - `scripts/smoke-win32.sh`: the Win32 backend under wine + Xvfb (skips if wine is missing); the same
   checks as `smoke-gtk.sh` plus sash drags, monospace/wrap, table/tree, popup menu.
-- `cargo test-win` runs the test suite as a Windows exe under wine (76 tests at the time it was added).
+- `cargo test-win` runs the test suite as a Windows exe under wine, always on a private Xvfb. That
+  includes `tests/win32_native.rs`, which sends the notifications of real user actions (button
+  clicks, list/table/tree selection, keys, accelerators, resizing, DPI changes, message boxes and file
+  dialogs) to the real controls and checks what the application hears, and reads native state back.
+- `BACKEND=wine scripts/fuzz-native.sh` (also `SOAK=1`) runs the random-operation driver and the leak
+  soak against the Win32 backend under wine: 10,000+ seeds clean. The soak shows a slow RSS
+  creep under wine (about 3 KiB per window with ~30 labels; the Rust heap and handle counts stay flat and
+  a bare-Win32 loop does not creep) that was not traced further. Wine itself crashes in its text shaping
+  on some random strings, so that driver feeds it ASCII-only random text.
+- `scripts/wincov.sh all`: line coverage of the Win32 backend under wine (block-level sanitizer coverage;
+  LLVM's own has no runtime for windows-gnu): about 82% of `win32.rs` from the tests, fuzz, soak and
+  benchmark drivers; what is left is mostly creation-failure paths and the results of file dialogs.
 - `scripts/smoke-gnustep.sh`: the Cocoa backend on GNUstep under Xvfb, 35 checks (sash
   drags and keys, typing incl. unicode, table sort, tree expand, popup menu, accelerators, move/resize, quit).
 - `scripts/check-all.sh` builds every mode (GTK, mock, emulate-mac, Windows GNU, both Apple
@@ -102,8 +113,10 @@ R = run-tested, C = compiles and links only, T = type-checked only, N = not impl
   4000 exist). `fuzz/src/bin/bench_native.rs` times these. GTK 3's file chooser trips an internal assertion now and then under Xvfb without a WM
   (excluded from the default fuzz run, `MODAL=files`), `GtkMenu` leaks a few KiB per
   create/destroy (also in plain C), and a popup menu holding a submenu can warn about negative sizes.
-- **Not verified here:** the Win32 backend could not be run on this aarch64 host (no wine); it
-  got the shared-code hardening, a code audit and compile/clippy checks only.
+- **Win32 under wine:** `listbox set_items` of 10,000 items takes about 0.6 s and resizing a window of
+  1,000 controls about 0.8 s, both dominated by wine's own message handling (a bare-Win32 loop costs
+  about half of the latter). A table or tree is rebuilt from the whole model on every change (as on the
+  other backends), so changing one cell of 10,000 rows costs about 180 ms there.
 - **API gaps found by the file manager:** no key-event or focus callbacks on tables, no
   `on_activate` (Enter) on `TextInput`, no modal windows or input dialog, no multi-select, no
   right-clicked-row query for context menus, no column-resize or scroll-to-row control.
@@ -119,8 +132,6 @@ are in the README ("Binary size and linkage")
 1. Run the Win32 backend on real Windows (CI job exists, unrun); verify move/min-size/DPI and the
    MSAA overrides with Narrator/NVDA.
 2. Close the API gaps above, then a canvas/custom-draw widget and virtualised tables/trees.
-3. Run the fuzz/soak drivers against wine on an x86_64 host and add `scripts/fuzz-native.sh` support
-   for `BACKEND=wine`.
 
 ## Workflow notes
 
