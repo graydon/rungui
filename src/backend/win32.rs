@@ -2140,7 +2140,7 @@ fn on_dpi_changed(id: WidgetId, h: HWND, dpi: u32, l: LPARAM) {
     }
     {
         let _m = MuteGuard::new();
-        with_w(id, |w| w.dpi = dpi);
+        let old_dpi = with_w(id, |w| std::mem::replace(&mut w.dpi, dpi)).unwrap_or(dpi);
         let r = unsafe { *(l as *const RECT) };
         unsafe {
             SetWindowPos(
@@ -2168,14 +2168,31 @@ fn on_dpi_changed(id: WidgetId, h: HWND, dpi: u32, l: LPARAM) {
                 send(*aux, WM_SETFONT, f, 1);
             }
         }
-        for (i, _, _) in &list {
+        for (i, hw, _) in &list {
             if *i != id {
                 apply_bounds(*i);
+            }
+            if let Some(n) = get(*i, |w| (w.kind == Kind::Table).then_some(w.cols.len())).flatten()
+            {
+                rescale_columns(*hw, n, old_dpi, dpi);
             }
         }
     }
     if let Some(sz) = client_logical(id) {
         emit(id, Event::Resized { w: sz.w, h: sz.h });
+    }
+}
+
+/// Keep the widths of a list view's columns (which the user may have dragged) the same in
+/// logical pixels when the window moves to a monitor with another DPI.
+fn rescale_columns(table: HWND, columns: usize, old_dpi: u32, new_dpi: u32) {
+    if old_dpi == new_dpi || old_dpi == 0 {
+        return;
+    }
+    for col in 0..columns {
+        let w = send(table, LVM_GETCOLUMNWIDTH, col, 0) as i64;
+        let scaled = w * i64::from(new_dpi) / i64::from(old_dpi);
+        send(table, LVM_SETCOLUMNWIDTH, col, scaled as isize);
     }
 }
 

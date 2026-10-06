@@ -91,8 +91,8 @@ R = run-tested, C = compiles and links only, T = type-checked only, N = not impl
   `Event::Moved`, `Prop::MinSize`, live window shrinking and DPI change are compile-checked only.
   Accessibility is MSAA only (the stock controls' own default actions apply), explicit
   `set_a11y_*` overrides on menu items are not applied (`IAccPropServices::SetHmenuProp` could do it), the SpinBox up/down control has no name or value unless the app sets one. Checked with a
-  UIA client (comtypes) and an MSAA client, not with a real screen reader. The sash's keyboard handling (tab stop, `WM_KEYDOWN`, focus rectangle) is compile-checked only, and its tab stop comes before both panes because it is created first. comctl32 left-aligns the first Table column; Table
-  column widths are not re-scaled on DPI change; Shift+F10/Apps-key menus untested.
+  UIA client (comtypes) and an MSAA client, not with a real screen reader. The sash's keyboard handling (tab stop, `WM_KEYDOWN`, focus rectangle) is compile-checked only, and its tab stop comes before both panes because it is created first. comctl32 left-aligns the first Table column;
+  Shift+F10/Apps-key menus untested.
 - **macOS:** run on real macOS. Audited by reading, not run: `objc_msgSend_stret` (x86_64
   only), exact-type msgSend transmutes, BOOL/NSInteger sizes, common-modes timers, file dialogs,
   the macOS popup-menu path, sash cursor rects, `setFrameTopLeftPoint:` flipping. Accessibility

@@ -138,6 +138,7 @@ const PBM_GETPOS: u32 = 0x408;
 const LVM_SETITEMSTATE: u32 = 0x102B;
 const LVM_GETITEMTEXTW: u32 = 0x1073;
 const LVM_GETNEXTITEM: u32 = 0x100C;
+const LVM_GETCOLUMNWIDTH: u32 = 0x101D;
 const LVNI_SELECTED: isize = 2;
 const TVM_EXPAND: u32 = 0x1102;
 const TVM_GETNEXTITEM: u32 = 0x110A;
@@ -974,4 +975,38 @@ fn table_cell_edits_are_made_in_place() {
         "the selection stays"
     );
     assert_eq!(table.selected(), Some(2));
+}
+
+#[test]
+fn table_columns_keep_their_logical_width_when_the_dpi_changes() {
+    let _app = new_app("win32-native-dpi");
+    let win = Window::new("t");
+    let table = Table::new(VBox::new(win));
+    table.set_columns(&[Column::new("a").width(100), Column::new("b").width(60)]);
+    App::update();
+    win.show();
+    let (wh, th) = (hwnd(win.native_handle()), hwnd(table.native_handle()));
+    let width = |c: usize| unsafe { SendMessageW(th, LVM_GETCOLUMNWIDTH, c, 0) };
+    let (a, b) = (width(0), width(1));
+    let r = Rect {
+        left: 0,
+        top: 0,
+        right: 800,
+        bottom: 600,
+    };
+    unsafe {
+        SendMessageW(
+            wh,
+            WM_DPICHANGED,
+            192 | (192 << 16),
+            &r as *const Rect as isize,
+        )
+    };
+    let ratio = |new: isize, old: isize| new as f64 / old as f64;
+    assert!(
+        (ratio(width(0), a) - 2.0).abs() < 0.05,
+        "{a} -> {}",
+        width(0)
+    );
+    assert!((ratio(width(1), b) - 2.0).abs() < 0.05);
 }
