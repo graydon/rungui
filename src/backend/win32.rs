@@ -1316,22 +1316,27 @@ fn apply_bounds(id: WidgetId) {
                 match kind {
                     Kind::SpinBox => {
                         let uw = px(metrics::SPIN_ARROWS_W, dpi).min(w / 2);
-                        SetWindowPos(h, 0, x, y, (w - uw).max(0), hh, flags);
+                        SetWindowPos(h, 0, x, y, (w - uw).max(0), hh, flags | SWP_NOCOPYBITS);
                         if aux != 0 {
-                            SetWindowPos(aux, 0, x + w - uw, y, uw, hh, flags);
+                            SetWindowPos(aux, 0, x + w - uw, y, uw, hh, flags | SWP_NOCOPYBITS);
                         }
                     }
                     Kind::GroupBox => {
-                        SetWindowPos(h, 0, x, y, w, hh, flags);
+                        SetWindowPos(h, 0, x, y, w, hh, flags | SWP_NOCOPYBITS);
                         if aux != 0 {
-                            SetWindowPos(aux, 0, 0, 0, w, hh, flags);
+                            SetWindowPos(aux, 0, 0, 0, w, hh, flags | SWP_NOCOPYBITS);
                         }
                     }
+                    // Controls moved or resized by a relayout (button, splitter drag) otherwise
+                    // keep stale copied bits until the next repaint.
                     _ => {
-                        SetWindowPos(h, 0, x, y, w, hh, flags);
+                        SetWindowPos(h, 0, x, y, w, hh, flags | SWP_NOCOPYBITS);
                     }
                 }
-                if matches!(kind, Kind::Label) {
+                if matches!(
+                    kind,
+                    Kind::Label | Kind::Button | Kind::CheckBox | Kind::RadioButton
+                ) {
                     InvalidateRect(h, null(), 1);
                 }
             }
@@ -2369,6 +2374,20 @@ fn on_tree_notify(cid: WidgetId, hdr: &NMHDR, l: LPARAM) -> Option<LRESULT> {
             if get(cid, |x| x.last_tsel) != Some(node) {
                 with_w(cid, |x| x.last_tsel = node);
                 emit(cid, Event::TreeSelected(node));
+            }
+        }
+        // A node with `has_children` but no rows yet (lazy loading) is not really expanded by
+        // comctl32, so it never sends TVN_ITEMEXPANDED for it: report the attempt here instead.
+        TVN_ITEMEXPANDINGW => {
+            let nm = unsafe { &*(l as *const NMTREEVIEWW) };
+            let h = hdr.hwndFrom;
+            let childless = send(h, TVM_GETNEXTITEM, TVGN_CHILD, nm.itemNew.hItem) == 0;
+            if nm.action & 3 == TVE_EXPAND as u32 && childless {
+                let _ = TREE_EXP
+                    .try_with(|q| q.borrow_mut().push((cid, nm.itemNew.lParam as u64, true)));
+                unsafe {
+                    PostMessageW(msg_hwnd(), WM_TREEEXP, 0, 0);
+                }
             }
         }
         TVN_ITEMEXPANDEDW => {

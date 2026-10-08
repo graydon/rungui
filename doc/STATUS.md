@@ -10,7 +10,7 @@ Last updated: 2026-10-05, after the quality pass (fuzzing, soak, coverage, API n
 
 | Requirement | State |
 |---|---|
-| win32 / macOS / linux backends | GTK3, Win32 and AppKit backends all exist, with hand-written FFI. Only GTK is verified at runtime on its real platform. |
+| win32 / macOS / linux backends | GTK3, Win32 and Cocoa backends all exist, with hand-written FFI. Only GTK is verified at runtime on its real platform. |
 | Hosted and emulated modes | `--features emulate-mac` (clang + GNUstep), `--features mock` (headless), Win32 via mingw-w64 and, on x86_64 Linux, run under wine (`cargo run-win`, `cargo test-win`). |
 | Cross-compile | `x86_64-pc-windows-gnu` builds and links. `*-apple-darwin` is type-checked only. |
 | Devcontainer scaffolding | `.devcontainer/`, `scripts/setup-devcontainer.sh`, `scripts/check-all.sh`, `scripts/wine-runner.sh`, `.cargo/config.toml` aliases. |

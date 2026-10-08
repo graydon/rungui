@@ -12,7 +12,7 @@ fair bit. But, you know, LLM code. Caveat emptor.
 ## Overview
 
 Rungui is a small (15kloc) portable desktop GUI library built as a wrapper over
-GTK3 (Linux), Win32 (Windows) and AppKit (macOS). It has no other Rust
+GTK3 (Linux), Win32 (Windows) and Cocoa (macOS). It has no other Rust
 dependencies and builds in seconds. The style is old-fashioned stateful objects
 with callbacks. There are no advanced Rust features used, just `Copy` integer
 IDs for object handles that go inert when the underlying native object is
@@ -57,19 +57,22 @@ Widgets: `Label`, `Button`, `CheckBox`, `RadioButton`, `TextInput`, `TextArea`, 
 
 ![file manager on GTK3](doc/screenshots/file-manager-gtk.png)
 
-**Win32 (the Windows exe, run under Wine)**
+**Win32 (Wine)**
 
 ![file manager on Win32 under Wine](doc/screenshots/file-manager-win32-wine.png)
 
-**AppKit (Cocoa backend, run on macOS)**
+**Win32 (Windows 10)**
+
+![file manager on Windows 10](doc/screenshots/file-manager-win32-win10.png)
+
+**Cocoa (macOS)**
 
 ![file manager on the Cocoa backend under macOS](doc/screenshots/file-manager-macos.png)
 
-**AppKit (Cocoa backend, run on GNUstep)**
+**Cocoa (GNUstep)**
 
 ![file manager on the Cocoa backend under GNUstep](doc/screenshots/file-manager-gnustep.png)
 
- The Win32 backend has not yet been run on real Windows, only Wine.
  See [`doc/STATUS.md`](doc/STATUS.md). 
 
 ## Dependencies
@@ -95,17 +98,10 @@ Widgets: `Label`, `Button`, `CheckBox`, `RadioButton`, `TextInput`, `TextArea`, 
 
 Plain `cargo build --release`:
 
-| Binary | GTK3 built | GTK3 stripped | Cocoa/macOS built | Cocoa/macOS stripped | Cocoa/GNUstep built | Cocoa/GNUstep stripped | Win32 built | Win32 stripped |
+| Binary | GTK3 built | GTK3 stripped | Cocoa built | Cocoa stripped | Cocoa built | Cocoa stripped | Win32 built | Win32 stripped |
 |---|---|---|---|---|---|---|---|---|
 | `hello` | 756 KiB | **601 KiB** | 803 KiB | **663 KiB** | 873 KiB | **711 KiB** | 1,738 KiB | **1,266 KiB** |
 | `file_manager` | 1,092 KiB | **862 KiB** | 1,087 KiB | **884 KiB** | 1,173 KiB | **939 KiB** | 1,964 KiB | **1,427 KiB** |
-
-## Platform status
-
-* **Linux (GTK3):** complete and run-tested under Xvfb.
-* **Windows (Win32) and macOS (AppKit):** written and cross-built; run under wine and GNUstep on
-  Linux, never yet on real Windows. Manually tested on macOS.
-* **Mock:** a headless backend (`--features mock`) for testingt.
 
 Per-widget, per-platform status is in
 [`doc/STATUS.md`](doc/STATUS.md). `scripts/check-all.sh` builds and tests every mode; see

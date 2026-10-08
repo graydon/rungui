@@ -1,7 +1,7 @@
 //! # rungui
 //!
 //! A small portable GUI toolkit that is a thin layer over the native toolkits: GTK3 on Linux,
-//! Win32 on Windows, AppKit on macOS. Each backend declares the platform's C API by hand; there
+//! Win32 on Windows, Cocoa on macOS. Each backend declares the platform's C API by hand; there
 //! are no binding crates. Text is UTF-8 in Rust and converted at the boundary (UTF-16 on Win32,
 //! `NSString` on Cocoa). Accessibility names and roles are derived by the core and set on the native controls.
 //!

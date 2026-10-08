@@ -1,7 +1,7 @@
 # rungui design
 
 rungui is a small toolkit: a Rust-side widget graph plus a thin per-platform backend that mirrors
-that graph into native widgets (GTK3 / Win32 / AppKit). Target size is FLTK/libui/IUP, not Qt.
+that graph into native widgets (GTK3 / Win32 / Cocoa). Target size is FLTK/libui/IUP, not Qt.
 
 ## Layers
 

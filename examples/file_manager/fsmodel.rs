@@ -548,7 +548,7 @@ fn image_preview(e: &Entry, head: &[u8]) -> Option<Preview> {
         .extension()?
         .to_string_lossy()
         .to_lowercase();
-    if !matches!(ext.as_str(), "ppm" | "pnm" | "bmp") || e.size > IMAGE_MAX_BYTES {
+    if !matches!(ext.as_str(), "ppm" | "pnm" | "bmp" | "png") || e.size > IMAGE_MAX_BYTES {
         return None;
     }
     let bytes = if e.size as usize <= head.len() {
@@ -558,6 +558,8 @@ fn image_preview(e: &Entry, head: &[u8]) -> Option<Preview> {
     };
     let img = if ext == "bmp" {
         parse_bmp(&bytes)?
+    } else if ext == "png" {
+        parse_png(&bytes)?
     } else {
         parse_ppm(&bytes)?
     };
@@ -743,6 +745,295 @@ pub fn parse_bmp(b: &[u8]) -> Option<ImageData> {
         }
     }
     Some(ImageData { w, h, rgba })
+}
+
+// ------------------------------------------------------------------ PNG (inflate + unfilter)
+
+/// A minimal DEFLATE decoder (RFC 1951): stored, fixed and dynamic blocks. `limit` bounds the output.
+fn inflate(data: &[u8], limit: usize) -> Option<Vec<u8>> {
+    struct Bits<'a> {
+        d: &'a [u8],
+        pos: usize,
+        bit: u32,
+    }
+    impl Bits<'_> {
+        fn get(&mut self, n: u32) -> Option<u32> {
+            let mut v = 0;
+            for i in 0..n {
+                let byte = *self.d.get(self.pos)?;
+                v |= (((byte >> self.bit) & 1) as u32) << i;
+                self.bit += 1;
+                if self.bit == 8 {
+                    self.bit = 0;
+                    self.pos += 1;
+                }
+            }
+            Some(v)
+        }
+    }
+    // canonical Huffman table: (count per length, symbols sorted by code)
+    struct Huff {
+        count: [u16; 16],
+        sym: Vec<u16>,
+    }
+    fn build(lens: &[u8]) -> Huff {
+        let mut count = [0u16; 16];
+        for &l in lens {
+            count[l as usize] += 1;
+        }
+        count[0] = 0;
+        let mut offs = [0u16; 16];
+        for i in 1..16 {
+            offs[i] = offs[i - 1] + count[i - 1];
+        }
+        let mut sym = vec![0u16; lens.len()];
+        for (s, &l) in lens.iter().enumerate() {
+            if l != 0 {
+                sym[offs[l as usize] as usize] = s as u16;
+                offs[l as usize] += 1;
+            }
+        }
+        Huff { count, sym }
+    }
+    fn decode(b: &mut Bits, h: &Huff) -> Option<u16> {
+        let (mut code, mut first, mut index) = (0i32, 0i32, 0i32);
+        for len in 1..16 {
+            code |= b.get(1)? as i32;
+            let c = h.count[len] as i32;
+            if code - c < first {
+                return h.sym.get((index + (code - first)) as usize).copied();
+            }
+            index += c;
+            first = (first + c) << 1;
+            code <<= 1;
+        }
+        None
+    }
+    const LBASE: [u16; 29] = [
+        3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115,
+        131, 163, 195, 227, 258,
+    ];
+    const LEXT: [u8; 29] = [
+        0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 0,
+    ];
+    const DBASE: [u16; 30] = [
+        1, 2, 3, 4, 5, 7, 9, 13, 17, 25, 33, 49, 65, 97, 129, 193, 257, 385, 513, 769, 1025, 1537,
+        2049, 3073, 4097, 6145, 8193, 12289, 16385, 24577,
+    ];
+    const DEXT: [u8; 30] = [
+        0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12,
+        13, 13,
+    ];
+    let mut b = Bits {
+        d: data,
+        pos: 0,
+        bit: 0,
+    };
+    let mut out: Vec<u8> = Vec::new();
+    loop {
+        let last = b.get(1)?;
+        match b.get(2)? {
+            0 => {
+                if b.bit != 0 {
+                    b.bit = 0;
+                    b.pos += 1;
+                }
+                let n = u16::from_le_bytes([*b.d.get(b.pos)?, *b.d.get(b.pos + 1)?]) as usize;
+                let blk = b.d.get(b.pos + 4..b.pos + 4 + n)?;
+                if out.len() + n > limit {
+                    return None;
+                }
+                out.extend_from_slice(blk);
+                b.pos += 4 + n;
+            }
+            t @ (1 | 2) => {
+                let (lit, dist) = if t == 1 {
+                    let mut l = [8u8; 288];
+                    l[144..256].fill(9);
+                    l[256..280].fill(7);
+                    (build(&l), build(&[5u8; 30]))
+                } else {
+                    let nlen = b.get(5)? as usize + 257;
+                    let ndist = b.get(5)? as usize + 1;
+                    let ncode = b.get(4)? as usize + 4;
+                    const ORDER: [usize; 19] = [
+                        16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+                    ];
+                    let mut cl = [0u8; 19];
+                    for &o in &ORDER[..ncode] {
+                        cl[o] = b.get(3)? as u8;
+                    }
+                    let clh = build(&cl);
+                    let mut lens = Vec::with_capacity(nlen + ndist);
+                    while lens.len() < nlen + ndist {
+                        let s = decode(&mut b, &clh)?;
+                        let (v, rep) = match s {
+                            0..=15 => (s as u8, 1),
+                            16 => (*lens.last()?, 3 + b.get(2)? as usize),
+                            17 => (0, 3 + b.get(3)? as usize),
+                            _ => (0, 11 + b.get(7)? as usize),
+                        };
+                        lens.resize(lens.len() + rep, v);
+                    }
+                    if lens.len() > nlen + ndist {
+                        return None;
+                    }
+                    (build(&lens[..nlen]), build(&lens[nlen..]))
+                };
+                loop {
+                    let s = decode(&mut b, &lit)? as usize;
+                    if s < 256 {
+                        out.push(s as u8);
+                    } else if s == 256 {
+                        break;
+                    } else {
+                        let s = s - 257;
+                        let len = *LBASE.get(s)? as usize + b.get(*LEXT.get(s)? as u32)? as usize;
+                        let d = decode(&mut b, &dist)? as usize;
+                        let dd = *DBASE.get(d)? as usize + b.get(*DEXT.get(d)? as u32)? as usize;
+                        if dd > out.len() {
+                            return None;
+                        }
+                        for _ in 0..len {
+                            out.push(out[out.len() - dd]);
+                        }
+                    }
+                    if out.len() > limit {
+                        return None;
+                    }
+                }
+            }
+            _ => return None,
+        }
+        if last == 1 {
+            return Some(out);
+        }
+    }
+}
+
+/// Non-interlaced PNG of any colour type, bit depth 1 to 16 (16-bit keeps the high byte).
+pub fn parse_png(b: &[u8]) -> Option<ImageData> {
+    if b.get(..8)? != b"\x89PNG\r\n\x1a\n" {
+        return None;
+    }
+    let (mut pos, mut hdr, mut plte, mut trns) = (8, None, Vec::new(), Vec::new());
+    let mut idat = Vec::new();
+    while let Some(h) = b.get(pos..pos + 8) {
+        let len = u32::from_be_bytes([h[0], h[1], h[2], h[3]]) as usize;
+        let data = b.get(pos + 8..pos + 8 + len)?;
+        match &h[4..8] {
+            b"IHDR" => hdr = Some(data.to_vec()),
+            b"PLTE" => plte = data.to_vec(),
+            b"tRNS" => trns = data.to_vec(),
+            b"IDAT" => idat.extend_from_slice(data),
+            b"IEND" => break,
+            _ => {}
+        }
+        pos += 12 + len;
+    }
+    let hdr = hdr.filter(|h| h.len() == 13)?;
+    let w = u32::from_be_bytes([hdr[0], hdr[1], hdr[2], hdr[3]]);
+    let h = u32::from_be_bytes([hdr[4], hdr[5], hdr[6], hdr[7]]);
+    let (depth, ctype, interlace) = (hdr[8] as usize, hdr[9], hdr[12]);
+    let chans = match ctype {
+        0 | 3 => 1,
+        2 => 3,
+        4 => 2,
+        6 => 4,
+        _ => return None,
+    };
+    if w == 0 || h == 0 || w > IMAGE_MAX_EDGE || h > IMAGE_MAX_EDGE || interlace != 0 {
+        return None;
+    }
+    if !matches!(depth, 1 | 2 | 4 | 8 | 16) || (ctype == 3 && plte.is_empty()) {
+        return None;
+    }
+    let (w, h) = (w as usize, h as usize);
+    let bpp = (chans * depth).div_ceil(8); // bytes per pixel for filtering
+    let stride = (w * chans * depth).div_ceil(8);
+    // zlib: 2 header bytes, deflate stream, adler32 (ignored)
+    let raw = inflate(idat.get(2..)?, (stride + 1) * h)?;
+    if raw.len() < (stride + 1) * h {
+        return None;
+    }
+    let mut cur = vec![0u8; stride];
+    let mut prev = vec![0u8; stride];
+    let mut rgba = Vec::with_capacity(w * h * 4);
+    for y in 0..h {
+        let line = &raw[y * (stride + 1)..(y + 1) * (stride + 1)];
+        cur.copy_from_slice(&line[1..]);
+        for i in 0..stride {
+            let a = if i >= bpp { cur[i - bpp] as i32 } else { 0 };
+            let up = prev[i] as i32;
+            let c = if i >= bpp { prev[i - bpp] as i32 } else { 0 };
+            let add = match line[0] {
+                0 => 0,
+                1 => a,
+                2 => up,
+                3 => (a + up) / 2,
+                4 => {
+                    let p = a + up - c;
+                    let (pa, pb, pc) = ((p - a).abs(), (p - up).abs(), (p - c).abs());
+                    if pa <= pb && pa <= pc {
+                        a
+                    } else if pb <= pc {
+                        up
+                    } else {
+                        c
+                    }
+                }
+                _ => return None,
+            };
+            cur[i] = cur[i].wrapping_add(add as u8);
+        }
+        // sample n of the row, scaled to 8 bits (palette indexes stay raw)
+        let sample = |n: usize| -> u8 {
+            match depth {
+                8 => cur[n],
+                16 => cur[n * 2],
+                d => {
+                    let per = 8 / d;
+                    let v = (cur[n / per] >> (8 - d * (n % per + 1))) & ((1 << d) - 1);
+                    if ctype == 3 {
+                        v
+                    } else {
+                        (v as u32 * 255 / ((1 << d) - 1)) as u8
+                    }
+                }
+            }
+        };
+        for x in 0..w {
+            let px = match ctype {
+                0 => {
+                    let g = sample(x);
+                    [g, g, g, 255]
+                }
+                2 => [sample(x * 3), sample(x * 3 + 1), sample(x * 3 + 2), 255],
+                3 => {
+                    let i = sample(x) as usize;
+                    let p = plte.get(i * 3..i * 3 + 3)?;
+                    [p[0], p[1], p[2], trns.get(i).copied().unwrap_or(255)]
+                }
+                4 => {
+                    let g = sample(x * 2);
+                    [g, g, g, sample(x * 2 + 1)]
+                }
+                _ => [
+                    sample(x * 4),
+                    sample(x * 4 + 1),
+                    sample(x * 4 + 2),
+                    sample(x * 4 + 3),
+                ],
+            };
+            rgba.extend_from_slice(&px);
+        }
+        std::mem::swap(&mut cur, &mut prev);
+    }
+    Some(ImageData {
+        w: w as u32,
+        h: h as u32,
+        rgba,
+    })
 }
 
 // ------------------------------------------------------------------ tests
@@ -1026,6 +1317,52 @@ mod tests {
             ),
             _ => panic!(),
         }
+    }
+
+    #[test]
+    fn png() {
+        // 24x24 RGB, zlib-compressed, all five filter types in rotation
+        let png: &[u8] = &[
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00, 0x18, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x6f, 0x15, 0xaa, 0xaf, 0x00, 0x00, 0x01, 0x4f, 0x49, 0x44, 0x41, 0x54, 0x78,
+            0xda, 0xcd, 0xd0, 0xa1, 0x4f, 0x82, 0x01, 0x10, 0x40, 0xf1, 0xfb, 0x50, 0x70, 0xa0,
+            0x9b, 0xce, 0x61, 0xb0, 0x50, 0x2c, 0x18, 0xae, 0x10, 0xa4, 0xb0, 0xa9, 0x85, 0x62,
+            0xa1, 0x68, 0xb8, 0x42, 0x90, 0xe2, 0xe6, 0x28, 0x16, 0x0a, 0xdb, 0x1b, 0xe5, 0x0a,
+            0x41, 0x0b, 0x85, 0x42, 0xb1, 0x50, 0x2c, 0x57, 0x0c, 0x52, 0x28, 0x14, 0x0b, 0xc5,
+            0x42, 0xa1, 0x50, 0x2c, 0x14, 0x8b, 0x49, 0xfd, 0x1b, 0x24, 0x7c, 0xdb, 0xcb, 0x2f,
+            0xfc, 0x44, 0x84, 0x82, 0x50, 0x14, 0x4a, 0x42, 0x59, 0xa8, 0x08, 0x35, 0xa1, 0x2e,
+            0x34, 0x04, 0x13, 0x5a, 0x42, 0x5b, 0xe8, 0x08, 0x3d, 0xa1, 0x2f, 0x0c, 0x84, 0x91,
+            0x30, 0x16, 0x42, 0x98, 0x08, 0x33, 0x61, 0x2e, 0x2c, 0x84, 0x95, 0x90, 0x24, 0xf9,
+            0xdf, 0x91, 0xfc, 0xbf, 0x4c, 0x92, 0x97, 0x8d, 0xb4, 0x95, 0x39, 0xbc, 0xc8, 0x65,
+            0xe5, 0xff, 0x6d, 0xff, 0xfd, 0x64, 0x03, 0x49, 0x56, 0xd9, 0x57, 0x8e, 0x95, 0x13,
+            0x45, 0x95, 0xaa, 0x72, 0xa9, 0x5c, 0x29, 0xd7, 0x4a, 0x53, 0xb9, 0x53, 0x1e, 0x94,
+            0xae, 0xe2, 0xca, 0x93, 0x32, 0x54, 0x9e, 0x95, 0x17, 0xe5, 0x55, 0x99, 0x2a, 0xef,
+            0xca, 0x87, 0xb2, 0x54, 0x3e, 0x95, 0x24, 0x77, 0x96, 0x36, 0xec, 0xec, 0x69, 0xda,
+            0xb0, 0x0b, 0x46, 0xd1, 0x28, 0x19, 0x65, 0xa3, 0x62, 0xd4, 0x8c, 0xba, 0xd1, 0x30,
+            0xcc, 0x68, 0x19, 0x6d, 0xa3, 0x63, 0xf4, 0x8c, 0xbe, 0x31, 0x30, 0x46, 0xc6, 0xd8,
+            0x08, 0x63, 0x62, 0xcc, 0x8c, 0xb9, 0xb1, 0x30, 0x56, 0xc6, 0xda, 0x48, 0x76, 0x6f,
+            0xd3, 0x86, 0xbd, 0x73, 0x9e, 0x36, 0xec, 0x7d, 0xe7, 0xd8, 0x39, 0x71, 0xd4, 0xa9,
+            0x3a, 0x97, 0xce, 0x95, 0x73, 0xed, 0x34, 0x9d, 0x3b, 0xe7, 0xc1, 0xe9, 0x3a, 0xee,
+            0x3c, 0x39, 0x43, 0xe7, 0xd9, 0x79, 0x71, 0x5e, 0x9d, 0xa9, 0xf3, 0xee, 0x7c, 0x38,
+            0x4b, 0xe7, 0xd3, 0xf9, 0x72, 0x92, 0x83, 0xc7, 0xb4, 0x61, 0x17, 0x6e, 0xd2, 0x86,
+            0x5d, 0x0c, 0x4a, 0x41, 0x39, 0xa8, 0x04, 0xb5, 0xa0, 0x1e, 0x34, 0x02, 0x0b, 0x5a,
+            0x41, 0x3b, 0xe8, 0x04, 0xbd, 0xa0, 0x1f, 0x0c, 0x82, 0x51, 0x30, 0x0e, 0x22, 0x98,
+            0x04, 0xb3, 0x60, 0x1e, 0x2c, 0x82, 0x55, 0xb0, 0x0e, 0xbe, 0x83, 0xe4, 0xe8, 0x2d,
+            0x6d, 0xd8, 0x7b, 0xf7, 0x9b, 0xc1, 0xfe, 0x01, 0x69, 0x83, 0xb6, 0xe0, 0xd8, 0x4c,
+            0x2a, 0x85, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+        ];
+        let img = parse_png(png).unwrap();
+        assert_eq!((img.w, img.h), (24, 24));
+        for y in 0..24usize {
+            for x in 0..24usize {
+                let o = (y * 24 + x) * 4;
+                let want = [((x * 10 + y) % 256) as u8, ((y * 9) % 256) as u8, 128, 255];
+                assert_eq!(&img.rgba[o..o + 4], &want, "pixel {x},{y}");
+            }
+        }
+        assert!(parse_png(&png[..200]).is_none());
+        assert!(parse_png(b"not a png").is_none());
     }
 
     #[test]

@@ -535,6 +535,10 @@ extern "C" fn on_resized(_t: Id, _c: Sel, note: Id) {
                 h: s.h.round() as i32,
             },
         );
+        // the whole content area is stale after a resize (see `set_bounds`)
+        if !e.cont.is_null() {
+            vm!(e.cont, "setNeedsDisplay:", u8: 1);
+        }
     });
 }
 
@@ -2159,7 +2163,16 @@ fn set_bounds(e: &Entry, id: WidgetId, r: Rect) {
             resize_window(e.obj, w, h)
         }
         k if is_view_kind(k) => {
+            // Redraw both the area the view leaves and the one it covers: GNUstep otherwise
+            // leaves the old pixels (stale image and control fragments) behind a move or resize.
+            let old = rect_of!(e.obj, "frame");
             vm!(e.obj, "setFrame:", NSRect: rect_from(r));
+            let sup = idm!(e.obj, "superview");
+            if !sup.is_null() {
+                vm!(sup, "setNeedsDisplayInRect:", NSRect: old);
+                vm!(sup, "setNeedsDisplayInRect:", NSRect: rect_from(r));
+            }
+            vm!(e.obj, "setNeedsDisplay:", u8: 1);
             match k {
                 Kind::SpinBox => {
                     let sw = STEPPER_WIDTH;
