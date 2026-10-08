@@ -4,13 +4,13 @@
 and links here; `doc/DESIGN.md` describes the architecture and `doc/BUILDING.md` the build
 modes, neither tracks progress. Update this file whenever a backend, test count or gap changes.
 
-Last updated: 2026-10-05, after the quality pass (fuzzing, soak, coverage, API narrowing).
+Last updated: 2026-10-08, after hand-testing the file manager on real Windows 10, macOS and Linux.
 
 ## Against INITIAL_PROMPT.md
 
 | Requirement | State |
 |---|---|
-| win32 / macOS / linux backends | GTK3, Win32 and Cocoa backends all exist, with hand-written FFI. Only GTK is verified at runtime on its real platform. |
+| win32 / macOS / linux backends | GTK3, Win32 and Cocoa backends all exist, with hand-written FFI. The file manager has been run by hand on all three real platforms (Linux/GTK, Windows 10, macOS); the rest of the widget set is verified by the automated runs below. |
 | Hosted and emulated modes | `--features emulate-mac` (clang + GNUstep), `--features mock` (headless), Win32 via mingw-w64 and, on x86_64 Linux, run under wine (`cargo run-win`, `cargo test-win`). |
 | Cross-compile | `x86_64-pc-windows-gnu` builds and links. `*-apple-darwin` is type-checked only. |
 | Devcontainer scaffolding | `.devcontainer/`, `scripts/setup-devcontainer.sh`, `scripts/check-all.sh`, `scripts/wine-runner.sh`, `.cargo/config.toml` aliases. |
@@ -20,30 +20,20 @@ Last updated: 2026-10-05, after the quality pass (fuzzing, soak, coverage, API n
 | Simplicity and no panics | `Copy` id handles, stale handles are inert, borrows never held across callbacks. Fuzz, reference-model and re-entrancy tests run on the mock backend. |
 | 100% Rust | Yes, apart from a small `build.rs` for linking. |
 
-## Widget matrix
+## Widget coverage
 
-R = run-tested, C = compiles and links only, T = type-checked only, N = not implemented.
-"R under wine" means run on Wine under Xvfb on Linux, not on real Windows.
+There is no longer a per-platform grid: the backends differ in how they are tested, not in what
+exists. All widgets are implemented on GTK, Win32 and Cocoa.
 
-| Widget | GTK | Win32 | Cocoa |
-|---|---|---|---|
-| Window, VBox, HBox, Grid, GroupBox, Tabs | R | R under wine | R on GNUstep |
-| Label, Button, CheckBox, RadioButton | R | R under wine | R on GNUstep |
-| TextInput, password, TextArea | R | R under wine | R on GNUstep |
-| ComboBox, ListBox, Slider, SpinBox, ProgressBar | R | R under wine | R on GNUstep |
-| Image | R (limited testing; used by the file manager preview) | C | C |
-| MenuBar, Menu, MenuItem, CheckMenuItem, accelerators | R | R under wine | R on GNUstep |
-| PopupMenu | R | R under wine (Shift+F10/Apps key untested) | R on GNUstep (macOS path type-checked only) |
-| Table | R | R under wine (first column always left-aligned: comctl32) | R on GNUstep |
-| Tree | R | R under wine | R on GNUstep |
-| Splitter (core layout, panes) | R | C | C |
-| Splitter sash (drag handle, keyboard, `Kind::Sash`) | R (drag and keys verified under xdotool) | R under wine (drag, both orientations); keys C | R on GNUstep (drag and keys, both orientations, clamping) |
-| TextArea/TextInput monospace, TextArea wrap | R | R under wine | R on GNUstep |
-| Window `set_position`, `Moved` event | R | C (`set_position` seen under wine; `Moved` untestable without a WM) | R on GNUstep |
-| Window min size | C (geometry hint; Xvfb has no WM) | C (`WM_GETMINMAXINFO`; no WM under wine) | R on GNUstep |
-| Windows shrink below natural size | R | not checked | not checked |
-| Message box, FileDialog | R | message box R under wine, FileDialog C | C |
-| Timer, `App::post` | R | R under wine | C |
+- **Hand-tested on real GTK, Windows 10 and macOS** (by driving the file manager): Window, VBox,
+  HBox, Label, Button, TextInput, TextArea (monospace), Image (PNG, PPM, BMP previews), Table,
+  Tree (lazy loading), Splitter and sash drags, MenuBar/Menu/MenuItem/CheckMenuItem with
+  accelerators, PopupMenu, message boxes, Timer and `App::post`.
+- **Automated only** (GTK under xdotool, Win32 under wine, Cocoa under GNUstep, plus the mock
+  backend; not driven by hand on real Windows or macOS): Grid, GroupBox, Tabs, CheckBox, RadioButton,
+  ComboBox, ListBox, Slider, SpinBox, ProgressBar, FileDialog, window `set_position`/`Moved`,
+  window min size, windows shrinking below their natural size, and keyboard use of the sash on Win32.
+- **Known platform differences:** the first Win32 Table column is always left-aligned (comctl32).
 
 ## How things are verified
 
@@ -87,7 +77,7 @@ R = run-tested, C = compiles and links only, T = type-checked only, N = not impl
 
 ## Known gaps
 
-- **Win32:** never run on real Windows; verified only under wine on Xvfb with no window manager, so
+- **Win32:** the file manager has been run on real Windows 10, but everything else is verified only under wine on Xvfb with no window manager, so
   live window shrinking is not exercised; `Prop::MinSize` (`WM_GETMINMAXINFO`), `Event::Moved` and DPI changes are driven by synthetic messages in `tests/win32_native.rs`, not by a window manager or a second monitor.
   Accessibility is MSAA only (the stock controls' own default actions apply), explicit
   `set_a11y_*` overrides on menu items are not applied (`IAccPropServices::SetHmenuProp` could do it), the SpinBox up/down control has no name or value unless the app sets one. Checked with a
@@ -129,7 +119,7 @@ are in the README ("Binary size and linkage")
 
 ## Next steps
 
-1. Run the Win32 backend on real Windows (CI job exists, unrun); verify move/min-size/DPI and the
+1. Beyond the file manager, exercise the rest of the widget set on real Windows and macOS (the Win32 CI job exists, unrun); verify move/min-size/DPI and the
    MSAA overrides with Narrator/NVDA.
 2. Close the API gaps above, then a canvas/custom-draw widget and virtualised tables/trees.
 

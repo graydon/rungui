@@ -103,7 +103,7 @@ Plain `cargo build --release`:
 | `hello` | 756 KiB | **601 KiB** | 803 KiB | **663 KiB** | 873 KiB | **711 KiB** | 1,738 KiB | **1,266 KiB** |
 | `file_manager` | 1,092 KiB | **862 KiB** | 1,087 KiB | **884 KiB** | 1,173 KiB | **939 KiB** | 1,964 KiB | **1,427 KiB** |
 
-Per-widget, per-platform status is in
+Widget coverage and verification status is in
 [`doc/STATUS.md`](doc/STATUS.md). `scripts/check-all.sh` builds and tests every mode; see
 [`doc/BUILDING.md`](doc/BUILDING.md) and [`doc/DESIGN.md`](doc/DESIGN.md).
 
