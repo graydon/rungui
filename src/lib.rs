@@ -56,6 +56,9 @@
 //! * Panics inside callbacks are caught and do not unwind into the toolkit.
 //! * For anything the portable API lacks, get the native object with `widget.native_handle()`
 //!   and call the toolkit directly.
+//! * Dialogs: [`message_box`], [`FileDialog`] and [`prompt`] block until answered. Any window can
+//!   be a modal dialog with [`Window::run_modal`]; Enter in a [`TextInput`] ([`TextInput::on_activate`])
+//!   and Escape in a window ([`Window::on_cancel`]) are reported to the app.
 //! * Optional features (accessibility overrides, sort indicators, popup menus) degrade to
 //!   no-ops on a backend that lacks them rather than failing.
 //! * Build modes: default is the native backend for the target; `--features mock` is a headless
@@ -85,7 +88,7 @@ pub use backend::{Event, Kind, Prop, SashKey};
 #[cfg(any(feature = "mock", test))]
 pub use types::{Accel, FileMode, FileSpec, MessageSpec, TreeRow};
 pub use types::{
-    Align, Answer, Buttons, Column, ColumnAlign, Error, ImageData, MAX_IMAGE_EDGE, MessageKind,
+    Align, Answer, Buttons, Column, ColumnAlign, Date, Error, ImageData, MAX_IMAGE_EDGE, MessageKind,
     NativeHandle, Orientation, Rect, Result, Size, TreeNodeId, WidgetId,
 };
 pub use widgets::*;

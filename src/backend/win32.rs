@@ -127,6 +127,11 @@ struct W {
     // Sash
     vertical: bool,
     drag: Option<(i32, i32)>,
+    // ListBox / Table: several rows may be selected, and the selection last reported or pushed
+    multi: bool,
+    last_multi: Vec<usize>,
+    // Calendar: the date last reported or pushed
+    date: Option<Date>,
 }
 
 impl W {
@@ -174,6 +179,9 @@ impl W {
             last_tsel: None,
             vertical: false,
             drag: None,
+            multi: false,
+            last_multi: vec![],
+            date: None,
         }
     }
 }
@@ -206,6 +214,8 @@ thread_local! {
     static TREE_EXP: RefCell<Vec<(WidgetId, u64, bool)>> = const { RefCell::new(Vec::new()) };
     /// Set by `popup_menu`: a context menu was shown during the current `ContextMenu` emission.
     static POPUP_SHOWN: Cell<bool> = const { Cell::new(false) };
+    /// Windows inside `run_modal`, innermost last, with the windows each one disabled.
+    static MODAL: RefCell<Vec<(WidgetId, Vec<HWND>)>> = const { RefCell::new(Vec::new()) };
     /// This thread's message window (0 before `init`).
     static MY_MSG_HWND: Cell<HWND> = const { Cell::new(0) };
 }
@@ -671,36 +681,19 @@ impl Backend for Win32 {
                 if r <= 0 {
                     break;
                 }
-                if WAKE_LOST.swap(false, Ordering::SeqCst) {
-                    let _ = catch_unwind(core::drain_posted);
-                }
-                let root = GetAncestor(msg.hwnd, GA_ROOT);
-                if root != 0 {
-                    if let Some(id) = id_of(root) {
-                        flush_accel(id);
-                        let ha = get(id, |w| w.haccel).unwrap_or(0);
-                        if ha != 0 && TranslateAcceleratorW(root, ha, &msg) != 0 {
-                            continue;
-                        }
-                        // list boxes want Enter themselves (IsDialogMessage would eat it)
-                        let own_enter = msg.message == WM_KEYDOWN
-                            && msg.wparam == VK_RETURN
-                            && matches!(
-                                id_of(msg.hwnd).and_then(|c| get(c, |w| w.kind)),
-                                Some(Kind::ListBox | Kind::Table | Kind::Tree)
-                            );
-                        if !own_enter
-                            && get(id, |w| w.kind) == Some(Kind::Window)
-                            && IsDialogMessageW(root, &msg) != 0
-                        {
-                            continue;
-                        }
-                    }
-                }
-                TranslateMessage(&msg);
-                DispatchMessageW(&msg);
+                dispatch_message(&msg);
             }
         }
+    }
+
+    fn today() -> Option<Date> {
+        let mut t = SYSTEMTIME::default();
+        unsafe { GetLocalTime(&mut t) };
+        Date::new(i32::from(t.year), u32::from(t.month), u32::from(t.day))
+    }
+
+    fn run_modal(window: WidgetId, parent: Option<WidgetId>) {
+        let _ = catch_unwind(AssertUnwindSafe(|| run_modal_impl(window, parent)));
     }
 
     fn quit() {
@@ -815,6 +808,130 @@ impl Backend for Win32 {
     }
 }
 
+/// Route one message of the loop: accelerators, Enter/Escape for the app, dialog keys, then the
+/// ordinary translate-and-dispatch.
+fn dispatch_message(msg: &MSG) {
+    unsafe {
+        if WAKE_LOST.swap(false, Ordering::SeqCst) {
+            let _ = catch_unwind(core::drain_posted);
+        }
+        let root = GetAncestor(msg.hwnd, GA_ROOT);
+        if root != 0 {
+            if let Some(id) = id_of(root) {
+                flush_accel(id);
+                let ha = get(id, |w| w.haccel).unwrap_or(0);
+                if ha != 0 && TranslateAcceleratorW(root, ha, msg) != 0 {
+                    return;
+                }
+                if msg.message == WM_KEYDOWN && !muted() {
+                    let target = id_of(msg.hwnd).and_then(|c| get(c, |w| (c, w.kind)));
+                    if msg.wparam == VK_ESCAPE {
+                        // an open drop-down uses the key itself
+                        let dropped = matches!(target, Some((c, Kind::ComboBox))
+                            if get(c, |w| send(w.hwnd, CB_GETDROPPEDSTATE, 0, 0) != 0)
+                                .unwrap_or(false));
+                        if !dropped {
+                            let _ = catch_unwind(|| emit(id, Event::Cancel));
+                        }
+                    } else if msg.wparam == VK_RETURN {
+                        if let Some((c, Kind::TextInput | Kind::PasswordInput)) = target {
+                            // the edit control would only beep, and a dialog manager would press
+                            // a default button we do not have
+                            let _ = catch_unwind(|| emit(c, Event::Submit));
+                            return;
+                        }
+                    }
+                }
+                // list boxes want Enter themselves (IsDialogMessage would eat it)
+                let own_enter = msg.message == WM_KEYDOWN
+                    && msg.wparam == VK_RETURN
+                    && matches!(
+                        id_of(msg.hwnd).and_then(|c| get(c, |w| w.kind)),
+                        Some(Kind::ListBox | Kind::Table | Kind::Tree)
+                    );
+                if !own_enter
+                    && get(id, |w| w.kind) == Some(Kind::Window)
+                    && IsDialogMessageW(root, msg) != 0
+                {
+                    return;
+                }
+            }
+        }
+        TranslateMessage(msg);
+        DispatchMessageW(msg);
+    }
+}
+
+/// `Backend::run_modal`: block the application's other windows, pump messages until the window is
+/// hidden or destroyed (or the application quits), then undo the blocking.
+fn run_modal_impl(window: WidgetId, parent: Option<WidgetId>) {
+    let Some(h) = get(window, |w| w.hwnd) else {
+        return;
+    };
+    unsafe {
+        let ph = parent.and_then(|p| get(p, |w| w.hwnd)).unwrap_or(0);
+        if ph != 0 {
+            // an owned window stays above its owner; centre it over the owner too
+            SetWindowLongPtrW(h, GWLP_HWNDPARENT, ph);
+            let (mut a, mut b) = (RECT::default(), RECT::default());
+            if GetWindowRect(ph, &mut a) != 0 && GetWindowRect(h, &mut b) != 0 {
+                let x = a.left + ((a.right - a.left) - (b.right - b.left)) / 2;
+                let y = a.top + ((a.bottom - a.top) - (b.bottom - b.top)) / 2;
+                SetWindowPos(h, 0, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+        }
+        let others: Vec<HWND> = st(|s| {
+            s.widgets
+                .iter()
+                .filter(|(i, w)| w.kind == Kind::Window && **i != window)
+                .map(|(_, w)| w.hwnd)
+                .collect()
+        })
+        .unwrap_or_default();
+        let mut disabled = vec![];
+        for o in others {
+            if IsWindowEnabled(o) != 0 {
+                EnableWindow(o, 0);
+                disabled.push(o);
+            }
+        }
+        MODAL.with(|m| m.borrow_mut().push((window, disabled)));
+        SetForegroundWindow(h);
+        let mut msg = MSG::zeroed();
+        while get(window, |w| w.vis).unwrap_or(false) {
+            let r = GetMessageW(&mut msg, 0, 0, 0);
+            if r == 0 {
+                PostQuitMessage(msg.wparam as i32); // the application is quitting: let `run` see it too
+                break;
+            }
+            if r < 0 {
+                break;
+            }
+            dispatch_message(&msg);
+        }
+        end_modal_input(window);
+        if get(window, |w| w.hwnd).is_some() {
+            SetWindowLongPtrW(h, GWLP_HWNDPARENT, 0);
+        }
+    }
+}
+
+/// Re-enable the windows `run_modal` disabled for `window` (a no-op if it is not running modally).
+/// Done before the window is hidden or destroyed, so that Windows activates the owner afterwards.
+fn end_modal_input(window: WidgetId) {
+    let disabled = MODAL
+        .try_with(|m| {
+            let mut m = m.borrow_mut();
+            let i = m.iter().position(|(w, _)| *w == window)?;
+            Some(m.remove(i).1)
+        })
+        .ok()
+        .flatten();
+    for h in disabled.unwrap_or_default() {
+        unsafe { EnableWindow(h, 1) };
+    }
+}
+
 unsafe extern "system" fn msg_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
     match m {
         WM_WAKE => {
@@ -877,6 +994,7 @@ fn ctl_spec(kind: Kind) -> Option<(&'static str, u32, u32)> {
             WS_EX_CLIENTEDGE,
         ),
         Slider => ("msctls_trackbar32", tab | TBS_NOTICKS, 0),
+        Calendar => ("SysMonthCal32", tab | MCS_NOTODAY, 0),
         ProgressBar => ("msctls_progress32", 0, 0),
         SpinBox => ("EDIT", tab | ES_AUTOHSCROLL, WS_EX_CLIENTEDGE),
         Image => ("STATIC", SS_OWNERDRAW, 0),
@@ -964,6 +1082,7 @@ fn create_impl(id: WidgetId, kind: Kind, parent: Option<WidgetId>) -> Result<()>
 }
 
 fn destroy_impl(id: WidgetId) {
+    end_modal_input(id);
     let Some((w, pos)) = st(|s| {
         let w = s.widgets.remove(&id)?;
         s.by_hwnd.remove(&w.hwnd);
@@ -1500,6 +1619,12 @@ fn preferred_impl(id: WidgetId) -> Option<Size> {
                 rows * (th + px(LIST_ROW_PAD, dpi)) + px(LIST_PAD_H, dpi),
             )
         }
+        Kind::Calendar => {
+            let mut rc = RECT::default();
+            let h = get(id, |w| w.hwnd)?;
+            send(h, MCM_GETMINREQRECT, 0, &mut rc as *mut _ as isize);
+            (rc.right - rc.left, rc.bottom - rc.top)
+        }
         Kind::Slider => (px(SLIDER.0, dpi), px(SLIDER.1, dpi)),
         Kind::ProgressBar => (px(PROGRESS.0, dpi), px(PROGRESS.1, dpi)),
         Kind::SpinBox => (px(SPIN.0, dpi), th + px(SPIN.1, dpi)),
@@ -1703,6 +1828,9 @@ fn set_impl(id: WidgetId, prop: &Prop) {
         Prop::Value(v) => apply_value(id, *v),
         Prop::Items(items) => set_items(&tg, items),
         Prop::Selected(s) => set_selected_prop(&tg, s),
+        Prop::MultiSelect(on) => set_multi_select(&tg, on),
+        Prop::Selection(rows) => set_multi_selection(&tg, rows),
+        Prop::Date(d) => set_date(&tg, d),
         Prop::Bounds(r) => set_bounds(&tg, r),
         Prop::Image(img) => set_image(&tg, img),
         Prop::Accel(a) => set_accel(&tg, a),
@@ -2243,6 +2371,17 @@ fn on_command(w: WPARAM, l: LPARAM) -> Option<LRESULT> {
                 with_w(cid, |x| x.selected = sel);
                 emit(cid, Event::Selected(sel));
             }
+            (Kind::ListBox, 1) if get(cid, |x| x.multi).unwrap_or(false) => {
+                let rows = lb_selection(l);
+                with_w(cid, |x| x.last_multi = rows.clone());
+                emit(cid, Event::Selection(rows));
+            }
+            (Kind::ListBox, 2) if get(cid, |x| x.multi).unwrap_or(false) => {
+                let i = send(l, LB_GETCARETINDEX, 0, 0);
+                if i >= 0 {
+                    emit(cid, Event::Activated(i as usize));
+                }
+            }
             (Kind::ListBox, 1) => {
                 let i = send(l, LB_GETCURSEL, 0, 0);
                 let sel = if i < 0 { None } else { Some(i as usize) };
@@ -2300,6 +2439,10 @@ fn on_notify(l: LPARAM) -> Option<LRESULT> {
     match kind {
         Kind::Tabs if code == TCN_SELCHANGE && !muted() => {
             on_tab_changed(cid, hdr.hwndFrom);
+            Some(0)
+        }
+        Kind::Calendar if code == MCN_SELCHANGE && !muted() => {
+            on_calendar_changed(cid, hdr.hwndFrom);
             Some(0)
         }
         Kind::Table if !muted() => on_table_notify(cid, hdr, l),
@@ -2508,7 +2651,8 @@ unsafe extern "system" fn ctl_proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRE
         WM_KEYDOWN if w == VK_RETURN && !muted() => {
             if let Some(id) = id_of(h) {
                 if get(id, |x| x.kind) == Some(Kind::ListBox) {
-                    let i = send(h, LB_GETCURSEL, 0, 0);
+                    let multi = get(id, |x| x.multi).unwrap_or(false);
+                    let i = send(h, if multi { LB_GETCARETINDEX } else { LB_GETCURSEL }, 0, 0);
                     if i >= 0 {
                         emit(id, Event::Activated(i as usize));
                     }
@@ -2617,7 +2761,10 @@ fn table_set_rows(id: WidgetId, rows: &[Vec<String>]) {
     unsafe {
         InvalidateRect(h, null(), 1);
     }
-    with_w(id, |w| w.last_sel = None);
+    with_w(id, |w| {
+        w.last_sel = None;
+        w.last_multi.clear();
+    });
 }
 
 fn table_set_sort(id: WidgetId, sort: Option<(usize, bool)>) {
@@ -2656,9 +2803,17 @@ fn table_set_sort(id: WidgetId, sort: Option<(usize, bool)>) {
 /// The table's selection may have changed natively: report it once the notification burst is over
 /// (a click deselects the old row and selects the new one in two notifications).
 fn table_sel_check(id: WidgetId) {
-    let Some((h, last)) = get(id, |w| (w.hwnd, w.last_sel)) else {
+    let Some((h, last, multi)) = get(id, |w| (w.hwnd, w.last_sel, w.multi)) else {
         return;
     };
+    if multi {
+        let rows = lv_selection(h);
+        if get(id, |w| w.last_multi != rows).unwrap_or(false) {
+            with_w(id, |w| w.last_multi = rows.clone());
+            emit(id, Event::Selection(rows));
+        }
+        return;
+    }
     let i = send(h, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as isize);
     let sel = if i < 0 { None } else { Some(i as usize) };
     if sel != last {
@@ -3514,6 +3669,7 @@ fn set_visible(tg: &Target, v: &bool) {
                     }
                 }
             } else {
+                end_modal_input(id);
                 ShowWindow(h, SW_HIDE);
             }
         },
@@ -3600,6 +3756,208 @@ fn set_items(tg: &Target, items: &[String]) {
         .flatten()
         .filter(|i| *i < items.len());
     set_selection(id, sel);
+}
+
+/// The selected items of a list box (any mode), ascending.
+fn lb_selection(h: HWND) -> Vec<usize> {
+    let n = send(h, LB_GETSELCOUNT, 0, 0);
+    if n <= 0 {
+        return vec![];
+    }
+    let mut buf = vec![0i32; n as usize];
+    let got = send(h, LB_GETSELITEMS, n as usize, buf.as_mut_ptr() as isize);
+    if got <= 0 {
+        return vec![];
+    }
+    buf.truncate(got as usize);
+    buf.into_iter().filter_map(|i| usize::try_from(i).ok()).collect()
+}
+
+/// The selected rows of a list view, ascending.
+fn lv_selection(h: HWND) -> Vec<usize> {
+    let mut rows = vec![];
+    let mut i = send(h, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as isize);
+    while i >= 0 {
+        rows.push(i as usize);
+        i = send(h, LVM_GETNEXTITEM, i as usize, LVNI_SELECTED as isize);
+    }
+    rows
+}
+
+/// `Prop::MultiSelect`. A list view only needs its style flag flipped; a list box has to be made
+/// again, because `LBS_EXTENDEDSEL` can be given at creation only.
+fn set_multi_select(tg: &Target, on: &bool) {
+    let Target { id, kind, h, .. } = *tg;
+    if get(id, |w| w.multi) == Some(*on) {
+        return;
+    }
+    with_w(id, |w| {
+        w.multi = *on;
+        w.last_multi.clear();
+    });
+    match kind {
+        Kind::Table => unsafe {
+            let style = GetWindowLongPtrW(h, GWL_STYLE);
+            let single = LVS_SINGLESEL as isize;
+            SetWindowLongPtrW(h, GWL_STYLE, if *on { style & !single } else { style | single });
+        },
+        Kind::ListBox => recreate_listbox(id),
+        _ => {}
+    }
+}
+
+/// `Prop::Selection`.
+fn set_multi_selection(tg: &Target, rows: &[usize]) {
+    let Target { id, kind, h, .. } = *tg;
+    match kind {
+        Kind::ListBox => {
+            send(h, LB_SETSEL, 0, -1);
+            for i in rows {
+                send(h, LB_SETSEL, 1, *i as isize);
+            }
+            if let Some(i) = rows.first() {
+                send(h, LB_SETCARETINDEX, *i, 0);
+            }
+        }
+        Kind::Table => {
+            let mut it = LVITEMW {
+                mask: 0,
+                iItem: 0,
+                iSubItem: 0,
+                state: 0,
+                stateMask: LVIS_SELECTED,
+                pszText: null_mut(),
+                cchTextMax: 0,
+                iImage: 0,
+                lParam: 0,
+            };
+            send(h, LVM_SETITEMSTATE, usize::MAX, &it as *const _ as isize);
+            it.state = LVIS_SELECTED;
+            for i in rows {
+                send(h, LVM_SETITEMSTATE, *i, &it as *const _ as isize);
+            }
+            if let Some(i) = rows.first() {
+                send(h, LVM_ENSUREVISIBLE, *i, 0);
+            }
+        }
+        _ => return,
+    }
+    with_w(id, |w| w.last_multi = rows.to_vec());
+}
+
+/// `Prop::Date`.
+fn set_date(tg: &Target, d: &Date) {
+    let t = SYSTEMTIME {
+        year: d.year as u16,
+        month: d.month as u16,
+        day: d.day as u16,
+        ..Default::default()
+    };
+    send(tg.h, MCM_SETCURSEL, 0, &t as *const _ as isize);
+    with_w(tg.id, |w| w.date = Some(*d));
+}
+
+/// `MCN_SELCHANGE`: the user picked a date (or the control moved its selection to another month).
+fn on_calendar_changed(cid: WidgetId, h: HWND) {
+    let mut t = SYSTEMTIME::default();
+    if send(h, MCM_GETCURSEL, 0, &mut t as *mut _ as isize) == 0 {
+        return;
+    }
+    let Some(d) = Date::new(i32::from(t.year), u32::from(t.month), u32::from(t.day)) else {
+        return;
+    };
+    if get(cid, |w| w.date) == Some(Some(d)) {
+        return;
+    }
+    with_w(cid, |w| w.date = Some(d));
+    emit(cid, Event::DateChanged(d));
+}
+
+/// Make the list box of `id` again with or without `LBS_EXTENDEDSEL` (its style cannot change).
+/// Items, font, size and focus carry over; the core pushes the selection right afterwards.
+fn recreate_listbox(id: WidgetId) {
+    let Some((old, multi, items, vis, enabled, has_tip, tip, parent)) = get(id, |w| {
+        (
+            w.hwnd,
+            w.multi,
+            w.items.clone(),
+            w.vis,
+            w.enabled,
+            w.has_tip,
+            String::from_utf16_lossy(&w.tip[..w.tip.len().saturating_sub(1)]),
+            w.parent,
+        )
+    }) else {
+        return;
+    };
+    let Some(phwnd) = parent.and_then(|p| get(p, |x| x.hwnd)) else {
+        return;
+    };
+    let (inst, dpi) = (st(|s| s.inst).unwrap_or(0), dpi_of(id));
+    let (_, spec_style, ex) = ctl_spec(Kind::ListBox).unwrap_or(("LISTBOX", 0, 0));
+    let mut style = WS_CHILD | spec_style;
+    if multi {
+        style |= LBS_EXTENDEDSEL;
+    }
+    if vis {
+        style |= WS_VISIBLE;
+    }
+    let new = create_window_raw(ex, "LISTBOX", style, phwnd, inst);
+    if new == 0 {
+        return;
+    }
+    unsafe {
+        SetWindowPos(new, old, 0, 0, 10, 10, SWP_NOMOVE | SWP_NOACTIVATE);
+    }
+    send(new, WM_SETFONT, font_of(id, dpi) as usize, 1);
+    unsafe {
+        EnableWindow(new, enabled as BOOL);
+    }
+    subclass(new);
+    let bytes: usize = items.iter().map(|i| i.len() * 2 + 2).sum();
+    send(new, LB_INITSTORAGE, items.len(), bytes as isize);
+    for it in &items {
+        send(new, LB_ADDSTRING, 0, wide(it).as_ptr() as isize);
+    }
+    let had_focus = unsafe { GetFocus() } == old;
+    if has_tip {
+        let win = get(id, |w| w.win).unwrap_or(id);
+        if let Some((owner, tiph)) = get(win, |w| (w.hwnd, w.tip_hwnd)) {
+            let ti = TOOLINFOW {
+                cbSize: std::mem::size_of::<TOOLINFOW>() as u32,
+                uFlags: TTF_IDISHWND,
+                hwnd: owner,
+                uId: old as usize,
+                rect: RECT::default(),
+                hinst: 0,
+                lpszText: null_mut(),
+                lParam: 0,
+                lpReserved: null_mut(),
+            };
+            send(tiph, TTM_DELTOOLW, 0, &ti as *const _ as isize);
+        }
+    }
+    st(|s| {
+        s.by_hwnd.remove(&old);
+        s.by_hwnd.insert(new, id);
+        if let Some(w) = s.widgets.get_mut(&id) {
+            w.hwnd = new;
+            w.has_tip = false;
+        }
+    });
+    if let Some(win) = get(id, |w| w.win) {
+        a11y::rehome(win, old, new);
+    }
+    unsafe {
+        DestroyWindow(old);
+        if had_focus {
+            SetFocus(new);
+        }
+    }
+    if has_tip {
+        update_tooltip(id, &tip);
+    }
+    apply_bounds(id);
 }
 
 /// `Prop::Selected`.

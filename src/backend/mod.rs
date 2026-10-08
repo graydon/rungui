@@ -74,7 +74,9 @@
 //! close: the core destroys the window itself via `destroy` if the app allows it) | any focusable:
 //! `Focus(bool)` | Table: `Selected(Option<usize>)` (row), `Activated(row)`, `ColumnClicked(col)` |
 //! Tree: `TreeSelected`, `TreeActivated`, `TreeExpanded` | Sash: `SashDragged(pos)` | Window (optional):
-//! `Moved{x,y}` | any widget: `ContextMenu{x,y}` | timers: `core::timer_fired(token)`.
+//! `Moved{x,y}` | any widget: `ContextMenu{x,y}` | Calendar: `DateChanged(Date)` | TextInput: `Submit` (Enter) | Window: `Cancel` (Escape) |
+//! ListBox/Table with `Prop::MultiSelect(true)`: `Selection(Vec<usize>)` in place of `Selected` |
+//! timers: `core::timer_fired(token)`.
 
 use crate::types::*;
 
@@ -153,6 +155,9 @@ pub enum Kind {
     /// Top-level (parentless) context menu. Children: `MenuItem`/`CheckMenuItem`/`MenuSeparator`/`Menu`
     /// (submenu), created in order exactly as for a `Menu` under a `MenuBar`.
     PopupMenu,
+    /// Inline month calendar showing one selected date (GtkCalendar / month calendar control /
+    /// NSDatePicker in calendar style).
+    Calendar,
     /// Drag handle between the two panes of a [`crate::Splitter`] (see "Splitters" in the module
     /// docs). Created by the core, never by the app. Optional: `create` may return `Unsupported`.
     Sash,
@@ -296,6 +301,17 @@ pub enum Prop<'a> {
     /// Window: the smallest CLIENT size the user may resize to (`Size::default()` = no limit).
     /// Optional; the core additionally never lays a window out smaller than this.
     MinSize(Size),
+    /// ListBox/Table: allow selecting several rows at once (`false` = at most one, the state a
+    /// fresh widget starts in). Sent before any `Selection`. In multi-select mode the backend
+    /// reports changes with [`Event::Selection`] instead of [`Event::Selected`], and the core
+    /// pushes `Selection` where it would push `Selected` in single mode. Turning it off is
+    /// followed by a `Selected` with the row that stays selected.
+    MultiSelect(bool),
+    /// Calendar: the selected (and displayed) date; always a valid [`Date`].
+    Date(Date),
+    /// ListBox/Table in multi-select mode: select exactly these rows (ascending, unique, all in
+    /// range); an empty slice clears the selection. Never emits events.
+    Selection(&'a [usize]),
 }
 
 impl Prop<'_> {
@@ -329,6 +345,8 @@ impl Prop<'_> {
             Prop::Value(_) | Prop::Range { .. } => range,
             Prop::Items(_) => matches!(kind, ComboBox | ListBox),
             Prop::Selected(_) => matches!(kind, ComboBox | ListBox | Tabs | Table),
+            Prop::Date(_) => kind == Calendar,
+            Prop::MultiSelect(_) | Prop::Selection(_) => matches!(kind, ListBox | Table),
             Prop::Image(_) => kind == Image,
             Prop::Accel(_) => matches!(kind, MenuItem | CheckMenuItem),
             Prop::ReadOnly(_) | Prop::Monospace(_) => text_input,
@@ -431,6 +449,16 @@ pub enum Event {
         /// Screen y of the window's top-left corner.
         y: i32,
     },
+    /// ListBox/Table in multi-select mode: the whole new selection (ascending, unique).
+    Selection(Vec<usize>),
+    /// Calendar: the user picked a date (clicked a day or moved with the keys or month arrows).
+    DateChanged(Date),
+    /// TextInput/PasswordInput: the user pressed Enter in the field. Do not also emit `Text`.
+    Submit,
+    /// Window: the user pressed Escape while the window was active (whichever widget had the
+    /// focus, unless it used the key itself, e.g. to close a drop-down). Emit it for every
+    /// press, the core ignores the ones nobody wants, and do not swallow the key.
+    Cancel,
 }
 
 /// The platform backend. All functions are associated (no `self`): the backend keeps its state in
@@ -474,6 +502,21 @@ pub trait Backend {
     fn message_box(parent: Option<WidgetId>, spec: &MessageSpec) -> Answer;
     /// Selected paths (UTF-8, lossy if necessary); empty = cancelled.
     fn file_dialog(parent: Option<WidgetId>, spec: &FileSpec) -> Vec<String>;
+
+    /// Show `window` (the core has already made it visible and laid it out) as a modal dialog over
+    /// `parent`: input to the application's other windows is blocked, and the call BLOCKS in a
+    /// nested loop until the window is hidden (`Prop::Visible(false)`) or destroyed, or the
+    /// application quits (`Backend::quit`). Then undo the modality (re-enable the other windows)
+    /// and return. Events re-enter the core as usual (rule 4 applies) and further modal windows
+    /// may be run from inside it. `parent` is a hint for stacking and centring. Default: return
+    /// at once (the window is then simply an ordinary window).
+    fn run_modal(_window: WidgetId, _parent: Option<WidgetId>) {}
+
+    // ---- misc ----
+    /// Today's date in the user's time zone, if the toolkit can tell (default: the core falls back to UTC).
+    fn today() -> Option<Date> {
+        None
+    }
 
     // ---- context menus ----
     /// Pop up the `PopupMenu` `menu` over `parent_window` (None if unknown) at window-client `at`

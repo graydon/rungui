@@ -4,7 +4,7 @@
 and links here; `doc/DESIGN.md` describes the architecture and `doc/BUILDING.md` the build
 modes, neither tracks progress. Update this file whenever a backend, test count or gap changes.
 
-Last updated: 2026-10-08, after hand-testing the file manager on real Windows 10, macOS and Linux.
+Last updated: 2026-10-08, after adding modal windows, `prompt`, `TextInput::on_activate`, `Window::on_cancel`, multi-select and `Calendar`.
 
 ## Against INITIAL_PROMPT.md
 
@@ -33,11 +33,15 @@ exists. All widgets are implemented on GTK, Win32 and Cocoa.
   backend; not driven by hand on real Windows or macOS): Grid, GroupBox, Tabs, CheckBox, RadioButton,
   ComboBox, ListBox, Slider, SpinBox, ProgressBar, FileDialog, window `set_position`/`Moved`,
   window min size, windows shrinking below their natural size, and keyboard use of the sash on Win32.
+- **Added after that, automated only** (`scripts/smoke-dialogs.sh` on GTK, wine and GNUstep, `tests/win32_native.rs`,
+  the mock tests and the fuzzers): `Window::run_modal` and `Prompt`/`prompt`, `Window::on_cancel` (Escape),
+  `TextInput::on_activate` (Enter), multi-select for `ListBox` and `Table`, and the inline `Calendar`
+  (GtkCalendar / `SysMonthCal32` / `NSDatePicker` in calendar style).
 - **Known platform differences:** the first Win32 Table column is always left-aligned (comctl32).
 
 ## How things are verified
 
-- `cargo test` (also `--features mock`): 118 core tests against the mock backend (seeded random-layout
+- `cargo test` (also `--features mock`): 129 core tests against the mock backend (seeded random-layout
   fuzzing, Table/Tree reference models, a11y metadata, a re-entrancy matrix of every event kind
   against hostile callbacks, API-surface and limit tests), 11 file-manager unit tests, 15
   file-manager integration tests and 4 seeded random-operation tests on the mock backend (need
@@ -53,6 +57,10 @@ exists. All widgets are implemented on GTK, Win32 and Cocoa.
   except destroying siblings one at a time, which is O(siblings) per call).
 - `scripts/smoke-gtk.sh`, `scripts/smoke-gtk-soak.sh`, `scripts/smoke-filemanager.sh`: GTK under Xvfb
   with xdotool and `G_DEBUG=fatal-warnings`; they check results on disk and via trace output.
+- `scripts/smoke-dialogs.sh` (`BACKEND=wine` / `BACKEND=gnustep` for the other two): `examples/smoke_dialogs`
+  under Xvfb + xdotool: Enter in a text field, a prompt answered with Enter and cancelled with Escape, a modal
+  window that must not let the main window take input, multi-select by keyboard in a list and a table, and
+  a calendar click. (GTK also runs it with fatal GLib warnings.)
 - `scripts/smoke-win32.sh`: the Win32 backend under wine + Xvfb (skips if wine is missing); the same
   checks as `smoke-gtk.sh` plus sash drags, monospace/wrap, table/tree, popup menu.
 - `cargo test-win` runs the test suite as a Windows exe under wine, always on a private Xvfb. That
@@ -108,8 +116,20 @@ exists. All widgets are implemented on GTK, Win32 and Cocoa.
   about half of the latter). A tree is rebuilt from the whole model on every change (as on the
   other backends), so changing a tree node costs about 110 ms there for 10,000 nodes (a table cell is changed in place and costs nothing).
 - **API gaps found by the file manager:** no key-event or focus callbacks on tables, no
-  `on_activate` (Enter) on `TextInput`, no modal windows or input dialog, no multi-select, no
-  right-clicked-row query for context menus, no column-resize or scroll-to-row control.
+  right-clicked-row query for context menus, no column-resize or scroll-to-row control, no
+  multi-select on `Tree`. (The file manager still has its own rename/new-folder window; it predates
+  `run_modal` and `prompt`.)
+- **Modal windows:** `run_modal` blocks the application's other windows. GTK uses `gtk_window_set_modal` and
+  a nested `gtk_main_iteration` loop; Win32 disables the other top-level windows, makes the parent the
+  owner and runs its own message loop (`WM_QUIT` is passed on to `run`); Cocoa uses
+  `runModalForWindow:` (not run on real macOS) and, on GNUstep, its own loop that drops mouse and key
+  events for the other windows. Under wine the window is not centred over its parent (there is no window
+  manager). A Win32 `ListBox` is made again when multi-select is switched on or off (its style cannot
+  change), so a native handle taken from it before that goes stale.
+- **Calendar:** inline only (no date field with a drop-down, no time, no range); the year range is
+  1753 to 9999 (what `SysMonthCal32` supports). On GTK the control reports a change both for a day click and
+  for the month arrows; on Win32 `MCN_SELCHANGE` only fires when the selection moves. `Date::today()` is
+  the toolkit's local date. A UIA/MSAA role for the calendar is not set (MSAA has none).
 - **All platforms:** no custom drawing, rich text, caret/selection accessibility; RTL is a global
   opt-in; `Window::set_position` is a request that Wayland and some WMs ignore.
 - **Lint:** `cargo clippy --all-targets -- -D warnings` is clean in every mode.
@@ -121,7 +141,9 @@ are in the README ("Binary size and linkage")
 
 1. Beyond the file manager, exercise the rest of the widget set on real Windows and macOS (the Win32 CI job exists, unrun); verify move/min-size/DPI and the
    MSAA overrides with Narrator/NVDA.
-2. Close the API gaps above, then a canvas/custom-draw widget and virtualised tables/trees.
+2. Close the API gaps above, then a canvas/custom-draw widget and virtualised tables/trees. Possible
+   later: a colour dialog, a font type and font dialog, a date field with a drop-down, a spinner,
+   and moving the file manager's rename window onto `Prompt`.
 
 ## Workflow notes
 

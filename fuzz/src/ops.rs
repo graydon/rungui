@@ -71,6 +71,7 @@ enum Tag {
     Table,
     Tree,
     Popup,
+    Calendar,
 }
 
 #[derive(Clone, Copy)]
@@ -595,6 +596,7 @@ impl Fuzz {
             26 => (MenuSeparator::new(p).id(), Tag::MenuSeparator),
             27 => (Table::new(p).id(), Tag::Table),
             28 => (Tree::new(p).id(), Tag::Tree),
+            _ if self.coin(2) => (Calendar::new(p).id(), Tag::Calendar),
             _ => (PopupMenu::new().id(), Tag::Popup),
         };
         let _ = last_error();
@@ -943,12 +945,85 @@ impl Fuzz {
                     ts.swap_remove(i).stop();
                 }
             }
+            26 => {
+                let h = self.hook();
+                TextInput::from_id(self.of(&[Tag::TextInput, Tag::Password])).on_activate(h);
+                let h = self.hook();
+                Window::from_id(self.of(&[Tag::Window])).on_cancel(h);
+            }
+            27 => {
+                let id = self.of(&[Tag::ListBox, Tag::Table]);
+                let (l, t) = (ListBox::from_id(id), Table::from_id(id));
+                let on = self.coin(3);
+                l.set_multi_select(on);
+                t.set_multi_select(on);
+                let rows: Vec<usize> = (0..self.u8() % 6).map(|_| self.uint()).collect();
+                l.set_selection(&rows);
+                t.set_selection(&rows);
+                let _ = (l.selection(), l.selected_texts(), l.multi_select());
+                let _ = (t.selection(), t.selected_rows(), t.multi_select());
+                let h = self.hook();
+                l.on_selection(move |_| h());
+                let h = self.hook();
+                t.on_selection(move |_| h());
+            }
+            28 => {
+                let id = self.of(&[Tag::Calendar]);
+                let c = Calendar::from_id(id);
+                c.set_date(Date {
+                    year: self.int(),
+                    month: self.uint() as u32,
+                    day: self.uint() as u32,
+                });
+                let _ = c.date();
+                let h = self.hook();
+                c.on_change(move |_| h());
+            }
+            29 => self.modal(),
             _ => {
                 let id = self.any_id();
                 let _ = Widget(id).native_handle();
             }
         }
     }
+
+    /// A modal window or prompt. Only on the mock backend, where the simulated user answers at
+    /// once: a real toolkit would wait for a person.
+    #[cfg(feature = "mock")]
+    fn modal(&self) {
+        use rungui::backend::mock;
+        if self.mode != Mode::Mock {
+            return;
+        }
+        let win = Window::from_id(self.window());
+        let hostile = self.coin(3);
+        if self.coin(2) {
+            let target = self.window();
+            mock::queue_modal(move |w| {
+                if hostile {
+                    Window::from_id(target).destroy();
+                } else {
+                    mock::user_cancel(w);
+                }
+            });
+            let _ = Prompt::new(&self.string())
+                .message(&self.string())
+                .initial(&self.string())
+                .password(self.coin(4))
+                .run(if self.coin(2) { Some(win) } else { None });
+        } else {
+            let id = self.window();
+            mock::queue_modal(move |w| {
+                if hostile {
+                    mock::user_close(w);
+                }
+                let _ = id;
+            });
+            win.run_modal(Some(Window::from_id(self.window())));
+        }
+    }
+    #[cfg(not(feature = "mock"))]
+    fn modal(&self) {}
 
     // ---------------------------------------------------------------- tables and trees
 
@@ -1207,7 +1282,7 @@ impl Fuzz {
             SashKey::Max,
         ];
         // events are aimed at the kind of widget that emits them most of the time
-        match op % 26 {
+        match op % 30 {
             0 => mock::user_click(self.of(&[T::Button, T::MenuItem])),
             1 => mock::user_text(
                 self.of(&[T::TextInput, T::Password, T::TextArea]),
@@ -1287,9 +1362,23 @@ impl Fuzz {
             24 => {
                 mock::fail_next_create();
             }
-            _ => {
+            25 => {
                 mock::set_unsupported(if self.coin(2) { &[Kind::Sash] } else { &[] });
             }
+            26 => {
+                let rows: Vec<usize> = (0..self.u8() % 6).map(|_| self.uint()).collect();
+                mock::user(self.of(&[T::ListBox, T::Table]), Event::Selection(rows));
+            }
+            27 => mock::user_submit(self.of(&[T::TextInput, T::Password])),
+            28 => mock::user_cancel(self.window()),
+            _ => mock::user_pick_date(
+                self.of(&[T::Calendar]),
+                Date {
+                    year: 1753 + i32::from(self.u8()),
+                    month: u32::from(self.u8() % 14),
+                    day: u32::from(self.u8() % 33),
+                },
+            ),
         }
     }
     #[cfg(not(feature = "mock"))]

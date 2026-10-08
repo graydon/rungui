@@ -135,7 +135,7 @@ fn msaa_role(r: A11yRole) -> i32 {
     use A11yRole as R;
     match r {
         R::Window => 9,
-        R::Pane => 16,
+        R::Pane | R::Calendar => 16, // MSAA has no calendar role
         R::Group => 20,
         R::Splitter => 21,
         R::Table => 24,

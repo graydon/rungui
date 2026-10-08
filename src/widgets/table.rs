@@ -51,9 +51,7 @@ impl Table {
         core::data_update(self.id(), core::Data::TableRows, |n| {
             if let Some(t) = n.table_mut() {
                 t.rows = v;
-                if t.selected.is_some_and(|i| i >= t.rows.len()) {
-                    t.selected = None;
-                }
+                t.sel.truncate_to(t.rows.len());
             }
         });
     }
@@ -73,11 +71,7 @@ impl Table {
             if let Some(t) = n.table_mut() {
                 let i = index.min(t.rows.len());
                 t.rows.insert(i, v);
-                if let Some(s) = t.selected.as_mut() {
-                    if *s >= i {
-                        *s += 1;
-                    }
-                }
+                t.sel.on_insert(i);
             }
         });
     }
@@ -87,11 +81,7 @@ impl Table {
             if let Some(t) = n.table_mut() {
                 if index < t.rows.len() {
                     t.rows.remove(index);
-                    t.selected = match t.selected {
-                        Some(s) if s == index => None,
-                        Some(s) if s > index => Some(s - 1),
-                        o => o,
-                    };
+                    t.sel.on_remove(index);
                 }
             }
         });
@@ -101,7 +91,7 @@ impl Table {
         core::data_update(self.id(), core::Data::TableRows, |n| {
             if let Some(t) = n.table_mut() {
                 t.rows.clear();
-                t.selected = None;
+                t.sel.items.clear();
             }
         });
     }
@@ -153,7 +143,7 @@ impl Table {
     pub fn set_selected(&self, row: Option<usize>) {
         core::data_update(self.id(), core::Data::TableSelected, |n| {
             if let Some(t) = n.table_mut() {
-                t.selected = row.filter(|i| *i < t.rows.len());
+                t.sel.set_one(row.filter(|i| *i < t.rows.len()));
             }
         });
     }
@@ -165,9 +155,46 @@ impl Table {
     pub fn selected_row(&self) -> Option<Vec<String>> {
         core::read(self.id(), |n| {
             let t = n.table()?;
-            t.rows.get(t.selected?).cloned()
+            t.rows.get(t.sel.first()?).cloned()
         })
         .flatten()
+    }
+    /// Let the user select several rows (Ctrl/Shift-click, or the platform's way). Default off.
+    /// Turning it off keeps only the first selected row. No callback fires.
+    pub fn set_multi_select(&self, v: bool) {
+        items::set_multi_select(self.id(), v)
+    }
+    /// Whether several rows can be selected.
+    pub fn multi_select(&self) -> bool {
+        items::multi_select(self.id())
+    }
+    /// Every selected row, ascending (at most one unless [`Table::set_multi_select`] is on).
+    pub fn selection(&self) -> Vec<usize> {
+        items::selection(self.id())
+    }
+    /// Select exactly these rows; indices past the end are ignored, and without multi-select only
+    /// the lowest one is kept. No callback fires.
+    pub fn set_selection(&self, rows: &[usize]) {
+        items::set_selection(self.id(), rows)
+    }
+    /// The cells of every selected row, in row order.
+    pub fn selected_rows(&self) -> Vec<Vec<String>> {
+        core::read(self.id(), |n| {
+            let t = n.table()?;
+            Some(
+                t.sel
+                    .items
+                    .iter()
+                    .filter_map(|i| t.rows.get(*i).cloned())
+                    .collect(),
+            )
+        })
+        .flatten()
+        .unwrap_or_default()
+    }
+    /// Run `f` with the whole selection when the user changes it.
+    pub fn on_selection(&self, f: impl FnMut(&[usize]) + 'static) {
+        items::on_selection(self.id(), f)
     }
     /// Show the sort arrow on `(column, ascending)`. Display only: the app reorders the rows itself.
     pub fn set_sort_indicator(&self, s: Option<(usize, bool)>) {

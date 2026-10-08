@@ -48,6 +48,10 @@ struct W {
     sash_v: bool,
     sash_pos: i32,
     drag: Option<(f64, i32)>,
+    /// ListBox/Table: several rows may be selected.
+    multi: bool,
+    /// Calendar: the date last shown or reported, packed as year << 9 | month << 5 | day.
+    date: u32,
 }
 
 thread_local! {
@@ -57,6 +61,9 @@ thread_local! {
     static PULSES: RefCell<HashMap<WidgetId, c_uint>> = RefCell::new(HashMap::new());
     static RESIZE_PENDING: RefCell<HashSet<WidgetId>> = RefCell::new(HashSet::new());
     static CHROME: RefCell<HashMap<u8, Size>> = RefCell::new(HashMap::new());
+    /// Nesting depth of `run_modal` loops, and whether `quit` was asked for while inside one.
+    static MODAL_DEPTH: Cell<u32> = const { Cell::new(0) };
+    static QUIT_ASKED: Cell<bool> = const { Cell::new(false) };
 }
 
 fn get(id: WidgetId) -> Option<W> {
@@ -150,6 +157,33 @@ unsafe extern "C" fn h_entry_changed(w: P, d: P) {
     let t = unsafe { from_c(gtk_entry_get_text(w)) };
     emit(wid(d), Event::Text(t));
 }
+unsafe extern "C" fn h_entry_activate(_w: P, d: P) {
+    emit(wid(d), Event::Submit);
+}
+unsafe extern "C" fn h_window_key(_w: P, ev: *const EventKey, d: P) -> c_int {
+    let ev = unsafe { &*ev };
+    if ev.keyval == KEY_ESCAPE && ev.state & (MOD_CTRL | MOD_ALT | MOD_SHIFT) == 0 {
+        emit(wid(d), Event::Cancel);
+    }
+    0 // never swallowed: a drop-down or a dialog may want it too
+}
+fn pack_date(y: c_uint, m: c_uint, d: c_uint) -> u32 {
+    (y << 9) | (m << 5) | d
+}
+unsafe extern "C" fn h_calendar_changed(c: P, d: P) {
+    let id = wid(d);
+    let (mut y, mut m, mut day) = (0, 0, 0);
+    unsafe { gtk_calendar_get_date(c, &mut y, &mut m, &mut day) };
+    let packed = pack_date(y, m + 1, day);
+    // the month arrows report a month change and a day change for one user action
+    if get(id).is_some_and(|w| w.date == packed) || suppressed() {
+        return;
+    }
+    upd(id, |w| w.date = packed);
+    if let Some(date) = Date::new(y as i32, m + 1, day) {
+        emit(id, Event::DateChanged(date));
+    }
+}
 unsafe extern "C" fn h_buffer_changed(b: P, d: P) {
     let (mut a, mut z) = (TextIter::new(), TextIter::new());
     let t = unsafe {
@@ -215,8 +249,15 @@ unsafe extern "C" fn resized_idle(d: P) -> c_int {
     0
 }
 unsafe extern "C" fn h_sel_changed(sel: P, d: P) {
+    if suppressed() {
+        return; // also keeps us from asking a multi-selection for its one row mid-switch
+    }
     let id = wid(d);
     let Some(w) = get(id) else { return };
+    if w.multi {
+        emit(id, Event::Selection(unsafe { selected_rows(sel) }));
+        return;
+    }
     let mut it = TreeIter::new();
     let mut model = NULL;
     let any = unsafe { gtk_tree_selection_get_selected(sel, &mut model, &mut it) } != 0;
@@ -234,6 +275,25 @@ unsafe extern "C" fn h_sel_changed(sel: P, d: P) {
             None
         };
         emit(id, Event::Selected(row));
+    }
+}
+/// Every selected row of a multi-selection tree view, ascending.
+unsafe fn selected_rows(sel: P) -> Vec<usize> {
+    unsafe {
+        let mut model = NULL;
+        let list = gtk_tree_selection_get_selected_rows(sel, &mut model);
+        let mut rows = vec![];
+        let mut cur = list;
+        while !cur.is_null() {
+            let path = (*cur).data;
+            rows.extend(first_index(path));
+            gtk_tree_path_free(path);
+            cur = (*cur).next;
+        }
+        g_list_free(list);
+        rows.sort_unstable();
+        rows.dedup();
+        rows
     }
 }
 unsafe fn tree_node(model: P, it: &mut TreeIter) -> u64 {
@@ -570,6 +630,8 @@ fn blank(kind: Kind, w: P, parent: Option<WidgetId>, win: Option<WidgetId>) -> W
         sash_v: false,
         sash_pos: 0,
         drag: None,
+        multi: false,
+        date: 0,
     }
 }
 
@@ -879,7 +941,55 @@ impl Backend for Gtk {
     }
 
     fn quit() {
+        if MODAL_DEPTH.with(|d| d.get()) > 0 {
+            QUIT_ASKED.with(|q| q.set(true)); // the nested loops end, then `gtk_main` does
+        }
         unsafe { gtk_main_quit() }
+    }
+
+    fn today() -> Option<Date> {
+        unsafe {
+            let dt = g_date_time_new_now_local();
+            if dt.is_null() {
+                return None;
+            }
+            let (mut y, mut m, mut d) = (0, 0, 0);
+            g_date_time_get_ymd(dt, &mut y, &mut m, &mut d);
+            g_date_time_unref(dt);
+            Date::new(y, m as u32, d as u32)
+        }
+    }
+
+    fn run_modal(window: WidgetId, parent: Option<WidgetId>) {
+        let Some(w) = get(window) else { return };
+        unsafe {
+            if let Some(p) = parent.and_then(get) {
+                gtk_window_set_transient_for(w.w, p.w);
+                gtk_window_set_position(w.w, WIN_POS_CENTER_ON_PARENT);
+            }
+            gtk_window_set_modal(w.w, 1);
+            gtk_window_present(w.w);
+        }
+        MODAL_DEPTH.with(|d| d.set(d.get() + 1));
+        // re-read the widget each turn: callbacks may hide or destroy it
+        while !QUIT_ASKED.with(|q| q.get())
+            && get(window).is_some_and(|w| unsafe { gtk_widget_get_visible(w.w) } != 0)
+        {
+            unsafe { gtk_main_iteration_do(1) };
+        }
+        let depth = MODAL_DEPTH.with(|d| {
+            d.set(d.get() - 1);
+            d.get()
+        });
+        if depth == 0 {
+            QUIT_ASKED.with(|q| q.set(false));
+        }
+        if let Some(w) = get(window) {
+            unsafe {
+                gtk_window_set_modal(w.w, 0);
+                gtk_window_set_transient_for(w.w, NULL);
+            }
+        }
     }
 
     fn wake() {
@@ -1221,6 +1331,14 @@ unsafe fn create_inner(
                 return Ok(());
             }
             Kind::Slider => build_slider(id, &mut w),
+            Kind::Calendar => {
+                let c = gtk_calendar_new();
+                connect(c, b"day-selected\0", h_calendar_changed as *const (), id);
+                connect(c, b"month-changed\0", h_calendar_changed as *const (), id);
+                focus_hooks(c, id);
+                ctx_hooks(c, id);
+                w.w = c;
+            }
             Kind::ProgressBar => w.w = gtk_progress_bar_new(),
             Kind::SpinBox => build_spin(id, &mut w),
             Kind::Tabs => build_tabs(id, &mut w),
@@ -1319,6 +1437,9 @@ unsafe fn set_inner(id: WidgetId, w: &W, prop: &Prop) {
             Prop::Range { min, max, step } => set_range(w, *min, *max, *step),
             Prop::Items(items) => set_items(w, items),
             Prop::Selected(sel) => set_selected(w, *sel),
+            Prop::MultiSelect(on) => set_multi_select(id, w, *on),
+            Prop::Selection(rows) => set_selection(w, rows),
+            Prop::Date(d) if w.kind == Kind::Calendar => set_date(id, w, d),
             Prop::Bounds(r) => set_bounds(id, w, r),
             Prop::Orientation(o) if w.kind == Kind::Sash => set_orientation(id, w, *o),
             Prop::Image(img) => set_image(w, img),
@@ -1531,6 +1652,47 @@ unsafe fn set_selected(w: &W, sel: Option<usize>) {
             }
             _ => {}
         }
+    }
+}
+
+/// `Prop::MultiSelect`.
+unsafe fn set_multi_select(id: WidgetId, w: &W, on: bool) {
+    if !matches!(w.kind, Kind::Table | Kind::ListBox) {
+        return;
+    }
+    upd(id, |x| x.multi = on);
+    unsafe {
+        gtk_tree_selection_set_mode(gtk_tree_view_get_selection(w.inner), if on { 3 } else { 1 })
+    };
+}
+
+/// `Prop::Selection`.
+unsafe fn set_selection(w: &W, rows: &[usize]) {
+    if !matches!(w.kind, Kind::Table | Kind::ListBox) {
+        return;
+    }
+    unsafe {
+        let selw = gtk_tree_view_get_selection(w.inner);
+        gtk_tree_selection_unselect_all(selw);
+        for (n, i) in rows.iter().enumerate() {
+            let path = gtk_tree_path_new_from_indices(*i as c_int, -1 as c_int);
+            gtk_tree_selection_select_path(selw, path);
+            if n == 0 {
+                gtk_tree_view_scroll_to_cell(w.inner, path, NULL, 0, 0.0, 0.0);
+            }
+            gtk_tree_path_free(path);
+        }
+    }
+}
+
+/// `Prop::Date`.
+unsafe fn set_date(id: WidgetId, w: &W, d: &Date) {
+    upd(id, |x| x.date = pack_date(d.year as c_uint, d.month, d.day));
+    unsafe {
+        // the day first would be clamped into the old month: go to day 1, then month, then day
+        gtk_calendar_select_day(w.w, 1);
+        gtk_calendar_select_month(w.w, d.month - 1, d.year as c_uint);
+        gtk_calendar_select_day(w.w, d.day);
     }
 }
 
@@ -1982,6 +2144,7 @@ unsafe fn build_window(id: WidgetId, w: &mut W) {
         // accelerator closure in it) with each window
         g_object_unref(ag);
         connect(win, b"delete-event\0", h_delete as *const (), id);
+        connect(win, b"key-press-event\0", h_window_key as *const (), id);
         ctx_hooks(win, id);
         connect(sw, b"size-allocate\0", h_size_allocate as *const (), id);
         connect(win, b"configure-event\0", h_configure as *const (), id);
@@ -2039,6 +2202,7 @@ unsafe fn build_entry(id: WidgetId, kind: Kind, w: &mut W) {
             gtk_entry_set_visibility(e, 0);
         }
         connect(e, b"changed\0", h_entry_changed as *const (), id);
+        connect(e, b"activate\0", h_entry_activate as *const (), id);
         focus_hooks(e, id);
         w.w = e;
     }

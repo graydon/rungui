@@ -33,13 +33,64 @@ pub struct Batch {
     pub cells: Vec<(usize, usize)>,
 }
 
+/// The selected items of a list box or table. Without `multi` there is at most one.
+#[derive(Clone, Debug, Default)]
+pub struct Selection {
+    pub multi: bool,
+    /// Ascending and unique.
+    pub items: Vec<usize>,
+}
+
+impl Selection {
+    /// The lowest selected index.
+    pub fn first(&self) -> Option<usize> {
+        self.items.first().copied()
+    }
+    pub fn set_one(&mut self, i: Option<usize>) {
+        self.items.clear();
+        self.items.extend(i);
+    }
+    /// Select `v` (out-of-range entries dropped, order and duplicates normalised).
+    pub fn set_many(&mut self, v: &[usize], len: usize) {
+        self.items = v.iter().copied().filter(|i| *i < len).collect();
+        self.items.sort_unstable();
+        self.items.dedup();
+        if !self.multi {
+            self.items.truncate(1);
+        }
+    }
+    pub fn set_multi(&mut self, multi: bool) {
+        self.multi = multi;
+        if !multi {
+            self.items.truncate(1);
+        }
+    }
+    /// Forget indices at or past `len`.
+    pub fn truncate_to(&mut self, len: usize) {
+        self.items.retain(|i| *i < len);
+    }
+    /// A row was inserted at `at`: the selection follows its rows.
+    pub fn on_insert(&mut self, at: usize) {
+        for i in self.items.iter_mut().filter(|i| **i >= at) {
+            *i += 1;
+        }
+    }
+    /// Row `at` was removed: it leaves the selection, later rows move up.
+    pub fn on_remove(&mut self, at: usize) {
+        self.items.retain(|i| *i != at);
+        for i in self.items.iter_mut().filter(|i| **i > at) {
+            *i -= 1;
+        }
+    }
+}
+
 /// Table model (rows are plain strings).
 #[derive(Clone, Debug, Default)]
 pub struct TableData {
     pub columns: Vec<Column>,
     pub rows: Vec<Vec<String>>,
     pub sort: Option<(usize, bool)>,
-    pub selected: Option<usize>,
+    pub sel: Selection,
     pub batch: Batch,
 }
 
@@ -235,6 +286,8 @@ pub enum NodeData {
     Tree(Box<TreeData>),
     /// `Splitter`.
     Split(Box<SplitData>),
+    /// `Calendar`: the selected date.
+    Date(Date),
 }
 
 pub struct WindowData {
@@ -280,7 +333,7 @@ pub struct RangeData {
 #[derive(Default)]
 pub struct ListData {
     pub items: Vec<String>,
-    pub selected: Option<usize>,
+    pub sel: Selection,
 }
 
 /// Which part of a table/tree model must be re-sent to the backend.
@@ -352,6 +405,7 @@ impl NodeData {
             Kind::Table => NodeData::Table(Box::default()),
             Kind::Tree => NodeData::Tree(Box::default()),
             Kind::Splitter => NodeData::Split(Box::default()),
+            Kind::Calendar => NodeData::Date(super::today()),
             _ => NodeData::Plain,
         }
     }
@@ -368,13 +422,29 @@ impl Node {
         table, table_mut, Table, TableData;
         tree, tree_mut, Tree, TreeData;
         split, split_mut, Split, SplitData;
+        date, date_mut, Date, Date;
     }
     /// The selected index of a list, tab strip or table.
     pub fn selection(&self) -> Option<usize> {
         match &self.data {
-            NodeData::List(l) => l.selected,
+            NodeData::List(l) => l.sel.first(),
             NodeData::Tabs(s) => *s,
-            NodeData::Table(t) => t.selected,
+            NodeData::Table(t) => t.sel.first(),
+            _ => None,
+        }
+    }
+    /// The selection of a list box or table.
+    pub fn sel(&self) -> Option<&Selection> {
+        match &self.data {
+            NodeData::List(l) => Some(&l.sel),
+            NodeData::Table(t) => Some(&t.sel),
+            _ => None,
+        }
+    }
+    pub fn sel_mut(&mut self) -> Option<&mut Selection> {
+        match &mut self.data {
+            NodeData::List(l) => Some(&mut l.sel),
+            NodeData::Table(t) => Some(&mut t.sel),
             _ => None,
         }
     }
@@ -387,12 +457,13 @@ impl Node {
             _ => 0,
         }
     }
-    pub fn selection_mut(&mut self) -> Option<&mut Option<usize>> {
+    /// Select `i` alone in a list, tab strip or table.
+    pub fn set_selection(&mut self, i: Option<usize>) {
         match &mut self.data {
-            NodeData::List(l) => Some(&mut l.selected),
-            NodeData::Tabs(s) => Some(s),
-            NodeData::Table(t) => Some(&mut t.selected),
-            _ => None,
+            NodeData::List(l) => l.sel.set_one(i),
+            NodeData::Tabs(s) => *s = i,
+            NodeData::Table(t) => t.sel.set_one(i),
+            _ => {}
         }
     }
     /// The checked state of a check box, radio button or check menu item (`false` for other kinds).

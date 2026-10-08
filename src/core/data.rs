@@ -105,6 +105,8 @@ fn send(id: WidgetId, what: Data) {
             rows: Option<Vec<Vec<String>>>,
             cells: Vec<(usize, usize, String)>,
             sel: Option<usize>,
+            /// The whole selection when the table is in multi-select mode.
+            multi: Option<Vec<usize>>,
             sort: Option<(usize, bool)>,
             send_sel: bool,
             send_sort: bool,
@@ -132,7 +134,8 @@ fn send(id: WidgetId, what: Data) {
                 cols: all.then(|| t.columns.clone()),
                 rows: (all || what == Data::TableRows).then(|| t.rows.clone()),
                 cells,
-                sel: t.selected,
+                sel: t.sel.first(),
+                multi: t.sel.multi.then(|| t.sel.items.clone()),
                 sort: t.sort,
                 send_sel: all || matches!(what, Data::TableRows | Data::TableSelected),
                 send_sort: all || what == Data::TableSort,
@@ -154,6 +157,7 @@ fn send(id: WidgetId, what: Data) {
             rows,
             cells,
             sel,
+            multi,
             sort,
             send_sel,
             send_sort,
@@ -175,7 +179,10 @@ fn send(id: WidgetId, what: Data) {
                 );
             }
             if send_sel {
-                B::set(id, &Prop::Selected(sel));
+                match &multi {
+                    Some(m) => B::set(id, &Prop::Selection(m)),
+                    None => B::set(id, &Prop::Selected(sel)),
+                }
             }
             if send_sort {
                 B::set(id, &Prop::SortIndicator(sort));

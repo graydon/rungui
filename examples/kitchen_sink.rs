@@ -127,6 +127,21 @@ fn main() {
         }
     });
 
+    // Page 5: a calendar, a multi-select list and a prompt
+    let dates = tabs.add_page("Dates");
+    let cal = Calendar::new(dates);
+    cal.on_change(move |d| status.set_text(&format!("{}-{:02}-{:02}", d.year, d.month, d.day)));
+    let many = ListBox::new(dates);
+    many.set_items(&["one", "two", "three", "four"]);
+    many.set_multi_select(true);
+    many.set_expand(1.0);
+    many.on_selection(move |rows| status.set_text(&format!("selected {rows:?}")));
+    let ask = Button::new(dates, "Ask...");
+    ask.on_click(move || {
+        let r = prompt(Some(win), "Name", "What is your name?", "");
+        status.set_text(&format!("name: {r:?}"));
+    });
+
     // Right-click the table for a context menu; its items are rebuilt/enabled just before display.
     let popup = PopupMenu::new();
     let del = MenuItem::new(popup, "Delete row");

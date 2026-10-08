@@ -53,6 +53,8 @@ pub struct Registry {
     radio_groups: HashMap<u32, Vec<WidgetId>>,
     next_group: u32,
     pub quit_on_last_close: bool,
+    /// Windows inside `run_modal` right now.
+    pub modal: Vec<WidgetId>,
 }
 
 impl Registry {
@@ -199,6 +201,7 @@ pub fn init(app_name: &str) -> Result<()> {
                 radio_groups: HashMap::new(),
                 next_group: 1,
                 quit_on_last_close: true,
+                modal: vec![],
             });
             true
         })

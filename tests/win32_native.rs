@@ -111,6 +111,7 @@ unsafe extern "system" {
     fn GetWindowTextW(h: Hwnd, buf: *mut u16, n: i32) -> i32;
     fn SetWindowPos(h: Hwnd, after: Hwnd, x: i32, y: i32, w: i32, hh: i32, flags: u32) -> i32;
     fn FindWindowW(class: *const u16, title: *const u16) -> Hwnd;
+    fn IsWindowEnabled(h: Hwnd) -> i32;
 }
 
 const WM_SIZE: u32 = 0x5;
@@ -131,6 +132,13 @@ const TBM_SETPOS: u32 = 0x405;
 const LB_GETCOUNT: u32 = 0x18B;
 const LB_GETCURSEL: u32 = 0x188;
 const LB_SETCURSEL: u32 = 0x186;
+const LB_SETSEL: u32 = 0x185;
+const LB_GETSELCOUNT: u32 = 0x190;
+const LB_GETSELITEMS: u32 = 0x191;
+const MCM_GETCURSEL: u32 = 0x1001;
+const MCM_SETCURSEL: u32 = 0x1002;
+const MCN_SELCHANGE: i32 = -749;
+const VK_ESCAPE: usize = 0x1B;
 const CB_GETCOUNT: u32 = 0x146;
 const CB_GETCURSEL: u32 = 0x147;
 const CB_SETCURSEL: u32 = 0x14E;
@@ -1009,4 +1017,193 @@ fn table_columns_keep_their_logical_width_when_the_dpi_changes() {
         width(0)
     );
     assert!((ratio(width(1), b) - 2.0).abs() < 0.05);
+}
+
+// ------------------------------------------------------------------ multi-select, Enter/Escape, modal windows, calendar
+
+fn selected_items(list: Hwnd) -> Vec<i32> {
+    let n = send(list, LB_GETSELCOUNT);
+    let mut buf = vec![0i32; n.max(0) as usize];
+    let got = unsafe { SendMessageW(list, LB_GETSELITEMS, buf.len(), buf.as_mut_ptr() as isize) };
+    buf.truncate(got.max(0) as usize);
+    buf
+}
+
+#[test]
+fn list_box_multi_select() {
+    let app = new_app("win32-native-multilist");
+    let win = Window::new("t");
+    let col = VBox::new(win);
+    let log: Log = Rc::default();
+    let list = ListBox::new(col);
+    list.set_items(&["a", "b", "c", "d"]);
+    list.set_selected(Some(3));
+    let single = hwnd(list.native_handle());
+    assert_eq!(send(single, LB_GETCURSEL), 3);
+    // the list box is made again with LBS_EXTENDEDSEL: same items, same selection
+    list.set_multi_select(true);
+    win.show();
+    let multi = hwnd(list.native_handle());
+    assert_ne!(multi, single, "the control is replaced");
+    assert_eq!(send(multi, LB_GETCOUNT), 4);
+    assert_eq!(selected_items(multi), vec![3]);
+    list.set_selection(&[0, 2]);
+    assert_eq!(selected_items(multi), vec![0, 2]);
+    assert!(
+        unsafe { IsWindowVisible(multi) } != 0,
+        "the new control is shown"
+    );
+    let l = log.clone();
+    list.on_selection(move |s| l.borrow_mut().push(format!("selection {s:?}")));
+    let l = log.clone();
+    list.on_select(move |s| l.borrow_mut().push(format!("select {s:?}")));
+    in_loop(app, move || unsafe {
+        // the user ctrl-clicks item 1
+        SendMessageW(multi, LB_SETSEL, 1, 1);
+        command(multi, LBN_SELCHANGE);
+    });
+    assert_logged(&log, "selection [0, 1, 2]");
+    assert_logged(&log, "select Some(0)");
+    assert_eq!(list.selection(), vec![0, 1, 2]);
+    list.set_multi_select(false);
+    let again = hwnd(list.native_handle());
+    assert_eq!(send(again, LB_GETCURSEL), 0, "only the first row stays");
+}
+
+#[test]
+fn table_multi_select() {
+    let app = new_app("win32-native-multitable");
+    let win = Window::new("t");
+    let col = VBox::new(win);
+    let log: Log = Rc::default();
+    let table = Table::new(col);
+    table.set_columns(&[Column::new("a")]);
+    table.set_rows(&[vec!["1"], vec!["2"], vec!["3"], vec!["4"]]);
+    table.set_multi_select(true);
+    table.set_selection(&[1, 3]);
+    win.show();
+    let h = hwnd(table.native_handle());
+    let native_rows = move || {
+        let mut rows = vec![];
+        let mut i = unsafe { SendMessageW(h, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED) };
+        while i >= 0 {
+            rows.push(i);
+            i = unsafe { SendMessageW(h, LVM_GETNEXTITEM, i as usize, LVNI_SELECTED) };
+        }
+        rows
+    };
+    App::update(); // table models reach the control at the next loop turn
+    assert_eq!(native_rows(), vec![1, 3]);
+    let l = log.clone();
+    table.on_selection(move |s| l.borrow_mut().push(format!("selection {s:?}")));
+    in_loop(app, move || {
+        let it = LvItem {
+            mask: 0,
+            item: 0,
+            sub_item: 0,
+            state: LVIS_SELECTED,
+            state_mask: LVIS_SELECTED,
+            text: std::ptr::null_mut(),
+            text_max: 0,
+            image: 0,
+            lparam: 0,
+        };
+        unsafe { SendMessageW(h, LVM_SETITEMSTATE, 0, &it as *const LvItem as isize) };
+        notify(h, LVN_ITEMCHANGED, |hdr| NmListView {
+            new_state: LVIS_SELECTED,
+            changed: 8, // LVIF_STATE
+            ..list_view_note(hdr, 0, 0)
+        });
+    });
+    assert_logged(&log, "selection [0, 1, 3]");
+    assert_eq!(table.selection(), vec![0, 1, 3]);
+    table.set_multi_select(false);
+    assert_eq!(table.selection(), vec![0]);
+}
+
+#[test]
+fn enter_and_escape_reach_the_application() {
+    let app = new_app("win32-native-keys");
+    let win = Window::new("t");
+    let col = VBox::new(win);
+    let log: Log = Rc::default();
+    let field = TextInput::new(col);
+    let l = log.clone();
+    field.on_activate(move || l.borrow_mut().push("enter".into()));
+    let l = log.clone();
+    win.on_cancel(move || l.borrow_mut().push("escape".into()));
+    win.show();
+    let h = hwnd(field.native_handle());
+    // keys posted to the control travel through the message loop, where Enter and Escape are seen
+    let _keys = Timer::once(1, move || unsafe {
+        PostMessageW(h, WM_KEYDOWN, VK_RETURN, 0);
+        PostMessageW(h, WM_KEYDOWN, VK_ESCAPE, 0);
+    });
+    let _stop = Timer::once(80, App::quit);
+    app.run();
+    assert_logged(&log, "enter");
+    assert_logged(&log, "escape");
+}
+
+#[test]
+fn run_modal_blocks_the_other_windows_until_hidden() {
+    let app = new_app("win32-native-modal");
+    let main = Window::new("main");
+    Label::new(main, "main");
+    main.show();
+    let dlg = Window::new("dialog");
+    Label::new(dlg, "dialog");
+    let hm = hwnd(main.native_handle());
+    let hd = hwnd(dlg.native_handle());
+    let log: Log = Rc::default();
+    let l = log.clone();
+    in_loop(app, move || {
+        let l2 = l.clone();
+        let _t = Timer::once(20, move || {
+            l2.borrow_mut()
+                .push(format!("main enabled: {}", unsafe { IsWindowEnabled(hm) } != 0));
+            l2.borrow_mut()
+                .push(format!("dialog enabled: {}", unsafe { IsWindowEnabled(hd) } != 0));
+            dlg.hide();
+        });
+        l.borrow_mut().push("open".into());
+        dlg.run_modal(Some(main));
+        l.borrow_mut()
+            .push(format!("main enabled after: {}", unsafe { IsWindowEnabled(hm) } != 0));
+        // running it again works, and closing it destroys it
+        let _c = Timer::once(20, move || dlg.close());
+        dlg.run_modal(None);
+        l.borrow_mut().push(format!("alive: {}", dlg.is_alive()));
+    });
+    assert_logged(&log, "open");
+    assert_logged(&log, "main enabled: false");
+    assert_logged(&log, "dialog enabled: true");
+    assert_logged(&log, "main enabled after: true");
+    assert_logged(&log, "alive: false");
+}
+
+#[test]
+fn calendar_holds_and_reports_a_date() {
+    let app = new_app("win32-native-calendar");
+    let win = Window::new("t");
+    let col = VBox::new(win);
+    let log: Log = Rc::default();
+    let cal = Calendar::new(col);
+    let h = hwnd(cal.native_handle());
+    assert_eq!(class_of(h), "SysMonthCal32");
+    let d = Date::new(2031, 7, 4).unwrap();
+    cal.set_date(d);
+    let mut st = [0u16; 8];
+    assert_ne!(unsafe { SendMessageW(h, MCM_GETCURSEL, 0, st.as_mut_ptr() as isize) }, 0);
+    assert_eq!((st[0], st[1], st[3]), (2031, 7, 4));
+    win.show();
+    let l = log.clone();
+    cal.on_change(move |d| l.borrow_mut().push(format!("{}-{}-{}", d.year, d.month, d.day)));
+    in_loop(app, move || {
+        let st = [2032u16, 2, 0, 29, 0, 0, 0, 0]; // the user picks the 29th of February 2032
+        unsafe { SendMessageW(h, MCM_SETCURSEL, 0, st.as_ptr() as isize) };
+        notify(h, MCN_SELCHANGE, |hdr| hdr);
+    });
+    assert_logged(&log, "2032-2-29");
+    assert_eq!(cal.date(), Date::new(2032, 2, 29).unwrap());
 }

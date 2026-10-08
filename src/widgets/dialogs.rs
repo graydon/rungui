@@ -1,4 +1,4 @@
-//! Modal dialogs: message box and file dialogs.
+//! Modal dialogs: message box, file dialogs and the text prompt.
 
 use super::*;
 
@@ -87,4 +87,101 @@ impl FileDialog {
     pub fn pick_folder(&self, parent: Option<Window>) -> Option<PathBuf> {
         self.run(parent, FileMode::PickFolder).into_iter().next()
     }
+}
+
+/// A modal dialog asking for one line of text. Built from ordinary widgets and run with
+/// [`Window::run_modal`], so it looks the same everywhere and needs no backend support of its own.
+#[derive(Clone, Debug)]
+pub struct Prompt {
+    title: String,
+    message: String,
+    initial: String,
+    ok: String,
+    cancel: String,
+    password: bool,
+}
+
+impl Prompt {
+    /// A prompt with this window title and "OK" / "Cancel" buttons.
+    pub fn new(title: &str) -> Prompt {
+        Prompt {
+            title: title.into(),
+            message: String::new(),
+            initial: String::new(),
+            ok: "OK".into(),
+            cancel: "Cancel".into(),
+            password: false,
+        }
+    }
+    /// The question shown above the field.
+    pub fn message(mut self, m: &str) -> Self {
+        self.message = m.into();
+        self
+    }
+    /// The text the field starts with.
+    pub fn initial(mut self, t: &str) -> Self {
+        self.initial = t.into();
+        self
+    }
+    /// Captions of the two buttons (for other languages; `&` marks a mnemonic).
+    pub fn buttons(mut self, ok: &str, cancel: &str) -> Self {
+        self.ok = ok.into();
+        self.cancel = cancel.into();
+        self
+    }
+    /// Mask what is typed.
+    pub fn password(mut self, v: bool) -> Self {
+        self.password = v;
+        self
+    }
+    /// Show the prompt over `parent` and wait. The typed text when the user pressed OK or Enter,
+    /// `None` when they cancelled (Cancel, Escape or closing the window).
+    pub fn run(&self, parent: Option<Window>) -> Option<String> {
+        use std::{cell::RefCell, rc::Rc};
+        let win = Window::new(&self.title);
+        if !win.is_alive() {
+            return None;
+        }
+        win.set_resizable(false);
+        win.set_min_size(320, 0);
+        let col = VBox::new(win);
+        if !self.message.is_empty() {
+            Label::new(col, &self.message);
+        }
+        let field = if self.password {
+            TextInput::password(col)
+        } else {
+            TextInput::new(col)
+        };
+        field.set_text(&self.initial);
+        let row = HBox::new(col);
+        Spacer::new(row);
+        let ok = Button::new(row, &self.ok);
+        let cancel = Button::new(row, &self.cancel);
+        let answer: Rc<RefCell<Option<String>>> = Rc::default();
+        let accept = {
+            let answer = answer.clone();
+            move || {
+                *answer.borrow_mut() = Some(field.text());
+                win.hide();
+            }
+        };
+        ok.on_click(accept.clone());
+        field.on_activate(accept);
+        cancel.on_click(move || win.hide());
+        win.on_cancel(move || win.hide());
+        field.focus();
+        win.run_modal(parent);
+        win.destroy();
+        answer.take()
+    }
+}
+
+/// Ask for one line of text in a modal dialog (see [`Prompt`] for buttons and password fields):
+/// the text on OK or Enter, `None` on cancel.
+pub fn prompt(parent: Option<Window>, title: &str, message: &str, initial: &str) -> Option<String> {
+    Prompt::new(title)
+        .message(message)
+        .initial(initial)
+        .run(parent)
 }

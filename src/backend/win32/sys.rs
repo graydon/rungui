@@ -38,6 +38,18 @@ pub struct SIZE {
     pub cy: i32,
 }
 #[repr(C)]
+#[derive(Copy, Clone, Default)]
+pub struct SYSTEMTIME {
+    pub year: u16,
+    pub month: u16,
+    pub day_of_week: u16,
+    pub day: u16,
+    pub hour: u16,
+    pub minute: u16,
+    pub second: u16,
+    pub millis: u16,
+}
+#[repr(C)]
 pub struct MSG {
     pub hwnd: HWND,
     pub message: u32,
@@ -391,6 +403,21 @@ pub const ES_AUTOVSCROLL: u32 = 0x40;
 pub const ES_AUTOHSCROLL: u32 = 0x80;
 pub const ES_WANTRETURN: u32 = 0x1000;
 pub const CBS_DROPDOWNLIST: u32 = 3;
+pub const LBS_EXTENDEDSEL: u32 = 0x800;
+pub const LB_SETSEL: u32 = 0x185;
+pub const LB_GETSELCOUNT: u32 = 0x190;
+pub const LB_GETSELITEMS: u32 = 0x191;
+pub const LB_SETCARETINDEX: u32 = 0x19E;
+pub const LB_GETCARETINDEX: u32 = 0x19F;
+pub const CB_GETDROPPEDSTATE: u32 = 0x157;
+pub const VK_ESCAPE: usize = 0x1B;
+pub const GWLP_HWNDPARENT: i32 = -8;
+pub const MCS_NOTODAY: u32 = 0x10;
+pub const MCM_GETCURSEL: u32 = 0x1001;
+pub const MCM_SETCURSEL: u32 = 0x1002;
+pub const MCM_GETMINREQRECT: u32 = 0x1009;
+/// MCN_FIRST - 3 (`0U - 746U` as a signed notification code).
+pub const MCN_SELCHANGE: i32 = -749;
 pub const LBS_NOTIFY: u32 = 1;
 pub const LBS_NOINTEGRALHEIGHT: u32 = 0x100;
 pub const TBS_NOTICKS: u32 = 0x10;
@@ -673,6 +700,7 @@ unsafe extern "system" {
     pub fn ScreenToClient(h: HWND, p: *mut POINT) -> BOOL;
     pub fn ClientToScreen(h: HWND, p: *mut POINT) -> BOOL;
     pub fn SetForegroundWindow(h: HWND) -> BOOL;
+    pub fn IsWindowEnabled(h: HWND) -> BOOL;
     pub fn GetForegroundWindow() -> HWND;
     pub fn TrackPopupMenuEx(
         m: isize,
@@ -763,6 +791,7 @@ unsafe extern "system" {
     pub fn LoadLibraryW(name: *const u16) -> isize;
     pub fn GetProcAddress(m: isize, name: *const u8) -> *const c_void;
     pub fn GetLastError() -> u32;
+    pub fn GetLocalTime(st: *mut SYSTEMTIME);
     pub fn CreateActCtxW(c: *const ACTCTXW) -> isize;
     pub fn ActivateActCtx(h: isize, cookie: *mut usize) -> BOOL;
 }

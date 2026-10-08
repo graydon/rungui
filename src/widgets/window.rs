@@ -101,6 +101,21 @@ impl Window {
             }
         });
     }
+    /// Called when the user presses Escape while this window is active, whichever of its widgets
+    /// has the focus (unless that widget used the key itself, as an open drop-down does).
+    pub fn on_cancel(&self, mut f: impl FnMut() + 'static) {
+        on(self.id(), Ev::Cancel, move |_| f())
+    }
+    /// Show the window as a modal dialog over `parent` and wait: the application's other windows
+    /// take no input, and this call returns only when the window is hidden ([`Window::hide`]),
+    /// closed or destroyed, or the application quits. Events (including those of this window)
+    /// are handled while it waits, so the window's own callbacks end the dialog, typically with
+    /// `hide()` from a button's `on_click`. A closed window is destroyed; one that was only
+    /// hidden can be run again. Called on a dead window, or on one that is already running
+    /// modally, it does nothing.
+    pub fn run_modal(&self, parent: Option<Window>) {
+        core::run_modal(self.id(), parent.map(|p| p.id()))
+    }
     /// Close now (no `on_close` check).
     pub fn close(&self) {
         self.destroy()

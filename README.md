@@ -11,7 +11,7 @@ fair bit. But, you know, LLM code. Caveat emptor.
 
 ## Overview
 
-Rungui is a small (15kloc) portable desktop GUI library built as a wrapper over
+Rungui is a small (16kloc) portable desktop GUI library built as a wrapper over
 GTK3 (Linux), Win32 (Windows) and Cocoa (macOS). It has no other Rust
 dependencies and builds in seconds. The style is old-fashioned stateful objects
 with callbacks. There are no advanced Rust features used, just `Copy` integer
@@ -47,7 +47,7 @@ cargo doc --open                   # tutorial + API
 
 Containers: `VBox`, `HBox`, `Grid`, `GroupBox`, `Tabs`/`Page`, `Splitter`.
 
-Widgets: `Label`, `Button`, `CheckBox`, `RadioButton`, `TextInput`, `TextArea`, `ComboBox`, `ListBox`, `Slider`, `SpinBox`, `ProgressBar`, `Image`, `Table`, `Tree`, `Menu`, `MenuBar`, `MenuItem`, `PopupMenu`, `message_box`, `FileDialog`, `Timer`.
+Widgets: `Label`, `Button`, `CheckBox`, `RadioButton`, `TextInput`, `TextArea`, `ComboBox`, `ListBox`, `Slider`, `SpinBox`, `ProgressBar`, `Image`, `Table`, `Tree`, `Calendar`, `Menu`, `MenuBar`, `MenuItem`, `PopupMenu`, `message_box`, `FileDialog`, `Prompt`/`prompt`, modal windows (`Window::run_modal`), `Timer`. `ListBox` and `Table` can be multi-select.
 
 ## Example screenshots
 

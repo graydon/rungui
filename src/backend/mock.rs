@@ -72,6 +72,23 @@ pub struct MockWidget {
     pub position: Option<(i32, i32)>,
     /// Minimum client size of a window.
     pub min_size: Size,
+    /// ListBox/Table multi-select mode.
+    pub multi_select: bool,
+    /// The date a Calendar shows.
+    pub date: Option<Date>,
+    /// The selected rows as last pushed (`Selected` or `Selection`) or set by the simulated user.
+    pub selection: Vec<usize>,
+}
+
+/// One `Backend::run_modal` call.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModalRecord {
+    /// The window run modally.
+    pub window: WidgetId,
+    /// The window it was run over.
+    pub parent: Option<WidgetId>,
+    /// Was it visible when the simulated user was done (i.e. would a real loop still be running)?
+    pub still_open: bool,
 }
 
 /// What the core last told the mock about one native widget's accessibility (`a11y_changed`).
@@ -118,6 +135,14 @@ struct State {
     a11y: HashMap<WidgetId, Vec<A11yRecord>>,
     /// Per popup: the item the simulated user picks (None = dismissed).
     popup_choices: VecDeque<Option<WidgetId>>,
+    modal_log: Vec<ModalRecord>,
+}
+
+/// What the simulated user does while a modal window is up (see [`queue_modal`]).
+type ModalScript = Box<dyn FnOnce(WidgetId)>;
+
+thread_local! {
+    static MODAL_SCRIPTS: RefCell<VecDeque<ModalScript>> = const { RefCell::new(VecDeque::new()) };
 }
 
 thread_local! {
@@ -216,7 +241,16 @@ impl Backend for Mock {
                 Prop::Value(v) => w.value = *v,
                 Prop::Range { min, max, step } => w.range = (*min, *max, *step),
                 Prop::Items(i) => w.items = i.to_vec(),
-                Prop::Selected(i) => w.selected = *i,
+                Prop::Selected(i) => {
+                    w.selected = *i;
+                    w.selection = i.iter().copied().collect();
+                }
+                Prop::MultiSelect(b) => w.multi_select = *b,
+                Prop::Date(d) => w.date = Some(*d),
+                Prop::Selection(v) => {
+                    w.selection = v.to_vec();
+                    w.selected = v.first().copied();
+                }
                 Prop::Bounds(r) => {
                     w.bounds = *r;
                     w.bounds_pushes += 1;
@@ -287,6 +321,7 @@ impl Backend for Mock {
                 Some(Kind::Slider) => Size::new(150, 24),
                 Some(Kind::ProgressBar) => Size::new(150, 16),
                 Some(Kind::SpinBox) => Size::new(80, 24),
+                Some(Kind::Calendar) => Size::new(220, 180),
                 Some(Kind::Image) => w
                     .image
                     .as_ref()
@@ -316,6 +351,21 @@ impl Backend for Mock {
             s.last_file_spec = Some(spec.clone());
             s.files.pop_front().unwrap_or_default()
         })
+    }
+    fn run_modal(window: WidgetId, parent: Option<WidgetId>) {
+        // the simulated user acts while the "nested loop" runs, then the loop would be idle
+        if let Some(script) = MODAL_SCRIPTS.with(|q| q.borrow_mut().pop_front()) {
+            script(window);
+            core::drain_posted();
+        }
+        let still_open = st(|s| s.widgets.get(&window).is_some_and(|w| w.visible));
+        st(|s| {
+            s.modal_log.push(ModalRecord {
+                window,
+                parent,
+                still_open,
+            })
+        });
     }
     fn popup_menu(menu: WidgetId, parent_window: Option<WidgetId>, at: Option<(i32, i32)>) {
         let choice = st(|s| {
@@ -366,6 +416,16 @@ impl Backend for Mock {
 
 // ---------------------------------------------------------------- test/driver helpers
 
+/// The native children of `id`, in creation order.
+pub fn children_of(id: WidgetId) -> Vec<WidgetId> {
+    st(|s| {
+        s.widgets
+            .iter()
+            .filter(|(_, w)| w.parent == Some(id))
+            .map(|(c, _)| *c)
+            .collect()
+    })
+}
 /// Snapshot of the mock's view of a widget.
 pub fn widget(id: WidgetId) -> Option<MockWidget> {
     core::flush_models(); // table/tree models reach the backend at the next loop turn
@@ -425,7 +485,14 @@ pub fn user(id: WidgetId, ev: Event) {
             match &ev {
                 Event::Text(t) => w.text = t.clone(),
                 Event::Toggled(b) => w.checked = *b,
-                Event::Selected(i) => w.selected = *i,
+                Event::Selected(i) => {
+                    w.selected = *i;
+                    w.selection = i.iter().copied().collect();
+                }
+                Event::Selection(v) => {
+                    w.selection = v.clone();
+                    w.selected = v.first().copied();
+                }
                 Event::Value(v) => w.value = *v,
                 _ => {}
             }
@@ -489,6 +556,38 @@ pub fn clear_popup_log() {
 /// Simulate a right-click / Menu key at window-client (x, y) on `id`.
 pub fn user_context_menu(id: WidgetId, x: i32, y: i32) {
     core::event(id, Event::ContextMenu { x, y })
+}
+/// Queue what the simulated user does in the next [`Window::run_modal`](crate::Window::run_modal):
+/// `script` gets the modal window and may click, type, close. Afterwards queued closures run and
+/// the call returns, even if the window is still open (see [`modal_log`]); without a queued script
+/// it returns at once.
+pub fn queue_modal(script: impl FnOnce(WidgetId) + 'static) {
+    MODAL_SCRIPTS.with(|q| q.borrow_mut().push_back(Box::new(script)));
+}
+/// Every `run_modal` so far.
+pub fn modal_log() -> Vec<ModalRecord> {
+    st(|s| s.modal_log.clone())
+}
+/// The user picks a date in a calendar.
+pub fn user_pick_date(id: WidgetId, d: Date) {
+    st(|s| {
+        if let Some(w) = s.widgets.get_mut(&id) {
+            w.date = Some(d);
+        }
+    });
+    core::event(id, Event::DateChanged(d))
+}
+/// The user presses Enter in a text field.
+pub fn user_submit(id: WidgetId) {
+    core::event(id, Event::Submit)
+}
+/// The user presses Escape in a window.
+pub fn user_cancel(window: WidgetId) {
+    core::event(window, Event::Cancel)
+}
+/// The user selects these rows of a multi-select list box or table.
+pub fn user_select_rows(id: WidgetId, rows: &[usize]) {
+    user(id, Event::Selection(rows.to_vec()))
 }
 /// Simulate the user selecting table row `row` (None = clear).
 pub fn user_select_row(id: WidgetId, row: Option<usize>) {

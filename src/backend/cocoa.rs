@@ -83,6 +83,7 @@ const MODE_DEFAULT: &str = "kCFRunLoopDefaultMode";
 unsafe extern "C" {
     fn objc_getClass(name: *const c_char) -> Id;
     fn sel_registerName(name: *const c_char) -> Sel;
+    fn sel_getName(s: Sel) -> *const c_char;
     fn objc_allocateClassPair(superclass: Id, name: *const c_char, extra: usize) -> Id;
     fn objc_registerClassPair(cls: Id);
     fn class_getMethodImplementation(cls: Id, sel: Sel) -> *const c_void;
@@ -290,6 +291,10 @@ struct State {
     /// (its `setStyleMask:` raises on a live window), and the minimum size each was given.
     fixed: HashSet<WidgetId>,
     min_size: HashMap<WidgetId, NSSize>,
+    /// ListBox/Table widgets in multi-select mode.
+    multi: HashSet<WidgetId>,
+    /// Windows inside `run_modal`, innermost last.
+    modal: Vec<WidgetId>,
     target: Id,
     tclass: Id,
     app: Id,
@@ -422,6 +427,11 @@ extern "C" fn on_action(_t: Id, _c: Sel, sender: Id) {
                 let i = send!(isize, sender, "indexOfSelectedItem");
                 core::event(id, Event::Selected((i >= 0).then_some(i as usize)));
             }
+            Kind::Calendar => {
+                if let Some(d) = date_from_ns(idm!(sender, "dateValue")) {
+                    core::event(id, Event::DateChanged(d));
+                }
+            }
             Kind::SpinBox => {
                 let v = if sender == e.aux2 {
                     send!(f64, sender, "doubleValue")
@@ -441,6 +451,57 @@ extern "C" fn on_action(_t: Id, _c: Sel, sender: Id) {
             _ => {}
         }
     });
+}
+
+/// A proleptic Gregorian calendar in the user's time zone (autoreleased).
+fn gregorian() -> Id {
+    let c = idm!(idm!(cls("NSCalendar"), "alloc"), "initWithCalendarIdentifier:", Id: ns("gregorian"));
+    autorelease(c);
+    c
+}
+
+/// Noon of `d` as an NSDate (noon keeps daylight-saving shifts from changing the day).
+fn date_to_ns(d: &Date) -> Id {
+    let comps = alloc_init("NSDateComponents");
+    autorelease(comps);
+    vm!(comps, "setYear:", isize: d.year as isize);
+    vm!(comps, "setMonth:", isize: d.month as isize);
+    vm!(comps, "setDay:", isize: d.day as isize);
+    vm!(comps, "setHour:", isize: 12);
+    idm!(gregorian(), "dateFromComponents:", Id: comps)
+}
+
+/// The calendar day of an NSDate (year, month and day units: 4 | 8 | 16).
+fn date_from_ns(date: Id) -> Option<Date> {
+    if date.is_null() {
+        return None;
+    }
+    let comps = idm!(gregorian(), "components:fromDate:", usize: 28, Id: date);
+    if comps.is_null() {
+        return None;
+    }
+    Date::new(
+        send!(isize, comps, "year") as i32,
+        send!(isize, comps, "month") as u32,
+        send!(isize, comps, "day") as u32,
+    )
+}
+
+/// `NSNotFound`.
+const NOT_FOUND: usize = isize::MAX as usize;
+
+/// The indices in an NSIndexSet, ascending.
+fn index_set_to_vec(set: Id) -> Vec<usize> {
+    let mut rows = vec![];
+    if set.is_null() {
+        return rows;
+    }
+    let mut i = send!(usize, set, "firstIndex");
+    while i != NOT_FOUND {
+        rows.push(i);
+        i = send!(usize, set, "indexGreaterThanIndex:", usize: i);
+    }
+    rows
 }
 
 /// Table double click.
@@ -482,6 +543,24 @@ extern "C" fn on_text_changed(_t: Id, _c: Sel, note: Id) {
             _ => {}
         }
     });
+}
+
+/// `control:textView:doCommandBySelector:` of a text field: Return becomes `Event::Submit`.
+extern "C" fn on_do_command(_t: Id, _c: Sel, control: Id, _tv: Id, command: Sel) -> u8 {
+    let mut handled = 0;
+    guarded(|| {
+        let name = unsafe { CStr::from_ptr(sel_getName(command)) };
+        if name.to_bytes() != b"insertNewline:" {
+            return;
+        }
+        if let Some((id, e)) = lookup(control) {
+            if matches!(e.kind, Kind::TextInput | Kind::PasswordInput) {
+                core::event(id, Event::Submit);
+                handled = 1;
+            }
+        }
+    });
+    handled
 }
 
 extern "C" fn on_begin_edit(_t: Id, _c: Sel, note: Id) {
@@ -768,6 +847,16 @@ extern "C" fn app_send_event(this: Id, cmd: Sel, ev: Id) {
         }
         let ty = send!(usize, ev, "type");
         let flags = send!(usize, ev, "modifierFlags");
+        // 10 = NSKeyDown: Escape without command, control or option goes to the window's `on_cancel`
+        if ty == 10 && flags & ((1 << 18) | (1 << 19) | (1 << 20)) == 0 {
+            let chars = from_ns(idm!(ev, "charactersIgnoringModifiers"));
+            if chars == "\u{1b}" {
+                if let Some((wid, _)) = lookup(idm!(ev, "window")) {
+                    core::event(wid, Event::Cancel);
+                }
+            }
+            return;
+        }
         // 3 = NSRightMouseDown; control-click is the Mac way to right click.
         if !(ty == 3 || (ty == 1 && flags & (1 << 18) != 0)) {
             return;
@@ -799,6 +888,11 @@ extern "C" fn tv_selection(_t: Id, _c: Sel, note: Id) {
     guarded(|| {
         let o = note_object(note);
         let Some((id, _)) = lookup(o) else { return };
+        if st(|s| s.multi.contains(&id)) {
+            let rows = index_set_to_vec(idm!(o, "selectedRowIndexes"));
+            core::event(id, Event::Selection(rows));
+            return;
+        }
         let row = send!(isize, o, "selectedRow");
         core::event(id, Event::Selected((row >= 0).then_some(row as usize)));
     });
@@ -1076,6 +1170,11 @@ fn define_classes() -> Result<(Id, Id)> {
                 "textDidBeginEditing:",
                 on_begin_edit as *const c_void,
                 c"v@:@",
+            ),
+            (
+                "control:textView:doCommandBySelector:",
+                on_do_command as *const c_void,
+                c"c@:@@:",
             ),
             (
                 "controlTextDidEndEditing:",
@@ -1423,6 +1522,14 @@ impl Backend for Cocoa {
         }
     }
 
+    fn today() -> Option<Date> {
+        date_from_ns(idm!(cls("NSDate"), "date"))
+    }
+
+    fn run_modal(window: WidgetId, parent: Option<WidgetId>) {
+        let _ = catch_unwind(AssertUnwindSafe(|| run_modal_impl(window, parent)));
+    }
+
     fn quit() {
         let app = st(|s| s.app);
         if app.is_null() {
@@ -1430,6 +1537,9 @@ impl Backend for Cocoa {
         }
         #[cfg(rungui_gnustep)]
         QUIT.store(true, Ordering::SeqCst);
+        if let Some(w) = st(|s| s.modal.first().copied()) {
+            stop_modal(w); // the modal loop ends first, then `stop:` ends `run`
+        }
         vm!(app, "stop:", Id: NIL);
         // `stop:` is only noticed after an event: post a dummy application-defined one.
         let ev = idm!(
@@ -1556,6 +1666,7 @@ impl Backend for Cocoa {
             Kind::ComboBox => make_combo(&mk, &mut e)?,
             Kind::ListBox => make_list(&mk, &mut e)?,
             Kind::Table | Kind::Tree => make_table_or_tree(&mk, &mut e)?,
+            Kind::Calendar => make_calendar(&mk, &mut e)?,
             Kind::PopupMenu => make_popup_menu(&mut e)?,
             Kind::Slider => make_slider(&mk, &mut e)?,
             Kind::ProgressBar => make_progress(&mut e)?,
@@ -1614,6 +1725,7 @@ impl Backend for Cocoa {
             s.fixed.remove(&id);
             s.min_size.remove(&id);
             s.sash_orient.remove(&id);
+            s.multi.remove(&id);
             if s.drag.is_some_and(|d| d.0 == id) {
                 s.drag = None;
             }
@@ -1624,6 +1736,7 @@ impl Backend for Cocoa {
         };
         match e.kind {
             Kind::Window => {
+                stop_modal(id);
                 st(|s| s.menubars.remove(&id));
                 vm!(e.obj, "setDelegate:", Id: NIL);
                 vm!(e.obj, "orderOut:", Id: NIL);
@@ -1717,6 +1830,11 @@ impl Backend for Cocoa {
             Prop::Range { min, max, step } => prop_range(id, &e, *min, *max, *step),
             Prop::Items(items) => set_items(id, &e, items),
             Prop::Selected(sel) => prop_selected(&e, *sel),
+            Prop::MultiSelect(on) => prop_multi_select(id, &e, *on),
+            Prop::Selection(rows) => prop_selection(&e, rows),
+            Prop::Date(d) if e.kind == Kind::Calendar => {
+                vm!(e.obj, "setDateValue:", Id: date_to_ns(d))
+            }
             Prop::Bounds(r) => set_bounds(&e, id, *r),
             Prop::Image(img) => set_image(id, &e, *img),
             Prop::Accel(a) => prop_accel(&e, a),
@@ -1765,6 +1883,14 @@ impl Backend for Cocoa {
             Kind::ListBox => Size::new(160, 100),
             Kind::Table => Size::new(300, 150),
             Kind::Tree => Size::new(200, 200),
+            Kind::Calendar => {
+                let f = if responds(e.obj, "fittingSize") {
+                    send!(NSSize, e.obj, "fittingSize")
+                } else {
+                    NSSize::default()
+                };
+                Size::new((f.w.ceil() as i32).max(139), (f.h.ceil() as i32).max(148))
+            }
             Kind::Slider => Size::new(150, cell_size(e.obj).h.clamp(16, 40)),
             Kind::ProgressBar => Size::new(150, 20),
             Kind::Image => st(|s| s.imgsz.get(&id).copied()).unwrap_or(Size::new(32, 32)),
@@ -1977,6 +2103,80 @@ impl Backend for Cocoa {
 }
 
 /// Release the page view `create` or `destroy` kept alive for tab view `tv` (GNUstep only).
+/// `Backend::run_modal`: centre the window over `parent`, then run a modal loop until it is hidden
+/// or destroyed (`stop_modal`) or the application quits.
+fn run_modal_impl(window: WidgetId, parent: Option<WidgetId>) {
+    let Some(e) = ent(window) else { return };
+    let app = st(|s| s.app);
+    if let Some(pe) = parent.and_then(ent) {
+        let (pf, wf) = (rect_of!(pe.obj, "frame"), rect_of!(e.obj, "frame"));
+        let at = NSPoint {
+            x: pf.x + (pf.w - wf.w) / 2.0,
+            y: pf.y + (pf.h - wf.h) / 2.0,
+        };
+        vm!(e.obj, "setFrameOrigin:", NSPoint: at);
+    }
+    st(|s| s.modal.push(window));
+    #[cfg(not(rungui_gnustep))]
+    vm!(app, "runModalForWindow:", Id: e.obj);
+    // GNUstep: our own loop (see `run`), which also keeps the application's other windows from
+    // getting mouse and key events
+    #[cfg(rungui_gnustep)]
+    while !QUIT.load(Ordering::SeqCst)
+        && ent(window).is_some_and(|e| bm!(e.obj, "isVisible"))
+        && st(|s| s.modal.contains(&window))
+    {
+        let pool = alloc_init("NSAutoreleasePool");
+        let until = idm!(cls("NSDate"), "dateWithTimeIntervalSinceNow:", f64: 0.1);
+        let ev = idm!(app, "nextEventMatchingMask:untilDate:inMode:dequeue:", usize: usize::MAX, Id: until, Id: ns(MODE_DEFAULT), u8: 1);
+        if !ev.is_null() {
+            let ty = send!(usize, ev, "type");
+            let blocked = matches!(ty, 1..=4 | 6 | 7 | 10 | 11 | 22)
+                && lookup(idm!(ev, "window")).is_some_and(|(w, _)| w != window);
+            if !blocked {
+                vm!(app, "sendEvent:", Id: ev);
+            }
+            vm!(app, "updateWindows");
+        }
+        release(pool);
+    }
+    st(|s| s.modal.retain(|w| *w != window));
+}
+
+/// End the modal loop of `window` if it is running one (hidden, destroyed, or the app is quitting).
+fn stop_modal(window: WidgetId) {
+    let running = st(|s| {
+        let was = s.modal.contains(&window);
+        // GNUstep's loop notices the missing entry; AppKit needs `stopModal`
+        #[cfg(rungui_gnustep)]
+        s.modal.retain(|w| *w != window);
+        (was, s.app)
+    });
+    #[cfg(not(rungui_gnustep))]
+    if running.0 {
+        vm!(running.1, "stopModal");
+        // `stopModal` is only noticed after an event: post a dummy application-defined one
+        let ev = idm!(
+            cls("NSEvent"),
+            "otherEventWithType:location:modifierFlags:timestamp:windowNumber:context:subtype:data1:data2:",
+            usize: 15,
+            NSPoint: NSPoint::default(),
+            usize: 0,
+            f64: 0.0,
+            isize: 0,
+            Id: NIL,
+            i16: 0,
+            isize: 0,
+            isize: 0
+        );
+        if !ev.is_null() {
+            vm!(running.1, "postEvent:atStart:", Id: ev, u8: 1);
+        }
+    }
+    #[cfg(rungui_gnustep)]
+    let _ = running;
+}
+
 fn release_stale_page_view(tv: Id) {
     if let Some(v) = st(|s| s.stale_page_views.remove(&(tv as usize))) {
         release(v);
@@ -2088,6 +2288,7 @@ fn set_visible(id: WidgetId, e: &Entry, v: bool) {
                 install_menubar(id);
                 vm!(e.obj, "makeKeyAndOrderFront:", Id: NIL);
             } else {
+                stop_modal(id);
                 vm!(e.obj, "orderOut:", Id: NIL);
             }
         }
@@ -2587,6 +2788,21 @@ fn make_table_or_tree(c: &Make, e: &mut Entry) -> Result<()> {
     Ok(())
 }
 
+/// `Kind::Calendar`: an NSDatePicker in its calendar style showing only year, month and day.
+fn make_calendar(c: &Make, e: &mut Entry) -> Result<()> {
+    let Make { target, act, .. } = *c;
+    let v = view_new("NSDatePicker", rect(0.0, 0.0, 139.0, 148.0));
+    if v.is_null() {
+        return Err(Error::Unsupported);
+    }
+    vm!(v, "setDatePickerStyle:", usize: 1); // NSClockAndCalendarDatePickerStyle
+    vm!(v, "setDatePickerElements:", usize: 0xe0); // year, month, day: no clock
+    vm!(v, "setCalendar:", Id: gregorian());
+    set_target_action(v, target, act);
+    e.obj = v;
+    Ok(())
+}
+
 /// `Kind::PopupMenu`: create the native object(s) into `e`.
 fn make_popup_menu(e: &mut Entry) -> Result<()> {
     e.obj = new_menu("");
@@ -2826,6 +3042,44 @@ fn prop_selected(e: &Entry, sel: Option<usize>) {
             }
         }
         _ => {}
+    }
+}
+
+/// `Prop::MultiSelect`.
+fn prop_multi_select(id: WidgetId, e: &Entry, on: bool) {
+    if matches!(e.kind, Kind::ListBox | Kind::Table) {
+        st(|s| {
+            if on {
+                s.multi.insert(id)
+            } else {
+                s.multi.remove(&id)
+            }
+        });
+        vm!(e.aux, "setAllowsMultipleSelection:", u8: b(on));
+    }
+}
+
+/// `Prop::Selection`.
+fn prop_selection(e: &Entry, rows: &[usize]) {
+    if !matches!(e.kind, Kind::ListBox | Kind::Table) {
+        return;
+    }
+    // as for `Prop::Selected`: no selection changes on a table without columns
+    if send!(isize, e.aux, "numberOfColumns") <= 0 {
+        return;
+    }
+    let n = send!(isize, e.aux, "numberOfRows");
+    let set = alloc_init("NSMutableIndexSet");
+    autorelease(set);
+    for i in rows.iter().filter(|i| (**i as isize) < n) {
+        vm!(set, "addIndex:", usize: *i);
+    }
+    if send!(usize, set, "count") == 0 {
+        vm!(e.aux, "deselectAll:", Id: NIL);
+    } else {
+        vm!(e.aux, "selectRowIndexes:byExtendingSelection:", Id: set, u8: 0);
+        let first = send!(usize, set, "firstIndex") as isize;
+        vm!(e.aux, "scrollRowToVisible:", isize: first);
     }
 }
 

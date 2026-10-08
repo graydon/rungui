@@ -68,6 +68,10 @@ impl TextInput {
     pub fn password(parent: impl Into<WidgetId>) -> TextInput {
         make(TextInput::from_id, Kind::PasswordInput, parent, |_| {})
     }
+    /// Run `f` when the user presses Enter in the field (the text is already in [`TextInput::text`]).
+    pub fn on_activate(&self, mut f: impl FnMut() + 'static) {
+        on(self.id(), Ev::Submit, move |_| f())
+    }
     /// Text shown while the field is empty.
     pub fn set_placeholder(&self, t: &str) {
         core::set(

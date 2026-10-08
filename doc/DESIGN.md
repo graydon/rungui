@@ -205,3 +205,27 @@ applies the step, the clamping, the RTL mirroring and `on_move`, exactly as for 
 Design-level non-goals: no custom drawing/canvas, multi-monitor API, virtualised (million-row)
 tables/trees, or radio-group keyboard navigation beyond what the toolkit offers. Current gaps and
 progress are tracked in `doc/STATUS.md`.
+
+## Modal windows, prompt, multi-select and the calendar
+
+**Modal windows.** `Window::run_modal(parent)` calls `core::run_modal`, which shows the window (layout and
+`Prop::Visible`) and then `Backend::run_modal(window, parent)`. The backend blocks in a nested loop until the
+window is hidden or destroyed, or `quit` is called, and blocks input to the application's other windows
+while it runs; the core keeps the list of windows that are inside `run_modal` and ignores a second call for
+one of them. The dialog's own callbacks end it (`hide()` from a button). `Prompt` is plain widgets plus
+`run_modal`, so it needs nothing from the backends. A backend without `run_modal` returns at once (the window
+then is an ordinary window). The mock backend plays the user with a queued closure (`mock::queue_modal`).
+
+**Enter and Escape.** `Event::Submit` (a text field, from GTK `activate`, Win32 `VK_RETURN` seen in the
+message loop before `IsDialogMessage`, Cocoa `control:textView:doCommandBySelector:`) and `Event::Cancel`
+(a window, from Escape, never swallowed; Win32 skips it while a combo box drop-down is open).
+
+**Multi-select.** `ListBox` and `Table` keep a `Selection { multi, items }` (ascending, unique) instead of one
+index. `Prop::MultiSelect(bool)` switches the native control; in multi mode the core pushes
+`Prop::Selection(&[usize])` where it would push `Prop::Selected`, and the backend reports `Event::Selection(Vec)`
+instead of `Event::Selected`. Whichever way a change arrives, the core fires both `on_select` (with the lowest
+row) and `on_selection` (with all of them). An event with an index past the end is dropped whole. Tables keep
+the selection through `insert_row`/`remove_row`.
+
+**Calendar.** `Kind::Calendar`, state `Date`, `Prop::Date`, `Event::DateChanged`. `Backend::today()` gives the
+local date for the initial value (UTC from `SystemTime` when a backend cannot).

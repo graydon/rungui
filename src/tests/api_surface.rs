@@ -392,7 +392,7 @@ fn initial_state_is_pushed_right_after_creation() {
     let list = make(Kind::ListBox, &|n| {
         if let NodeData::List(l) = &mut n.data {
             l.items = vec!["a".into(), "b".into()];
-            l.selected = Some(1);
+            l.sel.set_one(Some(1));
         }
     });
     assert_eq!((list.items.len(), list.selected), (2, Some(1)));

@@ -13,7 +13,7 @@ run cargo test "$@"                                             # core logic vs 
 run cargo test --features mock "$@"
 run cargo check --features mock --examples "$@"
 run cargo build --examples "$@"                                 # linux/GTK + examples
-run cargo build --features emulate-mac --example hello --example kitchen_sink --example smoke_cocoa "$@"  # GNUstep (cocoa backend)
+run cargo build --features emulate-mac --example hello --example kitchen_sink --example smoke_cocoa --example smoke_dialogs "$@"  # GNUstep (cocoa backend)
 run cargo build --target x86_64-pc-windows-gnu --examples "$@"  # win32 via mingw
 run cargo check --target aarch64-apple-darwin "$@"              # real cocoa cfg, type-check only
 run cargo check --target x86_64-apple-darwin "$@"
@@ -36,6 +36,9 @@ fi
 # the core's own bookkeeping must scale (no operation quadratic in what the app holds)
 run cargo run --release --features mock --example bench_mock "$@" -- --max-exponent 1.75
 [ "${SKIP_SMOKE:-0}" = 1 ] || run scripts/smoke-gtk.sh          # GTK backend under Xvfb + xdotool
+[ "${SKIP_SMOKE:-0}" = 1 ] || run scripts/smoke-dialogs.sh      # modal windows, prompt, Enter/Escape, multi-select, calendar
+[ "${SKIP_SMOKE:-0}" = 1 ] || BACKEND=gnustep run scripts/smoke-dialogs.sh
+[ "${SKIP_SMOKE:-0}" = 1 ] || ! command -v wine >/dev/null || BACKEND=wine run scripts/smoke-dialogs.sh
 [ "${SKIP_SMOKE:-0}" = 1 ] || run scripts/smoke-gtk-soak.sh          # kitchen_sink soak: unicode, resize, dialogs, fatal GLib warnings
 [ "${SKIP_SMOKE:-0}" = 1 ] || run scripts/smoke-filemanager.sh      # file manager example: navigate, preview, copy, rename, delete
 [ "${SKIP_SMOKE:-0}" = 1 ] || run scripts/smoke-gnustep.sh      # Cocoa backend on GNUstep: sash drags, clicks, menus, move/resize

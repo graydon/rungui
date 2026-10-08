@@ -28,6 +28,14 @@ pub enum Ev {
     SashMoved,
     /// Window moved by the user.
     Moved,
+    /// List box or table: the whole selection (multi-select aware).
+    Selection,
+    /// Enter pressed in a text field.
+    Submit,
+    /// Escape pressed in a window.
+    Cancel,
+    /// Calendar: the user picked a date.
+    Date,
 }
 
 impl Ev {
@@ -48,6 +56,10 @@ impl Ev {
             Event::ContextMenu { .. } => Ev::ContextMenu,
             Event::SashDragged(_) | Event::SashKey(_) => Ev::SashMoved,
             Event::Moved { .. } => Ev::Moved,
+            Event::Selection(_) => Ev::Selection,
+            Event::Submit => Ev::Submit,
+            Event::Cancel => Ev::Cancel,
+            Event::DateChanged(_) => Ev::Date,
             #[allow(unreachable_patterns)]
             _ => return None,
         })
@@ -95,9 +107,15 @@ pub fn event(id: WidgetId, ev: Event) {
                     if s.is_some_and(|i| i >= n.selectable_len()) {
                         return None;
                     }
-                    if let Some(sel) = n.selection_mut() {
-                        *sel = *s
+                    n.set_selection(*s);
+                }
+                Event::Selection(v) => {
+                    let len = n.selectable_len();
+                    // as for `Selected`: a stale or buggy backend index must not become state
+                    if v.iter().any(|i| *i >= len) {
+                        return None;
                     }
+                    n.sel_mut()?.set_many(v, len);
                 }
                 Event::Activated(i) => {
                     if n.table().is_some_and(|t| *i >= t.rows.len()) {
@@ -128,6 +146,12 @@ pub fn event(id: WidgetId, ev: Event) {
                     if let Some(r) = n.range_mut() {
                         r.value = *v
                     }
+                }
+                Event::DateChanged(d) => {
+                    if !d.is_valid() {
+                        return None;
+                    }
+                    *n.date_mut()? = *d;
                 }
                 Event::Moved { x, y } => {
                     n.window_mut()?.position = Some((*x, *y));
@@ -174,17 +198,31 @@ pub fn event(id: WidgetId, ev: Event) {
     if key == Ev::Resized {
         layout_window(id);
     }
-    // take the callback out, call it with no borrows held, put it back unless replaced
+    if matches!(ev, Event::Selected(_) | Event::Selection(_)) {
+        // a list or table reports its selection both ways, however the backend sent it
+        let both = read(id, |n| n.sel().map(|s| (s.first(), s.items.clone()))).flatten();
+        if let Some((first, all)) = both {
+            fire(id, Ev::Selected, &Event::Selected(first));
+            fire(id, Ev::Selection, &Event::Selection(all));
+            wake_if_scheduled();
+            return;
+        }
+    }
+    fire(id, key, &ev);
+    wake_if_scheduled();
+}
+
+/// Take the callback out, call it with no borrows held, put it back unless replaced.
+fn fire(id: WidgetId, key: Ev, ev: &Event) {
     let cb = with(|r| r.nodes.get_mut(&id).and_then(|n| n.cbs.remove(&key))).flatten();
     if let Some(mut cb) = cb {
-        guarded(|| cb(&ev));
+        guarded(|| cb(ev));
         with(|r| {
             if let Some(n) = r.nodes.get_mut(&id) {
                 n.cbs.entry(key).or_insert(cb);
             }
         });
     }
-    wake_if_scheduled();
 }
 
 /// `Event::ContextMenu`: find the nearest widget (self, then ancestors) with a menu or callback.
@@ -262,4 +300,38 @@ pub fn close_requested(id: WidgetId) {
     if allow && is_alive(id) {
         post(move || destroy(id));
     }
+}
+
+/// Show window `id` modally over `parent` and return when it is hidden or gone (see
+/// [`crate::Window::run_modal`]).
+pub fn run_modal(id: WidgetId, parent: Option<WidgetId>) {
+    let running = with(|r| {
+        if r.nodes.get(&id)?.kind != Kind::Window || r.modal.contains(&id) {
+            return None;
+        }
+        r.modal.push(id);
+        Some(())
+    })
+    .flatten();
+    if running.is_none() {
+        return;
+    }
+    let parent = parent.filter(|p| *p != id && read(*p, |n| n.kind == Kind::Window) == Some(true));
+    super::props::set_flag(id, true, true);
+    // an application callback may already have hidden or destroyed it again
+    if read(id, |n| n.visible) == Some(true) {
+        B::run_modal(id, parent);
+    }
+    with(|r| r.modal.retain(|w| *w != id));
+    wake_if_scheduled();
+}
+
+/// Today's date: the toolkit's idea of the local date, else UTC.
+pub fn today() -> Date {
+    B::today().filter(Date::is_valid).unwrap_or_else(|| {
+        let secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64);
+        Date::from_unix_utc(secs)
+    })
 }

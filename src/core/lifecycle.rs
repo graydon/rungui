@@ -130,6 +130,7 @@ fn sync_initial(id: WidgetId) {
             checked: bool,
         },
         Image(Option<ImageData>),
+        Date(Date),
     }
     let Some((text, tooltip, enabled, init)) = with(|r| {
         let n = r.nodes.get(&id)?;
@@ -141,7 +142,7 @@ fn sync_initial(id: WidgetId) {
             NodeData::Range(r) => Init::Range(RangeData { ..*r }),
             NodeData::List(l) => Init::List {
                 items: l.items.clone(),
-                selected: l.selected,
+                selected: l.sel.first(),
             },
             NodeData::Check(c) => Init::Check(c.checked),
             NodeData::MenuItem(m) => Init::MenuItem {
@@ -149,6 +150,7 @@ fn sync_initial(id: WidgetId) {
                 checked: m.checked,
             },
             NodeData::Image(i) => Init::Image(i.clone()),
+            NodeData::Date(d) => Init::Date(*d),
             _ => Init::Nothing,
         };
         Some((n.text.clone(), n.tooltip.clone(), n.enabled, init))
@@ -211,6 +213,7 @@ fn sync_initial(id: WidgetId) {
             }
         }
         Init::Image(_) => {}
+        Init::Date(d) => B::set(id, &Prop::Date(*d)),
     }
     if !enabled {
         B::set(id, &Prop::Enabled(false));

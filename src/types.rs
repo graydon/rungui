@@ -57,6 +57,61 @@ impl Size {
     }
 }
 
+/// A calendar date in the proleptic Gregorian calendar, years 1753 to 9999 (the range every
+/// native calendar control supports).
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+pub struct Date {
+    /// Year, 1753..=9999.
+    pub year: i32,
+    /// Month, 1..=12.
+    pub month: u32,
+    /// Day of the month, 1..=31 (as many as the month has).
+    pub day: u32,
+}
+
+impl Date {
+    /// `None` unless this is a real date in the supported years.
+    pub fn new(year: i32, month: u32, day: u32) -> Option<Date> {
+        let d = Date { year, month, day };
+        d.is_valid().then_some(d)
+    }
+    /// Is this a real date in the supported years?
+    pub fn is_valid(&self) -> bool {
+        (1753..=9999).contains(&self.year)
+            && (1..=12).contains(&self.month)
+            && (1..=days_in_month(self.year, self.month)).contains(&self.day)
+    }
+    /// Today in the user's time zone.
+    pub fn today() -> Date {
+        crate::core::today()
+    }
+    /// The date of a Unix timestamp in UTC (the fallback for backends that cannot tell the local date).
+    pub(crate) fn from_unix_utc(secs: i64) -> Date {
+        // Howard Hinnant's civil-from-days
+        let z = secs.div_euclid(86_400) + 719_468;
+        let era = z.div_euclid(146_097);
+        let doe = z.rem_euclid(146_097);
+        let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+        let mp = (5 * doy + 2) / 153;
+        let day = (doy - (153 * mp + 2) / 5 + 1) as u32;
+        let month = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+        let year = (yoe + era * 400 + i64::from(month <= 2)) as i32;
+        Date { year: year.clamp(1753, 9999), month, day }
+    }
+}
+
+/// How many days `month` of `year` has (0 for a month outside 1..=12).
+pub(crate) fn days_in_month(year: i32, month: u32) -> u32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 => 29,
+        2 => 28,
+        _ => 0,
+    }
+}
+
 /// Errors. Constructors never return these (they yield a dead handle and record the error,
 /// see [`crate::last_error`]); fallible entry points such as `App::new` do.
 #[derive(Clone, PartialEq, Eq, Debug)]

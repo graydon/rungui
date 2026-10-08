@@ -75,6 +75,8 @@ pub enum A11yRole {
     Tree,
     /// A draggable divider between two panes.
     Splitter,
+    /// A month calendar.
+    Calendar,
 }
 
 /// Per-widget accessibility overrides (`None` = derive from the widget).
@@ -115,6 +117,7 @@ pub(crate) fn default_role(k: Kind) -> A11yRole {
         Kind::Table => R::Table,
         Kind::Tree => R::Tree,
         Kind::Sash => R::Splitter,
+        Kind::Calendar => R::Calendar,
         _ => R::Pane,
     }
 }
@@ -179,6 +182,7 @@ fn named_by_label(k: Kind) -> bool {
             | Kind::ProgressBar
             | Kind::Table
             | Kind::Tree
+            | Kind::Calendar
     )
 }
 

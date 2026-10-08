@@ -62,6 +62,8 @@ handle! {
     Tree,
     /// Top-level context menu; build it with `MenuItem::new(&popup, ..)` etc.
     PopupMenu,
+    /// Inline month calendar with one selected date (see [`Calendar`] methods).
+    Calendar,
     /// Two panes with a draggable sash between them (see [`Splitter`] methods; virtual: the
     /// panes and the sash are native, the splitter itself is not).
     Splitter,
@@ -106,6 +108,7 @@ fn px(v: i32) -> i32 {
 }
 
 mod buttons;
+mod calendar;
 mod common;
 mod containers;
 mod dialogs;
